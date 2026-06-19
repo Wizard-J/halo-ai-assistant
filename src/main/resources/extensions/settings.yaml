@@ -1,0 +1,95 @@
+apiVersion: v1alpha1
+kind: Setting
+metadata:
+  name: ai-assistant-settings
+spec:
+  forms:
+    - group: basic
+      label: 基本配置
+      formSchema:
+        - $formkit: text
+          name: apiEndpoint
+          label: Base URL（API 端点）
+          value: "https://api.deepseek.com"
+          help: "OpenAI 兼容接口地址，如 https://api.deepseek.com 或 https://api.openai.com/v1"
+        - $formkit: password
+          name: apiKey
+          label: API Key
+          help: "填入你的 API Key"
+        - $formkit: text
+          name: model
+          label: 模型名称
+          value: "deepseek-chat"
+          help: "如 deepseek-chat、gpt-4o-mini 等"
+        - $formkit: number
+          name: maxTokens
+          label: 最大 Token 数
+          value: 2048
+          help: "每次对话的最大 Token 数"
+        - $formkit: textarea
+          name: systemPrompt
+          label: 系统提示词
+          value: |-
+            你是一个智能博客助手，可以帮助用户管理博客。
+            你可以执行以下操作：
+            - 查看文章列表、创建文章、更新文章、删除文章
+            - 管理分类和标签
+            - 查看和管理评论
+            请用友好的语气与用户交流。
+          help: "AI 助手的系统提示词，可自定义"
+    - group: autoOps
+      label: 自动运维
+      formSchema:
+        - $formkit: switch
+          name: enabled
+          label: 启用自动运维
+          value: false
+          help: "关闭后不会采集新闻、生成或发布文章"
+        - $formkit: switch
+          name: autoPublish
+          label: 自动发布
+          value: true
+          help: "关闭时仅生成草稿"
+        - $formkit: text
+          name: runTime
+          label: 每日执行时间
+          value: "08:30"
+          help: "24 小时制，例如 08:30"
+        - $formkit: text
+          name: timezone
+          label: 时区
+          value: "Asia/Shanghai"
+        - $formkit: text
+          name: authorName
+          label: 作者昵称
+          value: "巫师前沿站"
+        - $formkit: text
+          name: authorUsername
+          label: 作者用户名
+          value: "wizard-frontier"
+          help: "插件会自动创建一个禁止登录的专属作者"
+        - $formkit: textarea
+          name: rssSources
+          label: 新闻 RSS 来源
+          value: |-
+            https://github.blog/changelog/feed/
+            https://blog.cloudflare.com/rss/
+            https://openai.com/news/rss.xml
+            https://blog.google/technology/ai/rss/
+          help: "每行一个 RSS/Atom 地址，建议使用官方技术来源"
+        - $formkit: text
+          name: topics
+          label: 关注方向
+          value: "人工智能, 大模型, 开源软件, 云计算, 开发工具, 网络安全"
+        - $formkit: number
+          name: maxNewsItems
+          label: 每次送入 AI 的新闻数量
+          value: 8
+          min: 1
+          max: 20
+        - $formkit: number
+          name: maxTokens
+          label: 自动文章最大 Token 数
+          value: 3000
+          min: 500
+          max: 8000

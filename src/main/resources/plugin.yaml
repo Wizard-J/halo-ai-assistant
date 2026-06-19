@@ -1,0 +1,19 @@
+apiVersion: plugin.halo.run/v1alpha1
+kind: Plugin
+metadata:
+  name: ai-assistant
+spec:
+  enabled: true
+  requires: ">=2.20.0"
+  author:
+    name: "Codex"
+    website: "https://github.com/your-repo"
+  logo: ""
+  homepage: ""
+  displayName: "AI 智能助手"
+  description: "基于 DeepSeek/OpenAI 的 AI 助手，支持通过自然语言操作博客数据"
+  settingName: ai-assistant-settings
+  configMapName: ai-assistant-configmap
+  license:
+    - name: "GPL-3.0"
+      url: "https://www.gnu.org/licenses/gpl-3.0.txt"

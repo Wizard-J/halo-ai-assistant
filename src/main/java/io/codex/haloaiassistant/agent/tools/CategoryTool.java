@@ -1,0 +1,181 @@
+package io.codex.haloaiassistant.agent.tools;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.codex.haloaiassistant.agent.Tool;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+import run.halo.app.core.extension.content.Category;
+import run.halo.app.extension.ListResult;
+import run.halo.app.extension.ReactiveExtensionClient;
+
+import java.time.Instant;
+
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class CategoryTool implements Tool {
+
+    private final ReactiveExtensionClient client;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Override
+    public String getName() {
+        return "listCategories";
+    }
+
+    @Override
+    public String getDescription() {
+        return "获取所有文章分类列表";
+    }
+
+    @Override
+    public String getParametersJsonSchema() {
+        ObjectNode schema = objectMapper.createObjectNode();
+        schema.put("type", "object");
+        ObjectNode props = schema.putObject("properties");
+        ObjectNode pageProp = props.putObject("page");
+        pageProp.put("type", "integer");
+        pageProp.put("description", "页码");
+        pageProp.put("default", 1);
+        return schema.toPrettyString();
+    }
+
+    @Override
+    public String execute(JsonNode args) {
+        int page = args.has("page") ? args.get("page").asInt(1) : 1;
+        try {
+            ListResult<Category> result = client.list(Category.class, null, null, page - 1, 20).block();
+            if (result == null || result.getItems().isEmpty()) {
+                return "暂无分类";
+            }
+
+            StringBuilder sb = new StringBuilder("📂 文章分类列表：\n\n");
+            sb.append("| 名称 | 别名 | 文章数 |\n|---|---|---|\n");
+            for (Category cat : result.getItems()) {
+                var meta = cat.getMetadata();
+                var spec = cat.getSpec();
+                String name = spec.getDisplayName() != null ? spec.getDisplayName() : meta.getName();
+                String slug = spec.getSlug() != null ? spec.getSlug() : "-";
+                var status = cat.getStatus();
+                int count = status != null && status.getPostCount() != null ? status.getPostCount() : 0;
+                sb.append(String.format("| %s | %s | %d |\n", name, slug, count));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            log.error("获取分类失败", e);
+            return "获取分类失败: " + e.getMessage();
+        }
+    }
+
+    @Component
+    public static class CreateCategoryTool implements Tool {
+
+        private final ReactiveExtensionClient client;
+        private final ObjectMapper objectMapper = new ObjectMapper();
+
+        public CreateCategoryTool(ReactiveExtensionClient client) {
+            this.client = client;
+        }
+
+        @Override
+        public String getName() {
+            return "createCategory";
+        }
+
+        @Override
+        public String getDescription() {
+            return "创建新的文章分类";
+        }
+
+        @Override
+        public String getParametersJsonSchema() {
+            ObjectNode schema = objectMapper.createObjectNode();
+            schema.put("type", "object");
+            ObjectNode props = schema.putObject("properties");
+            ObjectNode nameProp = props.putObject("name");
+            nameProp.put("type", "string");
+            nameProp.put("description", "分类名称");
+            ObjectNode slugProp = props.putObject("slug");
+            slugProp.put("type", "string");
+            slugProp.put("description", "分类别名（URL 中使用）");
+            schema.putArray("required").add("name");
+            return schema.toPrettyString();
+        }
+
+        @Override
+        public String execute(JsonNode args) {
+            String name = args.get("name").asText();
+            String slug = args.has("slug") ? args.get("slug").asText() : name.toLowerCase().replace(" ", "-");
+
+            try {
+                Category category = new Category();
+                var metadata = new run.halo.app.extension.Metadata();
+                metadata.setName("category-" + Instant.now().toEpochMilli());
+                metadata.setGenerateName("category-");
+                category.setMetadata(metadata);
+                var spec = new Category.CategorySpec();
+                spec.setDisplayName(name);
+                spec.setSlug(slug);
+                category.setSpec(spec);
+
+                client.create(category).block();
+                return "分类创建成功：\n- 名称：" + name + "\n- 别名：" + slug;
+            } catch (Exception e) {
+                log.error("创建分类失败", e);
+                return "创建分类失败: " + e.getMessage();
+            }
+        }
+    }
+
+    @Component
+    public static class DeleteCategoryTool implements Tool {
+
+        private final ReactiveExtensionClient client;
+        private final ObjectMapper objectMapper = new ObjectMapper();
+
+        public DeleteCategoryTool(ReactiveExtensionClient client) {
+            this.client = client;
+        }
+
+        @Override
+        public String getName() {
+            return "deleteCategory";
+        }
+
+        @Override
+        public String getDescription() {
+            return "删除指定分类";
+        }
+
+        @Override
+        public String getParametersJsonSchema() {
+            ObjectNode schema = objectMapper.createObjectNode();
+            schema.put("type", "object");
+            ObjectNode props = schema.putObject("properties");
+            ObjectNode idProp = props.putObject("id");
+            idProp.put("type", "string");
+            idProp.put("description", "分类 ID");
+            schema.putArray("required").add("id");
+            return schema.toPrettyString();
+        }
+
+        @Override
+        public String execute(JsonNode args) {
+            String id = args.get("id").asText();
+            try {
+                Category category = client.get(Category.class, id).block();
+                if (category == null) {
+                    return "分类不存在: " + id;
+                }
+                client.delete(category).block();
+                return "分类已删除（ID: " + id + "）";
+            } catch (Exception e) {
+                log.error("删除分类失败", e);
+                return "删除分类失败: " + e.getMessage();
+            }
+        }
+    }
+}

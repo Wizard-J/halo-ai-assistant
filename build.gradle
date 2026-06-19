@@ -1,0 +1,31 @@
+plugins {
+    id "java"
+    id "io.freefair.lombok" version "8.10"
+    id "run.halo.plugin.devtools" version "0.6.1"
+}
+
+group = "io.codex"
+sourceCompatibility = JavaVersion.VERSION_21
+targetCompatibility = JavaVersion.VERSION_21
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    haloVersion = "2.22.5"
+}
+
+dependencies {
+    implementation platform("run.halo.tools.platform:plugin:${haloVersion}")
+    compileOnly "run.halo.app:api"
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = "UTF-8"
+    options.release = 21
+}
+
+halo {
+    version = "2.22"
+}
