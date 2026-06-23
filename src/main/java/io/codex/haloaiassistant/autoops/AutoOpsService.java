@@ -94,18 +94,8 @@ public class AutoOpsService {
 
     public Mono<Map<String, Object>> testNow() {
         return Mono.zip(
-                        settingFetcher.fetch("autoOps", AutoOpsSetting.class)
-                                .defaultIfEmpty(new AutoOpsSetting())
-                                .onErrorResume(error -> {
-                                    log.error("读取 autoOps 配置失败: {}", rootMessage(error));
-                                    return Mono.just(new AutoOpsSetting());
-                                }),
-                        settingFetcher.fetch("basic", AiAssistantSetting.class)
-                                .defaultIfEmpty(new AiAssistantSetting())
-                                .onErrorResume(error -> {
-                                    log.error("读取 basic 配置失败: {}", rootMessage(error));
-                                    return Mono.just(new AiAssistantSetting());
-                                }))
+                        settingFetcher.fetch("autoOps", AutoOpsSetting.class).defaultIfEmpty(new AutoOpsSetting()),
+                        settingFetcher.fetch("basic", AiAssistantSetting.class).defaultIfEmpty(new AiAssistantSetting()))
                 .publishOn(Schedulers.boundedElastic())
                 .flatMap(tuple -> {
                     AutoOpsSetting auto = tuple.getT1();
@@ -114,37 +104,32 @@ public class AutoOpsService {
                     ZonedDateTime now = ZonedDateTime.now(zone);
                     ConfigMap state = getOrCreateState();
 
-                    return Mono.zip(
-                            runPipelineAsync("巫师前沿站", () ->
-                                    runPrimaryPipeline(auto, basic, state, now, true)),
-                            runPipelineAsync("书虫漫步", () ->
-                                    runSecondaryPipeline(auto, basic, state, now, true)),
-                            runPipelineAsync("技术猎手", () ->
-                                    runTertiaryPipeline(auto, basic, state, now, true)))
-                            .map(triple -> {
-                                Map<String, Object> combined = new LinkedHashMap<>();
-                                combined.put("success", true);
-                                combined.put("results", List.of(triple.getT1(), triple.getT2(), triple.getT3()));
-                                return combined;
-                            });
+                    List<String> started = new ArrayList<>();
+                    fireInBackground("巫师前沿站", () -> runPrimaryPipeline(auto, basic, state, now, true));
+                    started.add("巫师前沿站");
+                    if (Boolean.TRUE.equals(auto.getSecondaryEnabled())) {
+                        fireInBackground("书虫漫步", () -> runSecondaryPipeline(auto, basic, state, now, true));
+                        started.add("书虫漫步");
+                    }
+                    if (Boolean.TRUE.equals(auto.getTertiaryEnabled())) {
+                        fireInBackground("技术猎手", () -> runTertiaryPipeline(auto, basic, state, now, true));
+                        started.add("技术猎手");
+                    }
+                    Map<String, Object> resp = new LinkedHashMap<>();
+                    resp.put("success", true);
+                    resp.put("message", "自动运维已启动: " + String.join(", ", started) + "，请查看文章列表确认结果");
+                    resp.put("personas", started);
+                    return Mono.just(resp);
                 })
-                .onErrorResume(e -> {
-                    log.error("自动运维测试执行失败: {}", rootMessage(e));
-                    return Mono.just(Map.of("success", false, "error", rootMessage(e)));
-                });
+                .onErrorResume(e -> Mono.just(Map.of("success", false, "error", rootMessage(e))));
     }
 
-    private Mono<Map<String, Object>> runPipelineAsync(String persona,
-            java.util.concurrent.Callable<Map<String, Object>> task) {
-        return Mono.fromCallable(task)
+    private void fireInBackground(String persona, java.util.concurrent.Callable<Map<String, Object>> task) {
+        Mono.fromCallable(task)
                 .subscribeOn(Schedulers.boundedElastic())
-                .onErrorResume(e -> {
-                    Map<String, Object> err = new LinkedHashMap<>();
-                    err.put("persona", persona);
-                    err.put("success", false);
-                    err.put("error", rootMessage(e));
-                    return Mono.just(err);
-                });
+                .subscribe(
+                        r -> log.info("[后台] {} 完成: {}", persona, r),
+                        e -> log.error("[后台] {} 失败: {}", persona, rootMessage(e)));
     }
 
     // ═══════════════════════════════════════════
