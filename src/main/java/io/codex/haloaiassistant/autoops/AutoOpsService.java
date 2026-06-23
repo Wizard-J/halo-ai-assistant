@@ -33,6 +33,7 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import run.halo.app.core.extension.User;
@@ -124,25 +125,22 @@ public class AutoOpsService {
         }
         ensureAuthor(auto);
         Map<String, Instant> processed = readProcessed(state);
-        List<NewsItem> candidates = new ArrayList<>();
-        for (String source : defaultText(auto.getRssSources(), "").split("\\R")) {
-            if (!source.isBlank()) {
-                try {
-                    candidates.addAll(fetchFeed(source.trim()));
-                } catch (Exception e) {
-                    log.warn("读取新闻源失败: {}", source, e);
-                }
-            }
-        }
-        candidates = candidates.stream()
-                .filter(item -> item.link() != null && (testMode || !processed.containsKey(item.link())))
-                .collect(java.util.stream.Collectors.toMap(NewsItem::link, item -> item,
-                        (a, b) -> a, LinkedHashMap::new))
-                .values().stream()
-                .sorted(Comparator.comparing(NewsItem::publishedAt,
-                        Comparator.nullsLast(Comparator.reverseOrder())))
-                .limit(Math.max(1, Math.min(20, value(auto.getMaxNewsItems(), 8))))
-                .toList();
+        List<NewsItem> candidates = Flux.fromArray(
+                        defaultText(auto.getRssSources(), "").split("\\R"))
+                .filter(s -> !s.isBlank())
+                .flatMap(source -> Mono.fromCallable(() -> {
+                            try {
+                                return fetchFeed(source.trim());
+                            } catch (Exception e) {
+                                log.warn("读取新闻源失败: {}", source, e);
+                                return List.<NewsItem>of();
+                            }
+                        })
+                        .subscribeOn(Schedulers.boundedElastic()),
+                        4)
+                .flatMapIterable(list -> list)
+                .collectList()
+                .block();
         if (candidates.isEmpty()) {
             throw new IllegalStateException("所有 RSS 来源均无可用新闻，或新闻已经处理过");
         }
@@ -182,12 +180,18 @@ public class AutoOpsService {
 
     private List<NewsItem> fetchFeed(String url) throws Exception {
         String xml = WebClient.builder()
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
                 .defaultHeader(HttpHeaders.USER_AGENT, "Halo-AI-Assistant/1.1")
-                .build().get().uri(URI.create(url)).retrieve().bodyToMono(String.class)
-                .timeout(java.time.Duration.ofSeconds(25)).block();
-        if (xml == null || xml.isBlank()) {
-            return List.of();
-        }
+                .build().get().uri(URI.create(url))
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(java.time.Duration.ofSeconds(5))
+                .onErrorResume(e -> {
+                    log.debug("RSS源 {} 抓取失败: {}", url, e.getMessage());
+                    return Mono.empty();
+                })
+                .block();
+        if (xml == null || xml.isBlank()) return List.of();
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
         factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
@@ -199,7 +203,6 @@ public class AutoOpsService {
         collect(document.getElementsByTagName("entry"), true, items);
         return items;
     }
-
     private void collect(NodeList nodes, boolean atom, List<NewsItem> target) {
         for (int i = 0; i < nodes.getLength(); i++) {
             Element element = (Element) nodes.item(i);

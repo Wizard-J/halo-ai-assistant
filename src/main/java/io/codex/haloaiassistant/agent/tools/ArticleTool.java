@@ -115,9 +115,7 @@ public class ArticleTool implements Tool {
         }
     }
 
-    @Component
     public static class CreateArticleTool implements Tool {
-
         private final ReactiveExtensionClient client;
         private final ObjectMapper objectMapper = new ObjectMapper();
 

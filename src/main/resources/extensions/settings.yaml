@@ -37,12 +37,59 @@ spec:
             - 查看和管理评论
             请用友好的语气与用户交流。
           help: "AI 助手的系统提示词，可自定义"
+        - $formkit: text
+          name: pageTitle
+          label: 页面标题
+          value: "AI 智能助手"
+          help: "浏览器标签页和页面顶部的品牌名称"
+        - $formkit: text
+          name: pageIcon
+          label: 页面图标
+          value: "🧠"
+          help: "左上角品牌图标，Emoji 或 Remix 图标类名（如 ri-sparkling-2-fill）"
+        - $formkit: text
+          name: greeting
+          label: 欢迎语
+          value: "你好，我是 Halo AI 智能助手"
+          help: "页面打开时显示的欢迎标题"
+    - group: push
+      label: 每日推送
+      formSchema:
+        - $formkit: text
+          name: pushSecret
+          label: 推送密钥
+          help: "调用推送 API 时需要携带的密钥，防止滥用"
+          value: ""
+        - $formkit: select
+          name: pushChannel
+          label: 推送渠道
+          value: "serverchan"
+          options:
+            - label: "Server酱"
+              value: "serverchan"
+            - label: "PushPlus"
+              value: "pushplus"
+        - $formkit: password
+          name: pushToken
+          label: 推送 Token
+          help: "Server酱 SendKey 或 PushPlus Token"
+        - $formkit: select
+          name: pushTime
+          label: 推送时段
+          value: "today"
+          options:
+            - label: "今日文章"
+              value: "today"
+            - label: "昨日文章"
+              value: "yesterday"
+            - label: "今日+昨日"
+              value: "both"
     - group: autoOps
-      label: 自动运维
+      label: 自动运维 - 巫师前沿站
       formSchema:
         - $formkit: switch
           name: enabled
-          label: 启用自动运维
+          label: 启用
           value: false
           help: "关闭后不会采集新闻、生成或发布文章"
         - $formkit: switch
@@ -69,27 +116,136 @@ spec:
           value: "wizard-frontier"
           help: "插件会自动创建一个禁止登录的专属作者"
         - $formkit: textarea
+          name: primaryRssSources
+          label: 主要 RSS 源
+          value: |-
+            https://hnrss.org/frontpage
+            https://feeds.arstechnica.com/arstechnica/index
+            https://www.infoq.com/feed/
+          help: "高优先级来源，头条/重点内容优先从这些源选取，每行一个 URL"
+        - $formkit: textarea
           name: rssSources
-          label: 新闻 RSS 来源
+          label: 次要 RSS 源
           value: |-
             https://github.blog/changelog/feed/
             https://blog.cloudflare.com/rss/
             https://openai.com/news/rss.xml
             https://blog.google/technology/ai/rss/
-          help: "每行一个 RSS/Atom 地址，建议使用官方技术来源"
+          help: "低优先级来源，作为补充内容，每行一个 URL"
         - $formkit: text
           name: topics
           label: 关注方向
           value: "人工智能, 大模型, 开源软件, 云计算, 开发工具, 网络安全"
+        - $formkit: text
+          name: defaultTags
+          label: 文章标签
+          value: "AI前沿"
+          help: "多个标签用逗号分隔"
         - $formkit: number
           name: maxNewsItems
-          label: 每次送入 AI 的新闻数量
+          label: 新闻数量上限
           value: 8
           min: 1
           max: 20
         - $formkit: number
           name: maxTokens
-          label: 自动文章最大 Token 数
+          label: 输出 Token 上限
+          value: 3000
+          min: 500
+          max: 8000
+    - group: secondaryOps
+      label: 自动运维 - 第二人物
+      formSchema:
+        - $formkit: switch
+          name: secondaryEnabled
+          label: 启用第二人物
+          value: false
+          help: "开启后将使用独立的 RSS 源和标签，生成另一领域的文章"
+        - $formkit: text
+          name: secondaryAuthorName
+          label: 作者昵称
+          value: "书虫漫步"
+        - $formkit: text
+          name: secondaryAuthorUsername
+          label: 作者用户名
+          value: "bookworm-wanderer"
+          help: "插件会自动创建一个禁止登录的专属作者"
+        - $formkit: textarea
+          name: secondaryRssSources
+          label: RSS 来源
+          value: |-
+            https://www.themarginalian.org/feed/
+            https://www.newyorker.com/feed/books
+            https://www.theguardian.com/books/rss
+            https://aeon.co/feed.rss
+            https://lithub.com/feed/
+          help: "每行一个 RSS/Atom 地址，建议选择人物传记、书评、人文类源"
+        - $formkit: text
+          name: secondaryTopics
+          label: 关注方向
+          value: "人物传记, 书评, 人文思想, 历史, 哲学, 文学"
+        - $formkit: text
+          name: secondaryTags
+          label: 文章标签
+          value: "人物传记, 每日好书"
+          help: "多个标签用逗号分隔"
+        - $formkit: number
+          name: secondaryMaxNewsItems
+          label: 新闻数量上限
+          value: 5
+          min: 1
+          max: 20
+        - $formkit: number
+          name: secondaryMaxTokens
+          label: 输出 Token 上限
+          value: 3000
+          min: 500
+          max: 8000
+    - group: tertiaryOps
+      label: 自动运维 - 技术干货
+      formSchema:
+        - $formkit: switch
+          name: tertiaryEnabled
+          label: 启用技术干货模块
+          value: false
+          help: "开启后将使用独立的 RSS 源，生成技术深度文章"
+        - $formkit: text
+          name: tertiaryAuthorName
+          label: 作者昵称
+          value: "技术猎手"
+        - $formkit: text
+          name: tertiaryAuthorUsername
+          label: 作者用户名
+          value: "tech-hunter"
+          help: "插件会自动创建一个禁止登录的专属作者"
+        - $formkit: textarea
+          name: tertiaryRssSources
+          label: RSS 来源
+          value: |-
+            http://highscalability.com/blog/atom.xml
+            https://martinfowler.com/feed.atom
+            https://blog.pragmaticengineer.com/rss/
+            https://blog.bytebytego.com/feed
+            https://blog.quastor.org/feed.xml
+          help: "每行一个 RSS/Atom 地址，建议选择系统设计、架构、工程实践类源"
+        - $formkit: text
+          name: tertiaryTopics
+          label: 关注方向
+          value: "系统设计, 数据结构与算法, 后端架构, 性能优化, 最佳实践, 开源项目"
+        - $formkit: text
+          name: tertiaryTags
+          label: 文章标签
+          value: "技术干货, 优质译文"
+          help: "多个标签用逗号分隔"
+        - $formkit: number
+          name: tertiaryMaxNewsItems
+          label: 新闻数量上限
+          value: 5
+          min: 1
+          max: 20
+        - $formkit: number
+          name: tertiaryMaxTokens
+          label: 输出 Token 上限
           value: 3000
           min: 500
           max: 8000

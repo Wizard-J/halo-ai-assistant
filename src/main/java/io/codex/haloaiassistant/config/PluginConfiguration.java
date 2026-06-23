@@ -26,7 +26,6 @@ public class PluginConfiguration {
 
     @PostConstruct
     public void init() {
-        // 注册所有工具
         for (Tool tool : tools) {
             toolRegistry.register(tool);
             log.info("已注册工具: {}", tool.getName());

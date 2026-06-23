@@ -1292,10 +1292,27 @@
         autoOpsTestButton.disabled = true;
         autoOpsTestButton.innerHTML = '<i class="ri-loader-4-line ri-spin"></i><span class="button-label">测试中…</span>';
         try {
-            const response = await fetch('/api/ai-assistant/auto-ops/test', { method: 'POST' });
+            const response = await fetch('/api/ai-assistant/auto-ops/test');
             const result = await response.json();
             if (!response.ok || !result.success) throw new Error(result.error || `HTTP ${response.status}`);
-            createMessage('assistant', `### 自动运维测试通过\n\n- 模式：${result.mode}\n- 读取新闻：${result.newsCount} 条\n- 草稿标题：${result.title}\n\n${result.result}`, { instant: true });
+            if (result.results) {
+                let msg = '### 自动运维测试通过\n\n';
+                for (const r of result.results) {
+                    const icon = r.success ? '✅' : '❌';
+                    msg += icon + ' **' + (r.persona || '未知') + '**';
+                    if (r.success) {
+                        msg += '\n  模式：' + (r.mode || '未知') + ' | 新闻：' + (r.newsCount || 0) + ' 条';
+                        msg += '\n  标题：' + (r.title || '未知');
+                        msg += '\n  ' + (r.result || '');
+                    } else {
+                        msg += '\n  ❌ ' + (r.error || '未知错误');
+                    }
+                    msg += '\n\n';
+                }
+                createMessage('assistant', msg, { instant: true });
+            } else {
+                createMessage('assistant', `### 自动运维测试通过\n\n- 模式：${result.mode}\n- 读取新闻：${result.newsCount} 条\n- 草稿标题：${result.title}\n\n${result.result}`, { instant: true });
+            }
             scrollToBottom();
         } catch (error) {
             createMessage('assistant', `自动运维测试失败：${error.message}`, { error: true, instant: true });
