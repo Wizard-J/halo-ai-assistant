@@ -1296,7 +1296,7 @@
             const result = await response.json();
             if (!response.ok || !result.success) throw new Error(result.error || `HTTP ${response.status}`);
             if (result.results) {
-                let msg = '### 自动运维测试通过\n\n';
+                let msg = '### ✅ 自动运维测试通过\n\n';
                 for (const r of result.results) {
                     const icon = r.success ? '✅' : '❌';
                     msg += icon + ' **' + (r.persona || '未知') + '**';
@@ -1310,8 +1310,18 @@
                     msg += '\n\n';
                 }
                 createMessage('assistant', msg, { instant: true });
+            } else if (result.personas) {
+                let msg = '### 🚀 自动运维已启动\n\n';
+                msg += result.message + '\n\n';
+                msg += '**已启动：** ' + result.personas.join('、') + '\n\n';
+                msg += '> ⏳ 各 Persona 正在后台抓取 RSS、调用 AI 生成文章。\n';
+                msg += '> 📋 请前往 **文章列表** 查看草稿/已发布文章。\n';
+                msg += '> 📝 服务器日志可查看详细执行结果。';
+                createMessage('assistant', msg, { instant: true });
+            } else if (result.mode) {
+                createMessage('assistant', `### ✅ 自动运维测试通过\n\n- 模式：${result.mode}\n- 读取新闻：${result.newsCount} 条\n- 草稿标题：${result.title}\n\n${result.result}`, { instant: true });
             } else {
-                createMessage('assistant', `### 自动运维测试通过\n\n- 模式：${result.mode}\n- 读取新闻：${result.newsCount} 条\n- 草稿标题：${result.title}\n\n${result.result}`, { instant: true });
+                createMessage('assistant', `### ✅ 自动运维\n\n${result.message || '已完成，请查看文章列表'}`, { instant: true });
             }
             scrollToBottom();
         } catch (error) {
