@@ -1,19 +1,20 @@
 # Halo AI Assistant
 
-> 一款面向 [Halo 2](https://www.halo.run/) 的 AI 博客助手插件，基于 Java 21 + Gradle 构建。
+> Halo 2 博客 AI 助手插件 — 智能对话 + 三人物自动运维 + 每日推送。
+> 技术栈：Java 17+ / Spring WebFlux / Reactor / Gradle 8.10 / Lombok
 
 ---
 
-## 项目概览
+## 环境
 
-| 维度 | 说明 |
+| 项目 | 说明 |
 |------|------|
-| **技术栈** | Java 21, Spring (Halo Plugin API), Gradle 8.10, WebFlux (Reactor), Lombok |
-| **构建命令** | `./gradlew clean build` — 产物位于 `build/libs/halo-ai-assistant-<version>.jar` |
-| **最低依赖** | Halo `2.20.0+`（开发验证版本 `2.22.x`） |
-| **插件元数据** | `src/main/resources/plugin.yaml` — 名称 `ai-assistant`，显示名 "AI 智能助手" |
-| **版本** | `1.2.0` |
-| **许可证** | GPL-3.0 |
+| **JDK** | `/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home` (JDK 17.0.9 JBR) |
+| **Gradle** | `./gradlew` (wrapper), 配置 `build.gradle` |
+| **构建** | `JAVA_HOME=/Applications/IntelliJ\ IDEA\ CE.app/Contents/jbr/Contents/Home ./gradlew clean build` |
+| **产物** | `build/libs/halo-ai-assistant-<version>.jar` |
+| **Halo 版本** | 2.22.5+ |
+| **部署** | 1Panel → Halo → 插件 → 上传 jar |
 
 ---
 
@@ -21,44 +22,36 @@
 
 ```
 halo-ai-assistant/
-├── AGENTS.md                         # 本文件 — 编码规范与项目上下文
-├── README.md                         # 用户文档（功能、安装、配置说明）
-├── build.gradle                      # Gradle 构建配置（Halo 2.22.5, Lombok, DevTools）
-├── settings.gradle                   # 项目名 halo-ai-assistant
-├── gradle.properties                 # 版本号 version=1.2.0
-├── gradlew / gradlew.bat             # Gradle Wrapper
-├── build.sh                          # 构建辅助脚本（自动检测 JDK）
-├── cron-push.sh                      # 每日推送 Cron 辅助脚本
-├── .gitignore                        # Git 忽略规则
+├── AGENTS.md
+├── README.md
+├── build.gradle                 # 版本号 version = "x.yy", sourceCompatibility = JavaVersion.VERSION_21
+├── gradle.properties            # version 重复声明
+├── settings.gradle
 │
 ├── src/main/
-│   ├── java/io/codex/haloaiassistant/
-│   │   ├── HaloAiAssistantPlugin.java           # 插件生命周期（start/stop）
-│   │   ├── config/
-│   │   │   ├── PluginConfiguration.java         # Spring 配置：注册 Tools + 路由 Bean
-│   │   │   ├── AiAssistantSetting.java          # AI 对话 + 推送 + 页面显示配置 POJO
-│   │   │   └── AutoOpsSetting.java              # 三人物自动运维配置
-│   │   ├── agent/
-│   │   │   ├── Tool.java                        # AI 工具接口（function calling）
-│   │   │   ├── ToolRegistry.java                # 工具注册中心
-│   │   │   ├── AgentService.java                # AI 对话引擎（SSE 流式 + function calling 循环）
-│   │   │   └── tools/
-│   │   │       ├── ArticleTool.java             # 文章 CRUD（支持 tags）
-│   │   │       ├── CategoryTool.java            # 分类管理
-│   │   │       ├── TagTool.java                 # 标签管理
-│   │   │       └── CommentTool.java             # 评论管理
-│   │   ├── endpoint/
-│   │   │   └── AiChatEndpoint.java              # REST 端点：chat / tools / chat-page / auto-ops/test / daily-push
-│   │   └── autoops/
-│   │       └── AutoOpsService.java              # 三个人物管线：巫师前沿站 + 书虫漫步 + 技术猎手
-│   └── resources/
-│       ├── plugin.yaml                          # Halo 插件元数据（entry:/api/ai-assistant/chat-page）
-│       ├── extensions/settings.yaml             # 插件设置表单（basic/push/autoOps/secondaryOps/tertiaryOps）
-│       └── chat-page.html                       # 聊天页面（SSE 流式渲染）
-│
-├── design/                            # UI 设计截图
-├── workplace/                         # 工作区
-└── build/                             # 构建产物
+│   ├── resources/
+│   │   ├── plugin.yaml                          # 插件元数据 name=ai-assistant
+│   │   ├── extensions/settings.yaml             # 5 个配置组: basic/push/autoOps/secondaryOps/tertiaryOps
+│   │   └── chat-page.html                       # 聊天页面（SSE 流式）
+│   │
+│   └── java/io/codex/haloaiassistant/
+│       ├── HaloAiAssistantPlugin.java           # start()/stop() 生命周期
+│       ├── config/
+│       │   ├── PluginConfiguration.java         # Spring Bean：注册 RouterFunction + Tools
+│       │   ├── AiAssistantSetting.java          # basic 组：API Key / 模型 / 页面标题/图标/问候语
+│       │   └── AutoOpsSetting.java              # autoOps 组：三个人物的全部字段（含 secondaryEnabled/tertiaryEnabled）
+│       ├── agent/
+│       │   ├── Tool.java / ToolRegistry.java    # function calling 工具接口
+│       │   ├── AgentService.java                # AI 对话引擎（SSE + function calling 循环，最多 5 轮）
+│       │   └── tools/
+│       │       ├── ArticleTool.java             # 文章 CRUD（含 tags 参数）
+│       │       ├── CategoryTool.java
+│       │       ├── TagTool.java
+│       │       └── CommentTool.java
+│       ├── endpoint/
+│       │   └── AiChatEndpoint.java              # REST 路由：/chat, /tools, /chat-page, /auto-ops/test, /daily-push
+│       └── autoops/
+│           └── AutoOpsService.java              # @Scheduled 定时 + testNow 手动触发，三个人物管线
 ```
 
 ---
@@ -66,119 +59,87 @@ halo-ai-assistant/
 ## 核心架构
 
 ```
-聊天页面 (chat-page.html) — 页面标题/图标/欢迎语可配置
-    │
-    ├── POST /api/ai-assistant/chat  ──►  AgentService.chat()
-    │                                      │
-    │                                      └── function calling 循环（最多 5 轮）
-    │                                              ├── ArticleTool（支持 tags）
-    │                                              ├── CategoryTool
-    │                                              ├── TagTool
-    │                                              └── CommentTool
-    │
-    ├── GET  /api/ai-assistant/daily-push  ──►  AiChatEndpoint.handleDailyPush()
-    │
-    ├── POST /api/ai-assistant/auto-ops/test  ──►  AutoOpsService.testNow()
-    │                                                   └── 同时测试三个人物
-    │
-    └── AutoOpsService (定时 @Scheduled 60s)
-              │
-              ├── 人物一：巫师前沿站（AI前沿）
-              │     ├── 主要 RSS 源 + 次要 RSS 源（6:4 分配）
-              │     ├── AI 生成 → 标签 "AI前沿"
-              │     ├── 独立去重记录（90天）
-              │     └── 发布或保存为草稿
-              │
-              ├── 人物二：书虫漫步（人物传记/每日好书）
-              │     ├── 独立 RSS 源
-              │     ├── AI 生成 → 标签 "人物传记, 每日好书"
-              │     ├── 独立去重记录（90天）
-              │     └── 发布或保存为草稿
-              │
-              └── 人物三：技术猎手（技术干货）
-                    ├── 独立 RSS 源
-                    ├── AI 生成 → 标签 "技术干货, 优质译文"
-                    ├── 独立去重记录（90天）
-                    └── 发布或保存为草稿
+┌─ 聊天页面 /api/ai-assistant/chat-page
+│   ├── 标题/图标/欢迎语 可配置（AiAssistantSetting.pageTitle/pageIcon/greeting）
+│   └── POST /api/ai-assistant/chat → AgentService.chat() → SSE 流式
+│
+├─ 自动运维（三人物管线）
+│   ├── @Scheduled(fixedDelay=60s) → tick() → runIfDue()
+│   │   ├── 人物一：巫师前沿站  → primaryRssSources + rssSources → 6:4 → 标签 "AI前沿"
+│   │   ├── 【条件执行】书虫漫步 → secondaryRssSources → 标签 "人物传记, 每日好书"
+│   │   └── 【条件执行】技术猎手 → tertiaryRssSources → 标签 "技术干货, 优质译文"
+│   │
+│   └── POST /api/ai-assistant/auto-ops/test → testNow()
+│       ├── 纯异步：fireInBackground() 立即返回，不阻塞 HTTP
+│       └── 仅对 enabled 的 Persona 启动后台任务
+│
+└─ 每日推送 GET /api/ai-assistant/daily-push → 推送今日/昨日文章摘要
 ```
+
+### 三人物管线详细
+
+| Persona | 作者 | 标签 | RSS 源（配置字段） | 评分 |
+|---------|------|------|-------------------|------|
+| 巫师前沿站 | wizard-frontier | AI前沿 | primaryRssSources / rssSources | 6:4 primary:secondary |
+| 书虫漫步 | bookworm-wanderer | 人物传记, 每日好书 | secondaryRssSources | 全量, 最多5条 |
+| 技术猎手 | tech-hunter | 技术干货, 优质译文 | tertiaryRssSources | 全量, 最多5条 |
+
+各自独立的 processed 记录（90 天过期），互不干扰。
 
 ---
 
-## 开发规范
+## 关键实现细节
 
-### 新增 AI 工具
-
-实现 `Tool` 接口并标注 `@Component`，工具会自动被 `PluginConfiguration` 注册：
-
+### testNow() 异步机制（v2.24）
 ```java
-@Component
-public class ExampleTool implements Tool {
-    @Override public String getName() { return "exampleTool"; }
-    @Override public String getDescription() { return "示例工具"; }
-    @Override public String getParametersJsonSchema() {
-        return """
-        {
-          "type": "object",
-          "properties": {
-            "query": { "type": "string", "description": "搜索关键词" }
-          },
-          "required": ["query"]
-        }
-        """;
-    }
-    @Override public String execute(JsonNode args) {
-        return "执行结果（Markdown 格式）";
-    }
-}
+// 后台启动，立即返回
+fireInBackground("巫师前沿站", () -> runPrimaryPipeline(...));
+if (secondaryEnabled) fireInBackground("书虫漫步", () -> runSecondaryPipeline(...));
+if (tertiaryEnabled) fireInBackground("技术猎手", () -> runTertiaryPipeline(...));
+// 返回: {success: true, message: "已启动: 巫师前沿站, 技术猎手", personas: [...]}
 ```
+- `fireInBackground` 使用 `Mono.fromCallable.subscribeOn(boundedElastic).subscribe()`
+- 结果通过 `log.info/log.error` 输出到服务器日志
+- 不再阻塞 HTTP 响应，消除 `InterruptedException`
 
-> ⚠️ `execute()` 必须返回 Markdown 格式文本，`JsonNode args` 来自 AI function calling 参数。
+### RSS 抓取
+- WebClient maxInMemorySize = 2MB, timeout = 5s
+- 支持 RSS（`<item>`）和 Atom（`<entry>`）两种格式
+- 每个源独立 `try-catch`，一个源失败不影响其他源
+- 去重：同 URL 只保留一条（优先 primary）
 
-### 代码风格
+### AI 生成
+- `agentService.generateText(basic, systemPrompt, prompt, maxTokens).block()`
+- Prompt 按 [主要]/[次要] 标注优先级
+- 要求返回 JSON：`{"title":"...","content":"Markdown 正文"}`
+- 解析失败时 fallback 为全文输出
 
-- **语言**：Java 21，`options.release = 21`
-- **缩进**：4 空格，UTF-8 编码
-- **Lombok**：使用 `@Slf4j`、`@Data`、`@RequiredArgsConstructor`
-- **响应式**：优先使用 Reactor（`Flux`/`Mono`），阻塞操作使用 `.block()` 时使用 `subscribeOn(Schedulers.boundedElastic())`
-- **异常处理**：`rootMessage()` 提取最深层根因
+### 配置组映射
+
+| 配置组 | Java 类 | 用途 |
+|--------|---------|------|
+| `basic` | AiAssistantSetting | API Key, 模型, 页面标题/图标/欢迎语 |
+| `push` | - | 推送密钥/渠道/Token/时段 |
+| `autoOps` | AutoOpsSetting | 三人物全部字段（enabled/autoPublish/作者/RSS/标签/tokens） |
+| `secondaryOps` | - | 第二人物 UI 表单（实际映射到 AutoOpsSetting 同名字段） |
+| `tertiaryOps` | - | 技术干货 UI 表单（实际映射到 AutoOpsSetting 同名字段） |
+
+> **注意**：`secondaryOps` 和 `tertiaryOps` 是独立的 Settings 组，但 `AutoOpsService` 只从 `autoOps` 组读取。如果三个组拆开，`secondaryEnabled`/`tertiaryEnabled` 等字段将永远为 null。当前 AutoOpsSetting 所有字段归属于 `autoOps` 组。
+
+---
+
+## 编码规范
+
+- **Reactor 线程**：阻塞操作用 `Schedulers.boundedElastic()`
+- **异常处理**：`.onErrorResume()` 兜底，`rootMessage()` 提取根因
+- **Lombok**：`@Slf4j`, `@Data`, `@RequiredArgsConstructor`
 - **命名**：camelCase，工具类以 `Tool` 结尾，配置类以 `Setting` 结尾
 
-### 插件配置组
+## Git 提交记录
 
-| group | 用途 |
-|-------|------|
-| `basic` | AI 配置 + 页面显示（pageTitle/pageIcon/greeting） |
-| `push` | 每日推送（secret/channel/token/time） |
-| `autoOps` | 自动运维 — 巫师前沿站 |
-| `secondaryOps` | 自动运维 — 书虫漫步 |
-| `tertiaryOps` | 自动运维 — 技术猎手 |
-
-### 构建与部署
-
-```bash
-JAVA_HOME=/path/to/jdk-21 ./gradlew clean build
-# 产物: build/libs/halo-ai-assistant-<version>.jar
-# → 1Panel → Halo → 插件 → 上传安装
 ```
-
----
-
-## 关键注意事项
-
-1. **三个人物管线**：`AutoOpsSetting` 中有三组独立配置，各有独立的 RSS 源、标签、去重记录（90 天），互不影响。
-2. **API Key 安全**：Key 只保存在 Halo 数据库（ConfigMap），不写入代码或 Git。
-3. **Function Calling 深度**：`AgentService.doChat()` 限制最多 5 轮工具调用。
-4. **文章自动标签**：每管线在发布时通过 `tags` 参数传给 `CreateArticleTool`，文章自动带上配置的标签。
-5. **测试按钮**：点击「测试自动运维」同时测试三个人物，返回 `{results: [...]}` 合并结果。异常时返回 `{"success": false, "error": "..."}` 而非 HTTP 500。
-6. **SSE 流式**：聊天端点返回 `text/event-stream`，前端通过 `ReadableStream` 增量渲染。
-7. **页面个性化**：`AiAssistantSetting` 支持 `pageTitle`/`pageIcon`/`greeting` 字段，`handleChatPage` 动态替换 HTML。
-8. **RouterFunction 注册**：`PluginConfiguration` 中的两个 `RouterFunction` Bean（`aiChatRouter` + `autoOpsTestRouter`）由 Spring 自动注册。部署后如路由不生效，需重启 Halo。
-9. **Reactor 线程模型**：避免在 Reactor 线程直接调用阻塞 API，使用 `Schedulers.boundedElastic()` 包裹阻塞操作。
-
----
-
-## 用户文档索引
-
-- [README.md](./README.md) — 完整安装、配置、功能说明
-- [build.sh](./build.sh) — 构建辅助脚本
-- [cron-push.sh](./cron-push.sh) — 1Panel/crontab 推送脚本
+ce4e546 v2.24: testNow 改为纯异步（fireInBackground）
+bfeba86 v2.23: 多Persona并行管道、新闻评分重排序、代码清理
+bb5499a v1.2.2: fix RSS fetch (2MB buffer, 5s timeout), AGENTS/README docs
+8c1d74e feat: initial Halo AI assistant plugin
+```
