@@ -31,7 +31,7 @@ halo-ai-assistant/
 ├── src/main/
 │   ├── resources/
 │   │   ├── plugin.yaml                          # 插件元数据 name=ai-assistant
-│   │   ├── extensions/settings.yaml             # 5 个配置组: basic/push/autoOps/secondaryOps/tertiaryOps
+│   │   ├── extensions/settings.yaml             # 3 个配置组: basic/push/autoOps（三人物全部字段合并在 autoOps 组）
 │   │   └── chat-page.html                       # 聊天页面（SSE 流式）
 │   │
 │   └── java/io/codex/haloaiassistant/
@@ -121,8 +121,8 @@ if (tertiaryEnabled) fireInBackground("技术猎手", () -> runTertiaryPipeline(
 | `basic` | AiAssistantSetting | API Key, 模型, 页面标题/图标/欢迎语 |
 | `push` | - | 推送密钥/渠道/Token/时段 |
 | `autoOps` | AutoOpsSetting | 三人物全部字段（enabled/autoPublish/作者/RSS/标签/tokens） |
-| `secondaryOps` | - | 第二人物 UI 表单（实际映射到 AutoOpsSetting 同名字段） |
-| `tertiaryOps` | - | 技术干货 UI 表单（实际映射到 AutoOpsSetting 同名字段） |
+
+
 
 > **注意**：`secondaryOps` 和 `tertiaryOps` 是独立的 Settings 组，但 `AutoOpsService` 只从 `autoOps` 组读取。如果三个组拆开，`secondaryEnabled`/`tertiaryEnabled` 等字段将永远为 null。当前 AutoOpsSetting 所有字段归属于 `autoOps` 组。
 

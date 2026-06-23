@@ -85,18 +85,14 @@ spec:
             - label: "今日+昨日"
               value: "both"
     - group: autoOps
-      label: 自动运维 - 巫师前沿站
+      label: 自动运维
       formSchema:
+        # ═══ 通用设置 ═══
         - $formkit: switch
           name: enabled
-          label: 启用
+          label: 全局启用
           value: false
-          help: "关闭后不会采集新闻、生成或发布文章"
-        - $formkit: switch
-          name: autoPublish
-          label: 自动发布
-          value: true
-          help: "关闭时仅生成草稿"
+          help: "关闭后所有 Persona 都不会执行"
         - $formkit: text
           name: runTime
           label: 每日执行时间
@@ -106,146 +102,147 @@ spec:
           name: timezone
           label: 时区
           value: "Asia/Shanghai"
+        # ═══ 第一人物：巫师前沿站 ═══
+        - $formkit: switch
+          name: autoPublish
+          label: 巫师前沿站 - 自动发布
+          value: true
+          help: "关闭时仅生成草稿"
         - $formkit: text
           name: authorName
-          label: 作者昵称
+          label: 巫师前沿站 - 作者昵称
           value: "巫师前沿站"
         - $formkit: text
           name: authorUsername
-          label: 作者用户名
+          label: 巫师前沿站 - 作者用户名
           value: "wizard-frontier"
           help: "插件会自动创建一个禁止登录的专属作者"
         - $formkit: textarea
           name: primaryRssSources
-          label: 主要 RSS 源
+          label: 巫师前沿站 - 主要 RSS 源
           value: |-
             https://hnrss.org/frontpage
             https://feeds.arstechnica.com/arstechnica/index
-            https://www.infoq.com/feed/
-          help: "高优先级来源，头条/重点内容优先从这些源选取，每行一个 URL"
+          help: "高优先级来源，头条/重点内容优先选取，每行一个 URL"
         - $formkit: textarea
           name: rssSources
-          label: 次要 RSS 源
+          label: 巫师前沿站 - 次要 RSS 源
           value: |-
             https://github.blog/changelog/feed/
             https://blog.cloudflare.com/rss/
             https://openai.com/news/rss.xml
             https://blog.google/technology/ai/rss/
-          help: "低优先级来源，作为补充内容，每行一个 URL"
+          help: "补充内容来源，每行一个 URL"
         - $formkit: text
           name: topics
-          label: 关注方向
+          label: 巫师前沿站 - 关注方向
           value: "人工智能, 大模型, 开源软件, 云计算, 开发工具, 网络安全"
         - $formkit: text
           name: defaultTags
-          label: 文章标签
+          label: 巫师前沿站 - 文章标签
           value: "AI前沿"
           help: "多个标签用逗号分隔"
         - $formkit: number
           name: maxNewsItems
-          label: 新闻数量上限
+          label: 巫师前沿站 - 新闻数量上限
           value: 8
           min: 1
           max: 20
         - $formkit: number
           name: maxTokens
-          label: 输出 Token 上限
+          label: 巫师前沿站 - 输出 Token 上限
           value: 3000
           min: 500
           max: 8000
-    - group: secondaryOps
-      label: 自动运维 - 第二人物
-      formSchema:
+        # ═══ 第二人物：书虫漫步 ═══
         - $formkit: switch
           name: secondaryEnabled
-          label: 启用第二人物
+          label: 书虫漫步 - 启用
           value: false
-          help: "开启后将使用独立的 RSS 源和标签，生成另一领域的文章"
+          help: "开启后将使用独立的 RSS 源和标签，生成人物传记/好书推荐"
         - $formkit: text
           name: secondaryAuthorName
-          label: 作者昵称
+          label: 书虫漫步 - 作者昵称
           value: "书虫漫步"
         - $formkit: text
           name: secondaryAuthorUsername
-          label: 作者用户名
+          label: 书虫漫步 - 作者用户名
           value: "bookworm-wanderer"
           help: "插件会自动创建一个禁止登录的专属作者"
         - $formkit: textarea
           name: secondaryRssSources
-          label: RSS 来源
+          label: 书虫漫步 - RSS 来源
           value: |-
             https://www.themarginalian.org/feed/
             https://www.newyorker.com/feed/books
             https://www.theguardian.com/books/rss
             https://aeon.co/feed.rss
             https://lithub.com/feed/
-          help: "每行一个 RSS/Atom 地址，建议选择人物传记、书评、人文类源"
+          help: "每行一个 RSS/Atom 地址，建议人物传记、书评、人文类源"
         - $formkit: text
           name: secondaryTopics
-          label: 关注方向
+          label: 书虫漫步 - 关注方向
           value: "人物传记, 书评, 人文思想, 历史, 哲学, 文学"
         - $formkit: text
           name: secondaryTags
-          label: 文章标签
+          label: 书虫漫步 - 文章标签
           value: "人物传记, 每日好书"
           help: "多个标签用逗号分隔"
         - $formkit: number
           name: secondaryMaxNewsItems
-          label: 新闻数量上限
+          label: 书虫漫步 - 新闻数量上限
           value: 5
           min: 1
           max: 20
         - $formkit: number
           name: secondaryMaxTokens
-          label: 输出 Token 上限
+          label: 书虫漫步 - 输出 Token 上限
           value: 3000
           min: 500
           max: 8000
-    - group: tertiaryOps
-      label: 自动运维 - 技术干货
-      formSchema:
+        # ═══ 第三人物：技术猎手 ═══
         - $formkit: switch
           name: tertiaryEnabled
-          label: 启用技术干货模块
+          label: 技术猎手 - 启用
           value: false
           help: "开启后将使用独立的 RSS 源，生成技术深度文章"
         - $formkit: text
           name: tertiaryAuthorName
-          label: 作者昵称
+          label: 技术猎手 - 作者昵称
           value: "技术猎手"
         - $formkit: text
           name: tertiaryAuthorUsername
-          label: 作者用户名
+          label: 技术猎手 - 作者用户名
           value: "tech-hunter"
           help: "插件会自动创建一个禁止登录的专属作者"
         - $formkit: textarea
           name: tertiaryRssSources
-          label: RSS 来源
+          label: 技术猎手 - RSS 来源
           value: |-
             http://highscalability.com/blog/atom.xml
             https://martinfowler.com/feed.atom
             https://blog.pragmaticengineer.com/rss/
             https://blog.bytebytego.com/feed
             https://blog.quastor.org/feed.xml
-          help: "每行一个 RSS/Atom 地址，建议选择系统设计、架构、工程实践类源"
+          help: "每行一个 RSS/Atom 地址，建议系统设计、架构、工程实践类源"
         - $formkit: text
           name: tertiaryTopics
-          label: 关注方向
+          label: 技术猎手 - 关注方向
           value: "系统设计, 数据结构与算法, 后端架构, 性能优化, 最佳实践, 开源项目"
         - $formkit: text
           name: tertiaryTags
-          label: 文章标签
+          label: 技术猎手 - 文章标签
           value: "技术干货, 优质译文"
           help: "多个标签用逗号分隔"
         - $formkit: number
           name: tertiaryMaxNewsItems
-          label: 新闻数量上限
+          label: 技术猎手 - 新闻数量上限
           value: 5
           min: 1
           max: 20
         - $formkit: number
           name: tertiaryMaxTokens
-          label: 输出 Token 上限
+          label: 技术猎手 - 输出 Token 上限
           value: 3000
           min: 500
           max: 8000
