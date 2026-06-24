@@ -1343,8 +1343,20 @@
         localStorage.setItem(storageKey(), JSON.stringify(conversations.slice(0, 20)));
     }
 
-    function renderHistoryList() {
-        const conversations = getSavedConversations();
+    async function renderHistoryList() {
+        // 优先从服务端获取对话列表
+        let conversations = [];
+        try {
+            const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations?sessionId=' + encodeURIComponent(sessionId));
+            if (resp.ok) {
+                const data = await resp.json();
+                conversations = data.conversations || [];
+            }
+        } catch (e) {}
+        // 服务端没有时回退到 localStorage
+        if (!conversations.length) {
+            conversations = getSavedConversations();
+        }
         historyList.replaceChildren();
         if (!conversations.length) {
             const empty = document.createElement('p');
