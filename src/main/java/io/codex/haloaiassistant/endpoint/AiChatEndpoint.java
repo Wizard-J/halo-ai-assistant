@@ -62,6 +62,7 @@ public class AiChatEndpoint {
         return RouterFunctions.route()
                 .POST("/api/ai-assistant/chat", this::handleChat)
                 .GET("/api/ai-assistant/tools", this::handleGetTools)
+                .GET("/api/ai-assistant/me", this::handleGetMe)
                 .GET("/api/ai-assistant/chat-page", this::handleChatPage)
                 .GET("/api/ai-assistant/auto-ops/test", this::handleAutoOpsTest)
                 .GET("/api/ai-assistant/", this::handleChatPageRedirect)
@@ -238,6 +239,24 @@ public class AiChatEndpoint {
         }
         return personaService.appendMessages(sessionId, personaId, messagesJson)
                 .then();
+    }
+
+    /**
+     * GET /api/ai-assistant/me
+     * 返回当前登录用户信息，用于替代客户端随机生成的 sessionId
+     */
+    private Mono<ServerResponse> handleGetMe(ServerRequest request) {
+        return request.principal()
+                .map(p -> Map.of(
+                        "username", p.getName(),
+                        "sessionId", "user-" + p.getName(),
+                        "authenticated", true
+                ))
+                .defaultIfEmpty(Map.of(
+                        "sessionId", "",
+                        "authenticated", false
+                ))
+                .flatMap(data -> ServerResponse.ok().bodyValue(data));
     }
 
     private Mono<ServerResponse> handleGetTools(ServerRequest request) {
