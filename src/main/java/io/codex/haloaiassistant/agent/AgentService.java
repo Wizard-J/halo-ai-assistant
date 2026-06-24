@@ -5,15 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.codex.haloaiassistant.config.AiAssistantSetting;
+import java.net.URI;
+import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
-
-import java.net.URI;
-import java.util.List;
 
 @Slf4j
 @Service
@@ -31,9 +30,6 @@ public class AgentService {
         this.currentSetting = setting;
     }
 
-    /**
-     * 获取当前配置
-     */
     public AiAssistantSetting getCurrentSetting() {
         if (currentSetting == null) {
             currentSetting = new AiAssistantSetting();
@@ -43,7 +39,7 @@ public class AgentService {
 
     /** Generate plain content without exposing blog tools. Used by background automation. */
     public Mono<String> generateText(AiAssistantSetting setting, String systemPrompt,
-                                     String userPrompt, int maxTokens) {
+                                      String userPrompt, int maxTokens) {
         String endpoint = setting.getApiEndpoint().replaceAll("/+$", "");
         if (!endpoint.endsWith("/v1")) {
             endpoint += "/v1";
@@ -77,6 +73,7 @@ public class AgentService {
 
     /**
      * 发送对话消息，支持 function calling 循环
+     * 如果 messages 第一条是 role=system，使用它作为 system prompt，否则使用默认配置
      */
     public Flux<String> chat(List<ChatMessage> messages) {
         return Flux.defer(() -> {
@@ -94,7 +91,7 @@ public class AgentService {
     }
 
     private Flux<String> doChat(List<ChatMessage> messages, int depth) {
-        if (depth > 5) {
+        if (depth > 30) {
             return Flux.just("[系统] 工具调用次数过多，请简化指令");
         }
 
@@ -119,70 +116,68 @@ public class AgentService {
                             }
                             return Mono.just(body);
                         }))
-                // Halo's ReactiveExtensionClient is reactive, while the current Tool contract is
-                // synchronous. Run tool execution on a worker thread so its block() calls never
-                // block Reactor Netty's event-loop thread.
-                .publishOn(Schedulers.boundedElastic())
-                .flatMapMany(response -> {
+                .flatMapMany(body -> {
                     try {
-                        JsonNode root = objectMapper.readTree(response);
-                        JsonNode choice = root.path("choices").get(0);
+                        JsonNode root = objectMapper.readTree(body);
+                        JsonNode choice = root.path("choices").path(0);
                         JsonNode message = choice.path("message");
-
-                        String role = message.path("role").asText();
-                        String content = message.path("content").asText("");
-
-                        // 检查是否有 tool_calls
+                        // 丢弃 reasoning_content（DeepSeek 模型的独立思考字段）
+                        String reasoning = message.path("reasoning_content").asText();
+                        if (!reasoning.isBlank()) {
+                            log.debug("DeepSeek reasoning: {}", reasoning.substring(0, Math.min(reasoning.length(), 200)));
+                        }
                         JsonNode toolCalls = message.path("tool_calls");
-                        if (toolCalls != null && toolCalls.isArray() && !toolCalls.isEmpty()) {
-                            StringBuilder resultBuilder = new StringBuilder();
-                            List<ChatMessage> updatedMessages = new java.util.ArrayList<>(messages);
 
-                            // 添加 assistant 消息（包含 tool_calls）
-                            ObjectNode assistantMsg = objectMapper.createObjectNode();
-                            assistantMsg.put("role", "assistant");
-                            assistantMsg.put("content", content);
-                            assistantMsg.set("tool_calls", toolCalls);
-                            updatedMessages.add(new ChatMessage("assistant", content, toolCalls));
-
-                            for (JsonNode tc : toolCalls) {
-                                String functionName = tc.path("function").path("name").asText();
-                                String arguments = tc.path("function").path("arguments").asText();
-                                String toolCallId = tc.path("id").asText();
-
-                                log.info("调用工具: {} 参数: {}", functionName, arguments);
-
-                                var toolOpt = toolRegistry.getByName(functionName);
-                                if (toolOpt.isEmpty()) {
-                                    String errMsg = "未知工具: " + functionName;
-                                    updatedMessages.add(new ChatMessage("tool", errMsg, toolCallId, functionName));
-                                    resultBuilder.append("工具 ").append(functionName).append(" 不存在。\n");
-                                    continue;
-                                }
-
-                                try {
-                                    JsonNode argsNode = objectMapper.readTree(arguments);
-                                    String result = toolOpt.get().execute(argsNode);
-                                    updatedMessages.add(new ChatMessage("tool", result, toolCallId, functionName));
-                                    resultBuilder.append("工具 ").append(functionName).append(" 执行成功。\n");
-                                } catch (Exception e) {
-                                    String errMsg = "执行失败: " + e.getMessage();
-                                    updatedMessages.add(new ChatMessage("tool", errMsg, toolCallId, functionName));
-                                    resultBuilder.append("工具 ").append(functionName).append(" 执行失败: ").append(e.getMessage()).append("\n");
-                                }
-                            }
-
-                            // 递归调用，让 AI 根据工具结果生成回复
-                            return doChat(updatedMessages, depth + 1);
+                        if (toolCalls.isArray() && toolCalls.size() > 0) {
+                            // 处理工具调用
+                            // 工具调用期间不流输出，静默执行，只输出最终结果
+                            return Flux.<String>empty()
+                                    .concatWith(Flux.defer(() -> {
+                                        List<ChatMessage> newMessages = new java.util.ArrayList<>(messages);
+                                        // 添加助手响应（含 tool_calls）
+                                        newMessages.add(new ChatMessage("assistant",
+                                                message.path("content").asText(),
+                                                toolCalls));
+                                        // 执行每个工具并添加结果（在 boundedElastic 线程池上执行，避免阻塞 reactor 线程）
+                                        return Flux.fromIterable(toolCalls)
+                                                .flatMap(tc -> {
+                                                    String id = tc.path("id").asText();
+                                                    String name = tc.path("function").path("name").asText();
+                                                    String args = tc.path("function").path("arguments").asText();
+                                                    Tool tool = toolRegistry.getByName(name).orElse(null);
+                                                    return Mono.fromCallable(() -> {
+                                                                if (tool != null) {
+                                                                    try {
+                                                                        JsonNode argsJson = objectMapper.readTree(args);
+                                                                        log.info("调用工具: {} args={}", name, args);
+                                                                        return tool.execute(argsJson);
+                                                                    } catch (Exception e) {
+                                                                        log.error("工具执行失败: {}", name, e);
+                                                                        return "工具执行出错: " + e.getMessage();
+                                                                    }
+                                                                }
+                                                                return "未知工具: " + name;
+                                                            })
+                                                            .subscribeOn(Schedulers.boundedElastic())
+                                                            .map(result -> new Object[]{id, name, result});
+                                                })
+                                                .collectList()
+                                                .flatMapMany(results -> {
+                                                    for (Object[] r : results) {
+                                                        newMessages.add(new ChatMessage("tool",
+                                                                (String) r[2], (String) r[0], (String) r[1]));
+                                                    }
+                                                    return doChat(newMessages, depth + 1);
+                                                });
+                                    }));
                         }
 
-                        // 没有 tool_calls，直接返回回复
+                        // 正常文本响应
+                        String content = message.path("content").asText();
                         return Flux.just(content);
-
                     } catch (Exception e) {
-                        log.error("解析响应失败", e);
-                        return Flux.just("[错误] 解析 AI 响应失败: " + e.getMessage()
-                                + "\n原始响应: " + response.substring(0, Math.min(500, response.length())));
+                        log.error("解析 AI 响应失败", e);
+                        return Flux.just("[错误] 解析 AI 响应失败");
                     }
                 })
                 .onErrorResume(AiApiException.class, error -> {
@@ -195,6 +190,14 @@ public class AgentService {
                     return Flux.just("[错误] 无法连接 AI API：" + safeMessage(error)
                             + "\n请检查 Base URL 及服务器网络。");
                 });
+    }
+
+    private String formatToolCallResult(JsonNode message) {
+        String content = message.path("content").asText();
+        if (content != null && !content.isBlank()) {
+            return content;
+        }
+        return "";
     }
 
     private String formatApiError(AiApiException error) {
@@ -212,9 +215,7 @@ public class AgentService {
     }
 
     private String extractErrorMessage(String responseBody) {
-        if (responseBody == null || responseBody.isBlank()) {
-            return "";
-        }
+        if (responseBody == null || responseBody.isBlank()) return "";
         try {
             JsonNode root = objectMapper.readTree(responseBody);
             String message = root.path("error").path("message").asText("");
@@ -230,49 +231,46 @@ public class AgentService {
     }
 
     private String abbreviate(String value, int maxLength) {
-        if (value == null || value.length() <= maxLength) {
-            return value == null ? "" : value;
-        }
+        if (value == null || value.length() <= maxLength) return value == null ? "" : value;
         return value.substring(0, maxLength) + "...";
     }
 
-    private static class AiApiException extends RuntimeException {
-        private final int statusCode;
-        private final String responseBody;
-
-        private AiApiException(int statusCode, String responseBody) {
-            super("AI API returned HTTP " + statusCode);
-            this.statusCode = statusCode;
-            this.responseBody = responseBody;
-        }
-    }
-
+    /**
+     * 构建 API 请求体，支持外部传入的 system message
+     */
     private String buildRequestBody(List<ChatMessage> messages, String toolsJson) {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("model", currentSetting.getModel());
 
-        // System 提示词
         ArrayNode msgs = root.putArray("messages");
-        ObjectNode systemMsg = msgs.addObject();
-        systemMsg.put("role", "system");
-        systemMsg.put("content", currentSetting.getSystemPrompt()
-                + "\n调用工具后必须忠实依据工具返回结果回答。若工具返回失败或错误，"
-                + "必须原样说明关键错误原因，不得声称操作已成功，也不得编造服务器维护等原因。");
+
+        // 检查是否已有 system 消息（由外部传入）
+        boolean hasSystemMessage = messages.stream()
+                .anyMatch(m -> "system".equals(m.role()));
+
+        if (!hasSystemMessage) {
+            // 没有外部 system 消息时，使用默认配置
+            ObjectNode systemMsg = msgs.addObject();
+            systemMsg.put("role", "system");
+            systemMsg.put("content", currentSetting.getSystemPrompt()
+                    + "\n\n【硬性规则 - 违者任务失败】\n"
+                    + "- 分类/打标签：你的第一句回复必须包含 autoTagArticles 工具调用。不许先说废话，直接调！\n"
+                    + "- 创建文章：直接调 createArticle。不反问、不确认、不商量。\n"
+                    + "- 永远不说「我先看看」「让我检查」「我发现了一个工具」等废话。直接行动。\n"
+                    + "- 回复上限 3 句话。超过就是违规。");
+        }
 
         for (ChatMessage msg : messages) {
             ObjectNode msgNode = msgs.addObject();
             msgNode.put("role", msg.role());
             msgNode.put("content", msg.content());
 
-            // 处理 tool_call_id
             if (msg.toolCallId() != null) {
                 msgNode.put("tool_call_id", msg.toolCallId());
             }
-            // 处理 name
             if (msg.name() != null) {
                 msgNode.put("name", msg.name());
             }
-            // 处理 tool_calls
             if (msg.toolCalls() != null) {
                 msgNode.set("tool_calls", msg.toolCalls());
             }
@@ -280,7 +278,6 @@ public class AgentService {
 
         root.put("max_tokens", currentSetting.getMaxTokens());
 
-        // 添加 tools 声明
         try {
             root.set("tools", objectMapper.readTree(toolsJson));
         } catch (Exception e) {
@@ -290,9 +287,6 @@ public class AgentService {
         return root.toPrettyString();
     }
 
-    /**
-     * 对话消息记录
-     */
     public record ChatMessage(
             String role,
             String content,
@@ -310,6 +304,17 @@ public class AgentService {
 
         public ChatMessage(String role, String content, String toolCallId, String name) {
             this(role, content, toolCallId, name, null);
+        }
+    }
+
+    private static class AiApiException extends RuntimeException {
+        private final int statusCode;
+        private final String responseBody;
+
+        private AiApiException(int statusCode, String responseBody) {
+            super("AI API returned HTTP " + statusCode);
+            this.statusCode = statusCode;
+            this.responseBody = responseBody;
         }
     }
 }

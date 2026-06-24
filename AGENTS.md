@@ -11,10 +11,12 @@
 |------|------|
 | **JDK** | `/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home` (JDK 17.0.9 JBR) |
 | **Gradle** | `./gradlew` (wrapper), 配置 `build.gradle` |
-| **构建** | `JAVA_HOME=/Applications/IntelliJ\ IDEA\ CE.app/Contents/jbr/Contents/Home ./gradlew clean build` |
+| **构建** | `JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build` |
 | **产物** | `build/libs/halo-ai-assistant-<version>.jar` |
 | **Halo 版本** | 2.22.5+ |
-| **部署** | 1Panel → Halo → 插件 → 上传 jar |
+| **部署** | SSH 一键自动化（见下方「自动部署」） |
+
+> **注意**：Codex CLI 内置 JDK 21 路径：`/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home`。构建时必须通过 `JAVA_HOME` 指定该路径，否则默认 JDK 为 Java 8 会导致构建失败。
 
 ---
 
@@ -42,12 +44,17 @@ halo-ai-assistant/
 │       │   └── AutoOpsSetting.java              # autoOps 组：三个人物的全部字段（含 secondaryEnabled/tertiaryEnabled）
 │       ├── agent/
 │       │   ├── Tool.java / ToolRegistry.java    # function calling 工具接口
-│       │   ├── AgentService.java                # AI 对话引擎（SSE + function calling 循环，最多 5 轮）
+│       │   ├── AgentService.java                # AI 对话引擎（SSE + function calling 循环，最多 30 轮；工具调用期间静默）
 │       │   └── tools/
-│       │       ├── ArticleTool.java             # 文章 CRUD（含 tags 参数）
+│       │       ├── ArticleTool.java             # 文章工具：CRUD + batchTagArticles + autoTagArticles
 │       │       ├── CategoryTool.java
 │       │       ├── TagTool.java
 │       │       └── CommentTool.java
+│       ├── persona/
+│       │   ├── PersonaDefinition.java            # Persona 自定义扩展
+│       │   ├── Conversation.java                 # 对话历史持久化
+│       │   ├── PersonaService.java               # Persona CRUD + 上下文压缩
+│       │   └── PersonaController.java            # Persona REST API
 │       ├── endpoint/
 │       │   └── AiChatEndpoint.java              # REST 路由：/chat, /tools, /chat-page, /auto-ops/test, /daily-push
 │       └── autoops/
@@ -127,6 +134,37 @@ if (tertiaryEnabled) fireInBackground("技术猎手", () -> runTertiaryPipeline(
 > **注意**：`secondaryOps` 和 `tertiaryOps` 是独立的 Settings 组，但 `AutoOpsService` 只从 `autoOps` 组读取。如果三个组拆开，`secondaryEnabled`/`tertiaryEnabled` 等字段将永远为 null。当前 AutoOpsSetting 所有字段归属于 `autoOps` 组。
 
 ---
+
+## 🚀 自动部署
+
+### 服务器信息
+| 项目 | 值 |
+|------|-----|
+| **域名** | wizardj.cn |
+| **Docker 容器** | `1Panel-halo-GOvD` |
+| **插件目录** | `/root/.halo2/plugins/` |
+| **SSH** | `root@wizardj.cn`（密钥 `~/.ssh/id_ed25519`） |
+
+### 一键构建 + 部署
+```bash
+cd /Users/zhangjianmin/project/halo-ai-assistant &&   JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build &&   scp build/libs/halo-ai-assistant-2.24.0.jar root@wizardj.cn:/tmp/ai-assistant-latest.jar &&   ssh root@wizardj.cn \
+    "docker exec 1Panel-halo-GOvD rm -f /root/.halo2/plugins/ai-assistant-2.24.0.jar && \
+     docker cp /tmp/ai-assistant-latest.jar 1Panel-halo-GOvD:/root/.halo2/plugins/ai-assistant-2.24.0.jar && \
+     docker restart 1Panel-halo-GOvD"
+```
+
+### 验证部署（查看服务器日志）
+```bash
+ssh root@wizardj.cn "docker logs --tail 50 1Panel-halo-GOvD 2>&1 | grep -iE '已注册工具|autoTag|已启动插件|Persona|error'"
+```
+
+### 关键设计决策
+
+- **工具调用静默**：AI 调用工具时不再流式输出思考过程（`Flux.empty()`），只输出最终结果，避免用户看到 UUID 清单等冗长内容
+- **系统 Prompt 硬规则**：打标签必须用 `autoTagArticles`，禁止 `listArticles` + `batchTagArticles` 手动分组
+- **深度限制 30**：允许多轮工具调用链
+- **maxTokens 16384**：适配 `deepseek-v4-flash` 模型的大输出窗口
+
 
 ## 编码规范
 

@@ -1,0 +1,5 @@
+interface:
+  display_name: "芒格视角"
+  short_description: "以查理·芒格的视角对话和分析问题"
+  brand_color: "#1E3A5F"
+  default_prompt: "Use $芒格视角 to have Charlie Munger's perspective in analyzing your problem — apply mental models, inversion thinking, and the psychology of human misjudgment."

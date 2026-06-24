@@ -24,7 +24,7 @@ spec:
         - $formkit: number
           name: maxTokens
           label: 最大 Token 数
-          value: 2048
+          value: 8192
           help: "每次对话的最大 Token 数"
         - $formkit: textarea
           name: systemPrompt

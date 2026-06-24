@@ -309,6 +309,8 @@
             padding-right: 8%;
         }
 
+        .avatar-img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; vertical-align: middle; }
+        .avatar-emoji { font-size: 20px; line-height: 1; }
         .message-avatar {
             display: grid;
             flex: 0 0 auto;
@@ -774,6 +776,28 @@
             </div>
         </div>
         <div class="header-actions">
+            <div class="persona-selector" style="position:relative">
+                <button class="button" id="personaButton" type="button" title="切换角色" style="gap:6px">
+                    <span id="personaButtonIcon">🤖</span>
+                    <span id="personaButtonLabel" class="button-label">AI 智能助手</span>
+                    <i class="ri-arrow-down-s-line" aria-hidden="true"></i>
+                </button>
+                <div class="persona-menu" id="personaMenu" hidden
+                     style="position:absolute;top:calc(100% + 6px);right:0;min-width:220px;
+                            background:var(--surface-raised);border:1px solid var(--border);
+                            border-radius:12px;box-shadow:var(--shadow-menu);z-index:100;
+                            padding:6px;overflow:hidden">
+                    <div id="personaList"></div>
+                    <div style="border-top:1px solid var(--border);margin:6px 0 0;padding:6px 0 0">
+                        <button class="persona-menu-item" id="managePersonaButton" type="button"
+                                style="color:var(--text-muted);font-size:13px;width:100%;text-align:left;
+                                       padding:8px 12px;border:none;border-radius:8px;
+                                       background:transparent;cursor:pointer">
+                            <i class="ri-settings-3-line" aria-hidden="true"></i> 管理 Persona
+                        </button>
+                    </div>
+                </div>
+            </div>
             <button class="button" id="autoOpsTestButton" type="button" title="测试 RSS、AI、作者和草稿创建">
                 <i class="ri-flask-line" aria-hidden="true"></i>
                 <span class="button-label">测试自动运维</span>
@@ -795,10 +819,10 @@
                 <div class="content-column">
                     <section class="welcome" id="welcome">
                         <div class="welcome-heading">
-                            <span class="assistant-avatar" aria-hidden="true"><i class="ri-sparkling-2-fill"></i></span>
+                            <span class="assistant-avatar" aria-hidden="true" id="welcomeAvatar"><i class="ri-sparkling-2-fill"></i></span>
                             <div>
-                                <h1>你好，我是 Halo AI 智能助手</h1>
-                                <p>我可以帮你管理博客文章、分类、标签和评论。</p>
+                                <h1 id="welcomeTitle">你好，我是 Halo AI 智能助手</h1>
+                                <p id="welcomeSubtitle">我可以帮你管理博客文章、分类、标签和评论。</p>
                             </div>
                         </div>
                         <div class="suggestions" aria-label="快捷建议">
@@ -871,7 +895,10 @@
 </aside>
 
 <script>
-    const STORAGE_KEY = 'halo-ai-assistant-conversations-v1';
+    // Persona-aware storage keys
+    const SESSION_KEY = 'halo-ai-session-v1';
+    function storageKey() { return 'halo-ai-conv-' + activePersona.id + '-v1'; }
+    const PERSONA_LIST_KEY = 'halo-ai-personas-v1';
     const scrollArea = document.getElementById('scrollArea');
     const messagesElement = document.getElementById('messages');
     const welcomeElement = document.getElementById('welcome');
@@ -890,10 +917,25 @@
     const drawerBackdrop = document.getElementById('drawerBackdrop');
     const closeHistoryButton = document.getElementById('closeHistoryButton');
 
+    let activePersona = { id: 'default', displayName: 'AI 智能助手', iconUrl: null, brandColor: '#2563eb', greeting: '你好，我是 Halo AI 智能助手' };
+    let personas = [];
+    let loadingPersonas = false;
     let history = [];
     let conversationId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+    let sessionId = getOrCreateSessionId();
     let isStreaming = false;
     let abortController = null;
+
+    function getOrCreateSessionId() {
+        try {
+            let sid = localStorage.getItem(SESSION_KEY);
+            if (!sid) {
+                sid = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(36).slice(2, 10);
+                localStorage.setItem(SESSION_KEY, sid);
+            }
+            return sid;
+        } catch (e) { return ''; }
+    }
 
     function escapeHtml(value) {
         return value
@@ -1025,7 +1067,7 @@
             const avatar = document.createElement('span');
             avatar.className = 'message-avatar';
             avatar.setAttribute('aria-hidden', 'true');
-            avatar.innerHTML = '<i class="ri-sparkling-2-fill"></i>';
+            avatar.innerHTML = renderPersonaAvatar(activePersona);
             row.appendChild(avatar);
         }
 
@@ -1033,7 +1075,7 @@
         body.className = 'message-body';
         const meta = document.createElement('div');
         meta.className = 'message-meta';
-        meta.textContent = role === 'assistant' ? `Halo AI · ${formatTime(options.timestamp)}` : formatTime(options.timestamp);
+        meta.textContent = role === 'assistant' ? `${activePersona.displayName} · ${formatTime(options.timestamp)}` : formatTime(options.timestamp);
         const contentElement = document.createElement('div');
 
         if (role === 'user') {
@@ -1052,6 +1094,20 @@
         messagesElement.appendChild(row);
         scrollToBottom(options.instant ? 'auto' : 'smooth');
         return contentElement;
+    }
+
+    function renderPersonaAvatar(persona) {
+        if (!persona) return '<i class="ri-sparkling-2-fill"></i>';
+        if (persona.iconUrl && persona.iconUrl.startsWith('http')) {
+            return '<img src="' + escapeHtml(persona.iconUrl) + '" alt="" class="avatar-img" onerror="this.remove()">';
+        }
+        if (persona.iconUrl && persona.iconUrl.startsWith('ri-')) {
+            return '<i class="' + escapeHtml(persona.iconUrl) + '"></i>';
+        }
+        if (persona.iconUrl) {
+            return '<span class="avatar-emoji">' + escapeHtml(persona.iconUrl) + '</span>';
+        }
+        return '<i class="ri-sparkling-2-fill"></i>';
     }
 
     function parseSseEvent(eventText) {
@@ -1118,7 +1174,7 @@
 
     function getSavedConversations() {
         try {
-            return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+            return JSON.parse(localStorage.getItem(storageKey()) || '[]');
         } catch (error) {
             return [];
         }
@@ -1134,7 +1190,7 @@
             updatedAt: Date.now(),
             messages: history
         });
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations.slice(0, 20)));
+        localStorage.setItem(storageKey(), JSON.stringify(conversations.slice(0, 20)));
     }
 
     function renderHistoryList() {
@@ -1220,10 +1276,19 @@
         let fullContent = '';
 
         try {
+            const requestBody = {
+                message: text,
+                history: requestHistory,
+                persona: activePersona.id,
+                sessionId: sessionId
+            };
+            if (activePersona.id !== 'default') {
+                requestBody.personaPrompt = true;
+            }
             const response = await fetch('/api/ai-assistant/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ message: text, history: requestHistory }),
+                body: JSON.stringify(requestBody),
                 signal: abortController.signal
             });
 
@@ -1352,6 +1417,254 @@
     });
 
     autoResizeInput();
+
+    // ========== Persona Management ==========
+
+    function getPersonaIconHtml(persona) {
+        if (!persona) return '<i class="ri-sparkling-2-fill"></i>';
+        if (persona.iconUrl && persona.iconUrl.startsWith('http')) {
+            return '<img src="' + escapeHtml(persona.iconUrl) + '" alt="">';
+        }
+        if (persona.iconUrl && persona.iconUrl.startsWith('ri-')) {
+            return '<i class="' + escapeHtml(persona.iconUrl) + '"></i>';
+        }
+        if (persona.iconUrl) {
+            return '<span class="pi-emoji">' + escapeHtml(persona.iconUrl) + '</span>';
+        }
+        return '<span class="pi-emoji">🤖</span>';
+    }
+
+    async function loadPersonas() {
+        if (loadingPersonas) return;
+        loadingPersonas = true;
+        try {
+            const resp = await fetch('/api/ai-assistant/personas');
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            const data = await resp.json();
+            personas = data.personas || [];
+            // 缓存
+            try { localStorage.setItem(PERSONA_LIST_KEY, JSON.stringify(personas)); } catch (e) {}
+            renderPersonaMenu();
+            // 确保当前 persona 仍存在
+            const stillExists = personas.some(p => p.id === activePersona.id);
+            if (!stillExists && personas.length > 0) {
+                switchPersona(personas[0]);
+            }
+        } catch (e) {
+            console.warn('加载 Persona 列表失败', e);
+            // 使用缓存的列表
+            try {
+                const cached = localStorage.getItem(PERSONA_LIST_KEY);
+                if (cached) {
+                    personas = JSON.parse(cached);
+                    renderPersonaMenu();
+                }
+            } catch (e2) {}
+        } finally {
+            loadingPersonas = false;
+        }
+    }
+
+    function renderPersonaMenu() {
+        const list = document.getElementById('personaList');
+        if (!list) return;
+        list.innerHTML = '';
+        personas.forEach(p => {
+            const item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'persona-menu-item' + (p.id === activePersona.id ? ' active' : '');
+            item.innerHTML = getPersonaIconHtml(p) + '<span>' + escapeHtml(p.displayName || p.id) + '</span>'
+                + (p.id === activePersona.id ? '<span class="pi-check"><i class="ri-check-line"></i></span>' : '');
+            item.addEventListener('click', () => {
+                switchPersona(p);
+                closePersonaMenu();
+            });
+            list.appendChild(item);
+        });
+    }
+
+    function switchPersona(persona) {
+        if (persona.id === activePersona.id) return;
+        // 保存当前对话
+        saveConversation();
+        // 切换 persona
+        activePersona = persona;
+        // 重置对话
+        history = [];
+        conversationId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+        messagesElement.replaceChildren();
+        // 更新 UI
+        updatePersonaUI();
+        // 加载该 persona 的历史
+        loadPersonaConversations();
+        // 更新 persona 菜单
+        renderPersonaMenu();
+    }
+
+    function updatePersonaUI() {
+        const icon = getPersonaIconHtml(activePersona);
+        // 按钮
+        const btnIcon = document.getElementById('personaButtonIcon');
+        const btnLabel = document.getElementById('personaButtonLabel');
+        if (btnIcon) btnIcon.innerHTML = icon;
+        if (btnLabel) btnLabel.textContent = activePersona.displayName || activePersona.id;
+        // 欢迎页
+        const welcomeAvatar = document.getElementById('welcomeAvatar');
+        const welcomeTitle = document.getElementById('welcomeTitle');
+        const welcomeSubtitle = document.getElementById('welcomeSubtitle');
+        if (welcomeAvatar) welcomeAvatar.innerHTML = icon;
+        if (welcomeTitle) welcomeTitle.textContent = activePersona.greeting || ('你好，我是 ' + (activePersona.displayName || 'AI 助手'));
+        if (welcomeSubtitle) {
+            const descs = {
+                'default': '我可以帮你管理博客文章、分类、标签和评论。',
+                'munger': '用多元思维模型帮你拆解问题。'
+            };
+            welcomeSubtitle.textContent = descs[activePersona.id] || '';
+        }
+        // 设置 brand color CSS 变量
+        if (activePersona.brandColor) {
+            document.documentElement.style.setProperty('--accent', activePersona.brandColor);
+        }
+    }
+
+    async function loadPersonaConversations() {
+        try {
+            const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations?sessionId=' + encodeURIComponent(sessionId));
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const convs = data.conversations || [];
+            // 加载最新的对话
+            if (convs.length > 0) {
+                try {
+                    const convResp = await fetch('/api/ai-assistant/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            persona: activePersona.id,
+                            sessionId: sessionId,
+                            message: '',
+                            history: [],
+                            loadConversation: convs[0].id
+                        })
+                    });
+                } catch (e) {}
+            }
+        } catch (e) {
+            console.warn('加载对话历史失败', e);
+        }
+    }
+
+    function openPersonaMenu() {
+        loadPersonas();
+        const menu = document.getElementById('personaMenu');
+        if (menu) menu.hidden = false;
+    }
+
+    function closePersonaMenu() {
+        const menu = document.getElementById('personaMenu');
+        if (menu) menu.hidden = true;
+    }
+
+    function togglePersonaMenu() {
+        const menu = document.getElementById('personaMenu');
+        if (menu) {
+            if (menu.hidden) openPersonaMenu();
+            else closePersonaMenu();
+        }
+    }
+
+    // ========== Session-based conversation save/load ==========
+
+    function saveConversationPerSession() {
+        if (!history.length || !sessionId) return;
+        // 服务端保存由后端处理，这里只做本地缓存
+        try {
+            const key = 'halo-ai-session-conv-' + activePersona.id;
+            const data = {
+                id: conversationId,
+                messages: history.slice(-20), // 只缓存最近20轮
+                updatedAt: Date.now()
+            };
+            localStorage.setItem(key, JSON.stringify(data));
+        } catch (e) {}
+    }
+
+    function loadSessionConversation() {
+        try {
+            const key = 'halo-ai-session-conv-' + activePersona.id;
+            const cached = localStorage.getItem(key);
+            if (cached) {
+                const data = JSON.parse(cached);
+                if (data.messages && data.messages.length > 0) {
+                    history = data.messages;
+                    conversationId = data.id;
+                    messagesElement.replaceChildren();
+                    welcomeElement.hidden = history.length > 0;
+                    history.forEach(msg => createMessage(msg.role, msg.content, { instant: true }));
+                    return true;
+                }
+            }
+        } catch (e) {}
+        return false;
+    }
+
+    // ========== Init ==========
+
+    // Override saveConversation to be persona-aware
+    const _origSaveConversation = saveConversation;
+    saveConversation = function() {
+        saveConversationPerSession();
+        // 也保存到全局历史记录（兼容旧版）
+        if (!history.length) return;
+        const conversations = getSavedConversations().filter(item => item.id !== conversationId);
+        const firstUserMessage = history.find(msg => msg.role === 'user');
+        conversations.unshift({
+            id: conversationId,
+            title: (firstUserMessage?.content || '新对话').slice(0, 42),
+            updatedAt: Date.now(),
+            messages: history.slice(),
+            personaId: activePersona.id
+        });
+        try {
+            localStorage.setItem(storageKey(), JSON.stringify(conversations.slice(0, 20)));
+        } catch (e) {}
+    };
+
+    // Init
+    document.addEventListener('DOMContentLoaded', () => {
+        loadPersonas();
+        // Try to load existing conversation for default persona
+        loadSessionConversation();
+    });
+
+    const personaButton = document.getElementById('personaButton');
+    const personaMenu = document.getElementById('personaMenu');
+    const managePersonaButton = document.getElementById('managePersonaButton');
+
+    if (personaButton) {
+        personaButton.addEventListener('click', (e) => {
+            e.stopPropagation();
+            togglePersonaMenu();
+        });
+    }
+
+    if (managePersonaButton) {
+        managePersonaButton.addEventListener('click', () => {
+            closePersonaMenu();
+            alert('Persona 管理功能即将推出。\n\n你可以通过上传 SKILL.md 文件来创建新的 AI 助手角色。\n目前可通过 Halo 插件后台配置。');
+        });
+    }
+
+    // Click outside to close menu
+    document.addEventListener('click', (e) => {
+        if (personaMenu && !personaMenu.hidden) {
+            const selector = document.querySelector('.persona-selector');
+            if (selector && !selector.contains(e.target)) {
+                closePersonaMenu();
+            }
+        }
+    });
+
 </script>
 </body>
 </html>
