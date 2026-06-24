@@ -43,6 +43,11 @@ public class PersonaController {
                         this::handleRenameConversation)
                 .DELETE("/api/ai-assistant/session/conversations",
                         this::handleClearSessionConversations)
+                .POST("/api/ai-assistant/persona/{id}/context/refine", this::handleRefineContext)
+                .GET("/api/ai-assistant/persona/{id}/context/download",
+                        this::handleDownloadContext)
+                .PUT("/api/ai-assistant/persona/{id}",
+                        this::handleUpdatePersona)
                 .build();
     }
 
@@ -244,6 +249,94 @@ public class PersonaController {
         return personaService.deleteSessionConversations(sessionId)
                 .then(ServerResponse.ok()
                         .bodyValue(Map.of("success", true)));
+    }
+
+
+
+    /**
+     * GET /api/ai-assistant/persona/{id}/context/download
+     * 导出上下文：自动提炼后直接返回合并后的 AGENTS.md（不追加原始对话）
+     */
+    private Mono<ServerResponse> handleDownloadContext(ServerRequest request) {
+        String personaId = request.pathVariable("id");
+        String sessionId = request.queryParam("sessionId").orElse("");
+
+        // 自动提炼：将未处理过的对话合并到 AGENTS.md（静默处理）
+        Mono<Void> autoRefine = Mono.justOrEmpty(sessionId)
+                .filter(s -> !s.isBlank())
+                .flatMap(s -> personaService.refineContext(personaId, sessionId)
+                        .doOnSuccess(merged -> log.info("导出前自动提炼成功"))
+                        .onErrorResume(e -> {
+                            log.debug("导出前自动提炼跳过: {}", e.getMessage());
+                            return Mono.empty();
+                        })
+                )
+                .then();
+
+        // 获取当前 AGENTS.md（提炼后已是最新版）
+        Mono<String> contextMono = personaService.getPersona(personaId)
+                .map(p -> {
+                    if (p.getSpec() == null) return "# (无数据)\n\nPersona 数据异常。";
+                    String ctx = p.getSpec().getContextContent();
+                    return ctx != null && !ctx.isBlank()
+                            ? ctx : "# (无上下文)\n\n尚未上传上下文文件。";
+                });
+
+        // 先自动提炼，再直接返回合并后的 AGENTS.md
+        return autoRefine.then(contextMono)
+                .flatMap(content -> {
+                    String filename = "context-" + personaId + ".md";
+                    return ServerResponse.ok()
+                            .header("Content-Disposition",
+                                    "attachment; filename=\"" + filename + "\"")
+                            .contentType(MediaType.TEXT_PLAIN)
+                            .bodyValue(content);
+                });
+    }
+
+    /**
+     * POST /api/ai-assistant/persona/{id}/context/refine
+     */    /**
+     * POST /api/ai-assistant/persona/{id}/context/refine
+     */
+    private Mono<ServerResponse> handleRefineContext(ServerRequest request) {
+        String personaId = request.pathVariable("id");
+        String sessionId = request.queryParam("sessionId").orElse("");
+        if (sessionId.isBlank()) {
+            return ServerResponse.badRequest().bodyValue(Map.of("error", "缺少 sessionId 参数"));
+        }
+        return personaService.refineContext(personaId, sessionId)
+                .flatMap(mergedContent -> ServerResponse.ok()
+                        .bodyValue(Map.of("success", true, "message", "上下文已拼接", "content", mergedContent)))
+                .onErrorResume(e -> {
+                    log.error("提炼上下文失败 personaId={}", personaId, e);
+                    return ServerResponse.badRequest()
+                            .bodyValue(Map.of("error", e.getMessage() != null ? e.getMessage() : "提炼失败"));
+                });
+    }
+
+    /**
+     * PUT /api/ai-assistant/persona/{id}
+     */
+    @SuppressWarnings("unchecked")
+    private Mono<ServerResponse> handleUpdatePersona(ServerRequest request) {
+        String personaId = request.pathVariable("id");
+        return request.bodyToMono(Map.class)
+                .flatMap(fields -> {
+                    return personaService.updatePersona(personaId, fields)
+                            .flatMap(persona -> {
+                                java.util.Map<String, Object> result = new java.util.HashMap<>();
+                                result.put("success", true);
+                                result.put("persona", toPersonaSummary((PersonaDefinition) persona));
+                                return ServerResponse.ok().bodyValue(result);
+                            });
+                })
+                .onErrorResume(e -> {
+                    log.error("更新 Persona 失败", e);
+                    java.util.Map<String, Object> err = new java.util.HashMap<>();
+                    err.put("error", ((Throwable)e).getMessage() != null ? ((Throwable)e).getMessage() : "更新失败");
+                    return ServerResponse.badRequest().bodyValue(err);
+                });
     }
 
     // ========== 数据转换 ==========

@@ -24,12 +24,16 @@ import reactor.core.publisher.Mono;
 import run.halo.app.extension.Metadata;
 import run.halo.app.extension.ReactiveExtensionClient;
 
+import run.halo.app.plugin.ReactiveSettingFetcher;
+import io.codex.haloaiassistant.config.AiAssistantSetting;
+import org.springframework.web.reactive.function.client.WebClient;
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class PersonaService {
 
     private final ReactiveExtensionClient client;
+    private final ReactiveSettingFetcher settingFetcher;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final long MAX_SKILL_SIZE = 100 * 1024; // 100KB
@@ -221,6 +225,9 @@ public class PersonaService {
                                                           String greeting, String thinkingPhrases) {
         return client.fetch(PersonaDefinition.class, id)
                 .flatMap(existing -> {
+                    // 保存已上传的上下文（initBuiltinPersonas 时不要覆盖它）
+                    String savedContext = existing.getSpec() != null ? existing.getSpec().getContextContent() : null;
+
                     // 已存在则更新所有字段
                     existing.getSpec().setDisplayName(displayName);
                     existing.getSpec().setDescription(description);
@@ -230,6 +237,10 @@ public class PersonaService {
                     existing.getSpec().setGreeting(greeting);
                     existing.getSpec().setThinkingPhrases(thinkingPhrases);
                     existing.getSpec().setUpdatedAt(Instant.now());
+                    // 恢复已上传的上下文，不被覆盖
+                    if (savedContext != null) {
+                        existing.getSpec().setContextContent(savedContext);
+                    }
                     return client.update(existing);
                 })
                 .switchIfEmpty(Mono.defer(() -> {
@@ -251,7 +262,27 @@ public class PersonaService {
                     spec.setUpdatedAt(Instant.now());
                     persona.setSpec(spec);
                     return client.create(persona);
-                }));
+                }))
+                .onErrorResume(e -> {
+                    log.warn("createBuiltinPersona({}) fetch失败，尝试直接创建: {}", id, e.getMessage());
+                    PersonaDefinition persona = new PersonaDefinition();
+                    Metadata metadata = new Metadata();
+                    metadata.setName(id);
+                    persona.setMetadata(metadata);
+                    PersonaDefinition.PersonaSpec spec = new PersonaDefinition.PersonaSpec();
+                    spec.setDisplayName(displayName);
+                    spec.setDescription(description);
+                    spec.setIconUrl(iconUrl);
+                    spec.setBrandColor(brandColor);
+                    spec.setSystemPrompt(systemPrompt);
+                    spec.setGreeting(greeting);
+                    spec.setThinkingPhrases(thinkingPhrases);
+                    spec.setBuiltin(true);
+                    spec.setCreatedAt(Instant.now());
+                    spec.setUpdatedAt(Instant.now());
+                    persona.setSpec(spec);
+                    return client.create(persona);
+                });
     }
 
     private String loadMungerSystemPrompt() {
@@ -304,6 +335,45 @@ public class PersonaService {
                         })
                         .switchIfEmpty(Mono.error(
                                 new IllegalArgumentException("Persona " + personaId + " 不存在"))));
+    }
+
+    /**
+     * 更新 Persona 可配置字段
+     */
+    public Mono<PersonaDefinition> updatePersona(String personaId, java.util.Map<String, Object> fields) {
+        return client.fetch(PersonaDefinition.class, personaId)
+                .flatMap(existing -> {
+                    var spec = existing.getSpec();
+                    if (spec == null) {
+                        return Mono.<PersonaDefinition>error(
+                                new IllegalArgumentException("Persona 数据异常"));
+                    }
+                    if (fields.containsKey("displayName")) {
+                        spec.setDisplayName((String) fields.get("displayName"));
+                    }
+                    if (fields.containsKey("iconUrl")) {
+                        spec.setIconUrl((String) fields.get("iconUrl"));
+                    }
+                    if (fields.containsKey("greeting")) {
+                        spec.setGreeting((String) fields.get("greeting"));
+                    }
+                    if (fields.containsKey("thinkingPhrases")) {
+                        spec.setThinkingPhrases((String) fields.get("thinkingPhrases"));
+                    }
+                    if (fields.containsKey("brandColor")) {
+                        spec.setBrandColor((String) fields.get("brandColor"));
+                    }
+                    if (fields.containsKey("systemPrompt")) {
+                        spec.setSystemPrompt((String) fields.get("systemPrompt"));
+                    }
+                    if (fields.containsKey("description")) {
+                        spec.setDescription((String) fields.get("description"));
+                    }
+                    spec.setUpdatedAt(java.time.Instant.now());
+                    return client.update(existing);
+                })
+                .switchIfEmpty(Mono.error(
+                        new IllegalArgumentException("Persona " + personaId + " 不存在")));
     }
 
     // ========== Conversation CRUD ==========
@@ -538,4 +608,182 @@ public class PersonaService {
         }
         return conv;
     }
+    // ========== 上下文提炼（AI 合并对话到 AGENTS.md） ==========
+
+    /**
+     * 提炼上下文：将未处理过的对话消息发送给 AI，让 AI 将新洞察合并到
+     * 当前的 AGENTS.md 中（插入对应章节），返回完整的合并后的 AGENTS.md，
+     * 并保存到 PersonaDefinition.contextContent。
+     */
+    public Mono<String> refineContext(String personaId, String sessionId) {
+        // 1. 获取 AI 配置
+        Mono<AiAssistantSetting> settingMono = settingFetcher.fetch("basic", AiAssistantSetting.class)
+                .defaultIfEmpty(new AiAssistantSetting())
+                .onErrorResume(e -> {
+                    log.warn("获取 AI 配置失败，使用默认配置", e);
+                    return Mono.just(new AiAssistantSetting());
+                });
+
+        // 2. 获取当前 AGENTS.md
+        Mono<String> contextMono = client.fetch(PersonaDefinition.class, personaId)
+                .flatMap(p -> {
+                    if (p.getSpec() == null) {
+                        return Mono.<String>error(new IllegalArgumentException("Persona 数据异常"));
+                    }
+                    String ctx = p.getSpec().getContextContent();
+                    return Mono.justOrEmpty(ctx);
+                })
+                .switchIfEmpty(Mono.error(new IllegalArgumentException("Persona " + personaId + " 不存在或未上传上下文")));
+
+        // 3. 获取未提炼的对话消息
+        Mono<ConversationWithUnrefined> convMono = listConversations(sessionId, personaId)
+                .flatMap(list -> {
+                    if (list.isEmpty()) {
+                        return Mono.error(new IllegalArgumentException("该会话无对话记录"));
+                    }
+                    Conversation conv = list.get(0);
+                    var spec = conv.getSpec();
+                    if (spec == null || spec.getMessages() == null || spec.getMessages().isBlank()) {
+                        return Mono.error(new IllegalArgumentException("对话记录为空"));
+                    }
+                    ArrayNode allMessages = parseMessages(conv);
+                    int refinedCount = spec.getRefinedMessageCount();
+
+                    // 收集未提炼的消息（跳过 system 消息）
+                    StringBuilder sb = new StringBuilder();
+                    int newCount = 0;
+                    for (int i = refinedCount; i < allMessages.size(); i++) {
+                        JsonNode msg = allMessages.get(i);
+                        String role = msg.path("role").asText();
+                        if ("system".equals(role)) continue;
+                        String contentText = msg.path("content").asText();
+                        if (contentText.isBlank()) continue;
+                        String label = "user".equals(role) ? "用户" : "助手";
+                        sb.append(label).append("：").append(contentText).append("\n\n");
+                        newCount++;
+                    }
+
+                    if (newCount == 0) {
+                        return Mono.error(new IllegalArgumentException("没有新的对话需要提炼"));
+                    }
+                    return Mono.just(new ConversationWithUnrefined(conv, sb.toString(), refinedCount, newCount));
+                });
+
+        return Mono.zip(settingMono, contextMono, convMono)
+                .flatMap(tuple -> {
+                    AiAssistantSetting setting = tuple.getT1();
+                    String currentAgentsMd = tuple.getT2();
+                    ConversationWithUnrefined data = tuple.getT3();
+
+                    // 4. 构建 AI Prompt
+                    String prompt = buildRefinePrompt(currentAgentsMd, data.unrefinedText);
+
+                    // 5. 调用 AI API
+                    return callAiToRefine(setting, currentAgentsMd, prompt)
+                            .flatMap(mergedContent -> {
+                                // 6. 保存合并后的 AGENTS.md 到 PersonaDefinition
+                                return client.fetch(PersonaDefinition.class, personaId)
+                                        .flatMap(p -> {
+                                            p.getSpec().setContextContent(mergedContent);
+                                            p.getSpec().setUpdatedAt(Instant.now());
+                                            return client.update(p);
+                                        })
+                                        .then(Mono.defer(() -> {
+                                            // 7. 更新 Conversation 的 refinedMessageCount
+                                            int newCountValue = data.refinedCount + data.newCount;
+                                            data.conversation.getSpec().setRefinedMessageCount(newCountValue);
+                                            data.conversation.getSpec().setUpdatedAt(Instant.now());
+                                            return client.update(data.conversation);
+                                        }))
+                                        .thenReturn(mergedContent);
+                            });
+                });
+    }
+
+    /**
+     * 构建提炼 Prompt
+     */
+    private String buildRefinePrompt(String currentAgentsMd, String unrefinedText) {
+        return "你是一个知识文档维护助手。请分析下面新增的对话内容，"
+                + "从中提取出用户的个人画像、关注的主题、思维模型、偏好、待办事项等关键信息，"
+                + "然后将这些新信息插入到当前 AGENTS.md 文档的对应章节中。"
+                + "\n\n"
+                + "## 当前 AGENTS.md\n\n"
+                + currentAgentsMd
+                + "\n\n## 新增对话（需分析提取）\n\n"
+                + unrefinedText
+                + "\n\n请按以下要求操作：\n"
+                + "1. 分析新增对话，找出其中对用户画像、关注点、思维模式、偏好等有更新的信息\n"
+                + "2. 将这些新信息插入到当前 AGENTS.md 对应的章节中（不要删除或修改原有内容）\n"
+                + "3. 如果一个新信息没有合适的现有章节，在文档末尾新增一个章节\n"
+                + "4. **只返回完整的、更新后的 AGENTS.md 文档**，不要有任何额外的说明、评论或标记\n"
+                + "5. 保持 Markdown 格式与原有文档一致";
+    }
+
+    /**
+     * 调用 AI 接口进行上下文提炼
+     */
+    private Mono<String> callAiToRefine(AiAssistantSetting setting, String currentAgentsMd, String prompt) {
+        String endpoint = setting.getApiEndpoint().replaceAll("/+$", "");
+        if (!endpoint.endsWith("/v1")) {
+            endpoint += "/v1";
+        }
+
+        // 估算 AGENTS.md 大小，设置合适的 max_tokens
+        int estimatedCurrent = estimateTokens(currentAgentsMd);
+        int outputTokens = Math.max(estimatedCurrent + 2000, 8192);
+        int configuredMax = setting.getMaxTokens() != null && setting.getMaxTokens() > 0
+                ? setting.getMaxTokens() : 16384;
+        outputTokens = Math.min(outputTokens, configuredMax);
+
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("model", setting.getModel() != null ? setting.getModel() : "deepseek-chat");
+        body.put("max_tokens", outputTokens);
+        ArrayNode messages = body.putArray("messages");
+        messages.addObject().put("role", "system")
+                .put("content", "你是一个专业的文档编辑助手，擅长分析对话并维护 Markdown 知识文档。");
+        messages.addObject().put("role", "user").put("content", prompt);
+
+        String apiKey = setting.getApiKey();
+        if (apiKey == null || apiKey.isBlank()) {
+            return Mono.error(new IllegalArgumentException("AI API Key 未配置，请在插件设置中配置"));
+        }
+
+        return WebClient.create().post()
+                .uri(endpoint + "/chat/completions")
+                .header("Authorization", "Bearer " + apiKey)
+                .header("Content-Type", "application/json")
+                .bodyValue(body)
+                .exchangeToMono(response -> response.bodyToMono(String.class)
+                        .defaultIfEmpty("")
+                        .flatMap(raw -> response.statusCode().isError()
+                                ? Mono.error(new RuntimeException("AI API 返回错误: " + response.statusCode().value() + " " + raw))
+                                : Mono.just(raw)))
+                .map(raw -> {
+                    try {
+                        String merged = objectMapper.readTree(raw)
+                                .path("choices").path(0)
+                                .path("message").path("content").asText("");
+                        if (merged.isBlank()) {
+                            return currentAgentsMd; // fallback: 返回原内容
+                        }
+                        return merged;
+                    } catch (Exception e) {
+                        log.error("解析 AI 提炼响应失败", e);
+                        return currentAgentsMd; // fallback
+                    }
+                });
+    }
+
+    /**
+     * 内部类：承载 Conversation + 已解析的未提炼文本 + 计数
+     */
+    private record ConversationWithUnrefined(
+            Conversation conversation,
+            String unrefinedText,
+            int refinedCount,
+            int newCount) {}
+
+
+
 }

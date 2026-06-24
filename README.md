@@ -35,7 +35,7 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew test
 
 产物：`build/libs/halo-ai-assistant-2.24.0.jar`
 
-> 测试：19 个单元测试（PersonaUtils 12 + AutoOps 7），覆盖 token 估算、压缩逻辑、Reactor 异常处理、RSS 解析等。
+> 测试：20 个单元测试（PersonaUtils 12 + AutoOps 7），覆盖 token 估算、压缩逻辑、Reactor 异常处理、RSS 解析等。
 > 注：PersonaService 集成测试需在 Halo 运行时验证（`ReactiveExtensionClient` 为 compileOnly）。
 
 ## 安装
@@ -44,17 +44,10 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew test
 2. 打开插件设置，配置 API Key、模型、页面标题/图标/欢迎语等
 3. 聊天页面：`https://你的域名/api/ai-assistant/chat-page`
 
+
 ### 热部署
 
-替换 JAR 后 Halo 自动热加载（约 15-30s），无需重启容器：
-
-```bash
-# 一键构建 + 部署
-cd halo-ai-assistant && \
-  JAVA_HOME=/path/to/jdk-21 ./gradlew clean build && \
-  scp build/libs/halo-ai-assistant-2.24.0.jar root@your-server:/tmp/ && \
-  ssh root@your-server "docker cp /tmp/halo-ai-assistant-2.24.0.jar <container>:/root/.halo2/plugins/"
-```
+替换 JAR 后 Halo 自动热加载（约 15-30s），无需重启容器。
 
 ## 配置文件
 
@@ -104,24 +97,10 @@ description: 简短描述
 
 ## 部署到服务器
 
-### 一键构建 + 热部署
-
-```bash
-cd /Users/zhangjianmin/project/halo-ai-assistant && \
-  JAVA_HOME=/path/to/jdk-21 ./gradlew clean build && \
-  scp build/libs/halo-ai-assistant-2.24.0.jar root@your-server:/tmp/ && \
-  ssh root@your-server "docker cp /tmp/halo-ai-assistant-2.24.0.jar <container>:/root/.halo2/plugins/"
-```
-
-> 替换 JAR 后 Halo 自动热加载（约 15-30s），无需重启容器。
-
-### 数据库直接更新 Persona
-
-```sql
-UPDATE extensions SET data = JSON_SET(CONVERT(data USING utf8mb4),
-  '$.spec.iconUrl', 'https://your.domain/upload/image.png')
-WHERE name = '/registry/.../personadefinitions/default';
-```
+1. 本地构建：`JAVA_HOME=/path/to/jdk-21 ./gradlew clean build`
+2. 产物：`build/libs/halo-ai-assistant-2.24.0.jar`
+3. 通过 **1Panel 后台 → 插件 → 上传 JAR** 上传部署
+4. Halo 自动热加载，无需重启容器
 
 ## 架构
 
@@ -155,6 +134,17 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew test
 
 > 测试覆盖：Token 估算（中/英/混合）、压缩判断、消息裁剪、Reactor defer 异常处理、null publisher 兜底、RSS 源解析、去重逻辑。
 
+
+
+## 上下文导出与提炼
+
+| API | 方法 | 说明 |
+|-----|------|------|
+| `/api/ai-assistant/persona/{id}/context/download?sessionId=xxx` | GET | 导出：自动提炼 + 返回合并后的 AGENTS.md |
+| `/api/ai-assistant/persona/{id}/context/refine?sessionId=xxx` | POST | 仅提炼，不下 |
+| `/api/ai-assistant/persona/{id}/context` | POST | 上传 AGENTS.md |
+
+导出流程：点击导出 → 自动提炼（新对话 AI 合并到 AGENTS.md）→ 只返回合并后的 AGENTS.md（不追加原始对话）。
 ## License
 
 [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.html)

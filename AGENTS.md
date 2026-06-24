@@ -14,7 +14,7 @@
 | **构建** | `JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build` |
 | **产物** | `build/libs/halo-ai-assistant-<version>.jar` |
 | **Halo 版本** | 2.22.5+ |
-| **部署** | SSH 一键自动化（见下方「自动部署」） |
+| **部署** | ⚠️ 不推荐自动部署，见下方「⚠️ 部署方式说明」 |
 
 > **注意**：Codex CLI 内置 JDK 21 路径：`/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home`。构建时必须通过 `JAVA_HOME` 指定该路径，否则默认 JDK 为 Java 8 会导致构建失败。
 
@@ -136,29 +136,42 @@ if (tertiaryEnabled) fireInBackground("技术猎手", () -> runTertiaryPipeline(
 
 ---
 
-## 🚀 自动部署
+## ⚠️ 部署方式说明（重要）
+
+> **不推荐 Codex 自动部署**。之前尝试 SCP + Docker cp 自动部署，失败率很高（容器重启超时、健康检查过长、路由注册未生效等）。
+> **推荐方式**：在本地构建 JAR，通过 **1Panel 后台 → 插件 → 上传 JAR** 手动上传部署。
+> 
+> Halo 2 有插件文件监听器，替换 JAR 后自动热加载（约 15-30s），**无需重启容器**。
 
 ### 服务器信息
+
 | 项目 | 值 |
 |------|-----|
 | **域名** | wizardj.cn |
+| **Halo 版本** | halohub/halo-pro:2.22.8 |
 | **Docker 容器** | `1Panel-halo-GOvD` |
 | **插件目录** | `/root/.halo2/plugins/` |
+| **JAR 命名** | `ai-assistant-2.24.jar` |
 | **SSH** | `root@wizardj.cn`（密钥 `~/.ssh/id_ed25519`） |
 
-### 一键构建 + 热部署（不重启容器）
+### 构建（本地 macOS）
+
 ```bash
 cd /Users/zhangjianmin/project/halo-ai-assistant && \
-  JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build && \
-  scp build/libs/halo-ai-assistant-2.24.0.jar root@wizardj.cn:/tmp/ai-assistant-latest.jar && \
-  ssh root@wizardj.cn "docker cp /tmp/ai-assistant-latest.jar 1Panel-halo-GOvD:/root/.halo2/plugins/ai-assistant-2.24.0.jar"
+JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build -x test
 ```
 
-> **不要 \`docker restart\` 容器**：Halo 2 有插件文件监听器，替换 JAR 后自动热加载（约 15-30s）。重启容器会导致 502 持续 1-2 分钟。若热加载未生效再考虑重启。
+产物：`build/libs/halo-ai-assistant-2.24.0.jar`
 
-### 验证部署（查看服务器日志）
+### 部署（手动）
+
+1. 构建后得到 `halo-ai-assistant-2.24.0.jar`
+2. 登录 1Panel → 插件 → 上传 JAR 文件
+3. Halo 自动热加载，无需重启
+
+### 验证日志
 ```bash
-ssh root@wizardj.cn "docker logs --tail 50 1Panel-halo-GOvD 2>&1 | grep -iE '已注册工具|autoTag|已启动插件|Persona|error'"
+ssh root@wizardj.cn "docker logs --tail 50 1Panel-halo-GOvD 2>&1 | grep -iE 'PersonaDefinition|已注册|已初始|AI 智能'"
 ```
 
 ### 关键设计决策
@@ -285,3 +298,93 @@ bfeba86 v2.23: 多Persona并行管道、新闻评分重排序、代码清理
 bb5499a v1.2.2: fix RSS fetch (2MB buffer, 5s timeout), AGENTS/README docs
 8c1d74e feat: initial Halo AI assistant plugin
 ```
+
+
+
+## 上下文提炼与导出
+
+### 设计原则
+
+- **AGENTS.md 保留不动** - 已上传的内容不过大模型
+- **只提炼增量对话** - 从 `refinedMessageCount` 开始只处理新增的消息
+- **AI 合并到对应章节** - 分析新对话找出新洞察，插入 AGENTS.md 对应章节
+- **返回完整合并文档** - 保存回服务端
+
+### 导出流程（单按钮）
+
+```
+点击导出 → 自动提炼（有新对话则 AI 合并到 AGENTS.md）→ 返回合并后的 AGENTS.md
+```
+
+**不追加原始对话**到导出文件末尾。
+
+### 相关 API
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/ai-assistant/persona/{id}/context/download?sessionId=xxx` | GET | 先自动提炼，再返回合并后的 AGENTS.md |
+| `/api/ai-assistant/persona/{id}/context/refine?sessionId=xxx` | POST | 仅触发提炼，不下载 |
+| `/api/ai-assistant/persona/{id}/context` | POST | 上传 AGENTS.md（multipart） |
+
+### 导出 vs 提炼
+
+- **导出** = 自动提炼（如果🈶新对话）→ 只返回合并后的 AGENTS.md（不追加原始对话）
+- **提炼** = 将新对话中的洞察由 AI 合并到 AGENTS.md 对应章节
+
+### Conversation.refinedMessageCount
+
+`Conversation.ConversationSpec` 中的 `refinedMessageCount` 字段记录已提炼的消息条数。从 0 递增，下次 refine 只处理该索引之后的新消息。
+## 文件编辑注意事项（积累教训）
+
+### Python 脚本编辑 Java 文件易出错
+
+- 三引号字符串内的 `\\"` 和 `\n` 转义很容易出错
+- `content.replace()` 是全局替换，可能误改不期望的位置
+- 建议：逐个方法修改，每次修改后立即编译验证
+
+### PersonaController 布局
+
+`PersonaController.java` 中的方法分为三组：
+1. **routes** - `endpoints()` 方法中的路由注册
+2. **handlers** - 各 `handleXxx()` 方法（包括 handleDownloadContext、handleRefineContext、handleUpdatePersona）
+3. **data conversion** - `toPersonaSummary()` / `toConversationSummary()`
+
+新增 endpoint 时必须**同时**添加 route 和 handler。
+
+### CompileJava 类型推断问题
+
+Spring WebFlux 的 `flatMap` 链中 lambda 参数类型容易推断失败：
+- `.flatMap(persona -> toPersonaSummary(persona))` → 编译器无法推断 persona 类型
+- 修复：显式指定 `.flatMap((PersonaDefinition persona) -> toPersonaSummary(persona))`
+- 或使用 `toPersonaSummary((PersonaDefinition) persona)`
+
+## 扩展索引注册（重要！）
+
+**问题**：Halo 2.22.x 中 `schemeManager.register(Class)` 的简写方式不会自动创建扩展索引，导致 `client.fetch()`/`client.update()` 操作报错："No indices found for type"。
+
+**修复方案**：使用 `schemeManager.register(Class, Consumer<IndexSpecs>)` 显式注册 `metadata.name` 索引：
+
+```java
+schemeManager.register(PersonaDefinition.class, indexSpecs -> {
+    indexSpecs.add(
+        IndexSpecs.<PersonaDefinition, String>single("metadata.name", String.class)
+            .indexFunc(p -> p.getMetadata().getName())
+            .unique(true)
+            .nullable(false)
+            .build()
+    );
+});
+```
+
+**如果新增自定义扩展类**，必须检查：
+1. 确保 `@GVK` 注解正确
+2. 如果通过 `client.fetch()`/`get()`/`update()` 访问，必须显式注册 `metadata.name` 索引
+3. 如果只通过 `client.list()`（带谓词过滤）访问，基本注册（`schemeManager.register(Class)`）可能够用
+
+## 上下文导出功能
+
+- **原始导出**：`GET /api/ai-assistant/persona/{id}/context/download?sessionId=xxx`
+  - 返回 AGENTS.md + 对话历史的拼接内容（纯文本 markdown）
+  - 不经过大模型处理，不消耗 API 额度
+- **导出需包含**：原始 AGENTS.md 内容 + 完整对话历史
+- **导出不应包含**：Skill 内容（SKILL.md）、系统提示词

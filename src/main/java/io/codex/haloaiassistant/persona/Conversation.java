@@ -48,5 +48,12 @@ public class Conversation extends AbstractExtension {
 
         /** 压缩后的历史摘要 */
         private String summary;
+
+        /**
+         * 已提炼的消息条数。
+         * 从 0 开始累计，每次 refine 后更新为已处理的总消息数。
+         * 下次 refine 时只处理从该索引开始到末尾的消息。
+         */
+        private int refinedMessageCount;
     }
 }

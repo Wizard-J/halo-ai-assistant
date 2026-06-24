@@ -917,6 +917,12 @@
                                        background:transparent;cursor:pointer">
                             <i class="ri-file-text-line" aria-hidden="true"></i> 上传上下文 (AGENTS.md)
                         </button>
+                        <button class="persona-menu-item" id="exportContextButton" type="button"
+                                style="color:var(--text-muted);font-size:13px;width:100%;text-align:left;
+                                       padding:8px 12px;border:none;border-radius:8px;
+                                       background:transparent;cursor:pointer">
+                            <i class="ri-download-line" aria-hidden="true"></i> 导出上下文
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1954,7 +1960,7 @@
     if (managePersonaButton) {
         managePersonaButton.addEventListener('click', () => {
             closePersonaMenu();
-            alert('Persona 管理功能即将推出。\n\n你可以通过上传 SKILL.md 文件来创建新的 AI 助手角色。\n目前可通过 Halo 插件后台配置。');
+            openPersonaManager();
         });
     }
 
@@ -1993,6 +1999,32 @@
         });
     }
 
+    const exportContextButton = document.getElementById('exportContextButton');
+    if (exportContextButton) {
+        exportContextButton.addEventListener('click', async () => {
+            closePersonaMenu();
+            try {
+                let url = '/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/context/download';
+                if (sessionId) url += '?sessionId=' + encodeURIComponent(sessionId);
+                const resp = await fetch(url);
+                if (!resp.ok) {
+                    alert('导出失败: ' + resp.statusText);
+                    return;
+                }
+                const blob = await resp.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'AGENTS-' + activePersona.id + '.md';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(a.href);
+            } catch (e) {
+                alert('导出失败: ' + e.message);
+            }
+        });
+    }
+
     // Click outside to close menu
     document.addEventListener('click', (e) => {
         if (personaMenu && !personaMenu.hidden) {
@@ -2004,5 +2036,121 @@
     });
 
 </script>
+
+    // ========== Persona 管理面板 ==========
+
+    function openPersonaManager() {
+        renderPersonaManagerList();
+        document.getElementById('personaManagerBackdrop').hidden = false;
+        document.getElementById('personaManagerDrawer').classList.add('open');
+        document.getElementById('personaManagerDrawer').setAttribute('aria-hidden', 'false');
+    }
+
+    function closePersonaManager() {
+        document.getElementById('personaManagerBackdrop').hidden = true;
+        document.getElementById('personaManagerDrawer').classList.remove('open');
+        document.getElementById('personaManagerDrawer').setAttribute('aria-hidden', 'true');
+    }
+
+    document.getElementById('personaManagerClose').addEventListener('click', closePersonaManager);
+    document.getElementById('personaManagerBackdrop').addEventListener('click', closePersonaManager);
+
+    function renderPersonaManagerList() {
+        const container = document.getElementById('personaManagerList');
+        container.innerHTML = '';
+        personas.forEach(p => {
+            const card = document.createElement('div');
+            card.style.cssText = 'background:var(--surface-subtle);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px';
+            card.innerHTML = renderPersonaEditForm(p);
+            container.appendChild(card);
+            // 绑定事件
+            bindPersonaEditEvents(card, p);
+        });
+    }
+
+    function renderPersonaEditForm(p) {
+        const builtin = p.builtin;
+        const icon = getPersonaIconHtml(p);
+        const thinkingRaw = p.thinkingPhrases || '[]';
+        let thinkingStr = '';
+        try { thinkingStr = JSON.parse(thinkingRaw).join('\n'); } catch(e) { thinkingStr = thinkingRaw; }
+
+        return '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">'
+            + '<span style="font-size:24px">' + icon + '</span>'
+            + '<div><strong>' + escapeHtml(p.displayName || p.id) + '</strong>'
+            + (builtin ? '<span style="font-size:11px;color:var(--text-muted);margin-left:6px">内置</span>' : '')
+            + '<br><span style="font-size:12px;color:var(--text-muted)">' + escapeHtml(p.id) + '</span></div></div>'
+            + '<div style="display:grid;gap:10px">'
+            + '<label style="font-size:12px;color:var(--text-muted)">显示名称<input class="pe-field" data-field="displayName" data-pid="' + escapeHtml(p.id) + '" value="' + escapeHtml(p.displayName || '') + '" style="display:block;width:100%;margin-top:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px"></label>'
+            + '<label style="font-size:12px;color:var(--text-muted)">头像 URL / Remix 图标<input class="pe-field" data-field="iconUrl" data-pid="' + escapeHtml(p.id) + '" value="' + escapeHtml(p.iconUrl || '') + '" placeholder="ri-team-fill 或 https://..." style="display:block;width:100%;margin-top:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px"></label>'
+            + '<label style="font-size:12px;color:var(--text-muted)">欢迎语<input class="pe-field" data-field="greeting" data-pid="' + escapeHtml(p.id) + '" value="' + escapeHtml(p.greeting || '') + '" style="display:block;width:100%;margin-top:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px"></label>'
+            + '<label style="font-size:12px;color:var(--text-muted)">品牌色<input class="pe-field" data-field="brandColor" data-pid="' + escapeHtml(p.id) + '" value="' + escapeHtml(p.brandColor || '#2563eb') + '" style="display:block;width:100%;margin-top:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px"></label>'
+            + '<label style="font-size:12px;color:var(--text-muted)">思考短语（每行一个）<textarea class="pe-field" data-field="thinkingPhrases" data-pid="' + escapeHtml(p.id) + '" rows="3" style="display:block;width:100%;margin-top:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;resize:vertical">' + escapeHtml(thinkingStr) + '</textarea></label>'
+            + '<button class="pe-save-btn button button-primary" data-pid="' + escapeHtml(p.id) + '" style="align-self:flex-start;font-size:13px">保存</button>'
+            + '<span class="pe-status" style="font-size:12px;color:var(--success);margin-left:8px;display:none">已保存 ✓</span>'
+            + '</div>';
+    }
+
+    function bindPersonaEditEvents(card, p) {
+        const saveBtn = card.querySelector('.pe-save-btn');
+        const statusEl = card.querySelector('.pe-status');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', async () => {
+                const fields = {};
+                card.querySelectorAll('.pe-field').forEach(field => {
+                    const fname = field.dataset.field;
+                    if (fname === 'thinkingPhrases') {
+                        const lines = field.value.split('\n').map(l => l.trim()).filter(Boolean);
+                        fields[fname] = JSON.stringify(lines);
+                    } else {
+                        fields[fname] = field.value;
+                    }
+                });
+                try {
+                    statusEl.style.display = 'inline';
+                    statusEl.textContent = '保存中…';
+                    statusEl.style.color = 'var(--text-muted)';
+                    const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(p.id), {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(fields)
+                    });
+                    if (resp.ok) {
+                        const updated = await resp.json();
+                        statusEl.textContent = '已保存 ✓';
+                        statusEl.style.color = 'var(--success)';
+                        // 更新本地缓存
+                        const idx = personas.findIndex(pp => pp.id === p.id);
+                        if (idx >= 0) {
+                            personas[idx] = updated;
+                            if (activePersona.id === p.id) activePersona = updated;
+                        }
+                        // 更新 UI
+                        updatePersonaUI();
+                        renderPersonaMenu();
+                        // 1.5s 后隐藏
+                        setTimeout(() => { statusEl.style.display = 'none'; }, 1500);
+                    } else {
+                        const err = await resp.json().catch(() => ({}));
+                        statusEl.textContent = '失败: ' + (err.error || '未知错误');
+                        statusEl.style.color = 'var(--danger)';
+                    }
+                } catch (e) {
+                    statusEl.textContent = '网络错误';
+                    statusEl.style.color = 'var(--danger)';
+                }
+            });
+        }
+    }
+
+    <!-- Persona 管理面板 -->
+    <div class="drawer-backdrop" id="personaManagerBackdrop" hidden></div>
+    <div class="history-drawer" id="personaManagerDrawer" style="max-width:640px">
+        <div class="history-drawer-header">
+            <h3 class="history-drawer-title">管理角色</h3>
+            <button class="history-drawer-close" id="personaManagerClose">&times;</button>
+        </div>
+        <div id="personaManagerList" style="padding:16px;overflow-y:auto;max-height:calc(100vh - 140px)"></div>
+    </div>
 </body>
 </html>

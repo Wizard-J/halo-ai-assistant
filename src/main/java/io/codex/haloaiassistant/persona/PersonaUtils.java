@@ -63,4 +63,42 @@ public final class PersonaUtils {
         for (JsonNode node : retainedList) retained.add(node);
         return retained;
     }
+
+    /** 构建 AI 提炼 prompt（保留原文 + 对话记录，要求 AI 合并） */
+    public static String buildRefinePrompt(String existingContext, String history) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("请将以下内容合并提炼成一份完整的 AGENTS.md：\n\n");
+
+        if (existingContext != null && !existingContext.isBlank()) {
+            sb.append("=== 现有 AGENTS.md ===\n").append(existingContext).append("\n\n");
+        }
+
+        boolean hasHistory = history != null && !history.isBlank();
+        if (hasHistory) {
+            sb.append("=== 新增对话 ===\n").append(history).append("\n\n");
+        }
+
+        sb.append("请按以下要求操作：\n");
+        sb.append("1. 将现有 AGENTS.md 与新增的内容合并\n");
+        sb.append("2. 不得删除或修改现有 AGENTS.md 中的任何原有内容\n");
+        sb.append("3. 将新增信息插入到对应章节中\n");
+        sb.append("4. 如果没有合适章节，在末尾新建章节\n");
+        sb.append("5. **只返回完整的、更新后的 AGENTS.md 文档**，不要有任何额外说明\n");
+        sb.append("6. 保持 Markdown 格式与原有文档一致\n");
+        return sb.toString();
+    }
+
+    public static String buildExportContent(String contextContent, String historyStr) {
+        if (contextContent != null && !contextContent.isBlank()) {
+            if (historyStr != null && !historyStr.isBlank()) {
+                return contextContent + "\n\n---\n\n## 对话导出\n\n" + historyStr.trim() + "\n";
+            }
+            return contextContent;
+        }
+        if (historyStr != null && !historyStr.isBlank()) {
+            return "# 对话导出\n\n" + historyStr.trim() + "\n";
+        }
+        return "# (无内容)\n\n尚未上传上下文，也没有对话记录。\n";
+}
+
 }
