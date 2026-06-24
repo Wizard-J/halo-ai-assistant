@@ -18,7 +18,7 @@ public class AiAssistantSetting {
     private String pushTime = "today";
 
     // 页面显示配置
-    private String pageTitle = "AI 智能助手";
-    private String pageIcon = "🧠";
-    private String greeting = "你好，我是 Halo AI 智能助手";
+    private String pageTitle = "老巫师";
+    private String pageIcon = "🧙";
+    private String greeting = "你好，我是老巫师，巫师前沿站的AI助手";
 }

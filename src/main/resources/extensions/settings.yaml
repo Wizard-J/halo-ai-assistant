@@ -40,17 +40,17 @@ spec:
         - $formkit: text
           name: pageTitle
           label: 页面标题
-          value: "AI 智能助手"
+          value: "老巫师"
           help: "浏览器标签页和页面顶部的品牌名称"
         - $formkit: text
           name: pageIcon
           label: 页面图标
-          value: "🧠"
+          value: "🧙"
           help: "左上角品牌图标，Emoji 或 Remix 图标类名（如 ri-sparkling-2-fill）"
         - $formkit: text
           name: greeting
           label: 欢迎语
-          value: "你好，我是 Halo AI 智能助手"
+          value: "你好，我是老巫师，巫师前沿站的AI助手"
           help: "页面打开时显示的欢迎标题"
     - group: push
       label: 每日推送
