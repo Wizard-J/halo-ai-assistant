@@ -279,6 +279,29 @@ public class PersonaService {
                 + "请以上述角色身份回答用户问题。";
     }
 
+    // ========== 上下文上传 ==========
+
+    /**
+     * 上传上下文内容到某个 Persona
+     */
+    public Mono<PersonaDefinition> uploadContext(FilePart filePart, String personaId) {
+        return DataBufferUtils.join(filePart.content())
+                .map(dataBuffer -> {
+                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                    dataBuffer.read(bytes);
+                    DataBufferUtils.release(dataBuffer);
+                    return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+                })
+                .flatMap(content -> client.fetch(PersonaDefinition.class, personaId)
+                        .flatMap(existing -> {
+                            existing.getSpec().setContextContent(content);
+                            existing.getSpec().setUpdatedAt(java.time.Instant.now());
+                            return client.update(existing);
+                        })
+                        .switchIfEmpty(Mono.error(
+                                new IllegalArgumentException("Persona " + personaId + " 不存在"))));
+    }
+
     // ========== Conversation CRUD ==========
 
     /**

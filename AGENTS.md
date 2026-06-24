@@ -218,6 +218,28 @@ ssh root@wizardj.cn "docker exec 1Panel-mysql-Kqls mysql -uroot -pmysql_6fmwPP h
 
 > 注意：直接 `docker cp` 文件到 `/root/.halo2/attachments/upload/` 目录后，文件可通过 `/upload/文件名` 访问，但不会出现在 Halo 附件管理页面中。
 
+
+### 上下文压缩
+
+`PersonaService.compressConversation()` 在每次对话前自动检查消息总量。当 Token 数超过模型窗口的 70% 时触发压缩，保留最后 3 轮对话，加上系统提示说明早期内容已归档。估算逻辑区分中文字符（1.5 字符/token）和 ASCII 字符（3.5 字符/token）。
+
+```java
+private static final int DEFAULT_MODEL_WINDOW = 64000;  // deepseek-v4-flash
+private static final double TRIGGER_RATIO = 0.70;       // 70% 触发
+private static final int RESERVED_ROUNDS = 3;           // 保留最近 3 轮
+```
+
+### 上下文上传（AGENTS.md）
+
+Persona 支持上传上下文文件（如 AGENTS.md、prompt 指南等），内容会附加到 system prompt 的 `【上下文信息】` 段。
+
+- **API**: `POST /api/ai-assistant/persona/{id}/context`（multipart file）
+- **UI**: 角色切换菜单中"上传上下文 (AGENTS.md)"按钮
+- **存储**: PersonaDefinition.spec.contextContent 字段，服务端持久化
+- **限制**: 文件不超过 512KB，支持 .md/.txt/.adoc
+
+上传后的上下文在下次对话时自动生效（刷新页面后加载新 system prompt）。
+
 ## 编码规范
 
 - **Reactor 线程**：阻塞操作用 `Schedulers.boundedElastic()`

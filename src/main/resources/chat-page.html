@@ -873,6 +873,12 @@
                                        background:transparent;cursor:pointer">
                             <i class="ri-settings-3-line" aria-hidden="true"></i> 管理 Persona
                         </button>
+                        <button class="persona-menu-item" id="uploadContextButton" type="button"
+                                style="color:var(--text-muted);font-size:13px;width:100%;text-align:left;
+                                       padding:8px 12px;border:none;border-radius:8px;
+                                       background:transparent;cursor:pointer">
+                            <i class="ri-file-text-line" aria-hidden="true"></i> 上传上下文 (AGENTS.md)
+                        </button>
                     </div>
                 </div>
             </div>
@@ -1750,6 +1756,41 @@
         managePersonaButton.addEventListener('click', () => {
             closePersonaMenu();
             alert('Persona 管理功能即将推出。\n\n你可以通过上传 SKILL.md 文件来创建新的 AI 助手角色。\n目前可通过 Halo 插件后台配置。');
+        });
+    }
+
+    const uploadContextButton = document.getElementById('uploadContextButton');
+    if (uploadContextButton) {
+        uploadContextButton.addEventListener('click', () => {
+            closePersonaMenu();
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.md,.txt,.adoc,.mdx';
+            input.addEventListener('change', async () => {
+                const file = input.files?.[0];
+                if (!file) return;
+                if (file.size > 512 * 1024) {
+                    alert('文件大小不能超过 512KB');
+                    return;
+                }
+                try {
+                    const form = new FormData();
+                    form.append('file', file);
+                    const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/context', {
+                        method: 'POST',
+                        body: form
+                    });
+                    if (resp.ok) {
+                        alert('上下文已上传成功！\n刷新页面后新对话将包含该上下文。');
+                    } else {
+                        const err = await resp.json().catch(() => ({}));
+                        alert('上传失败: ' + (err.error || resp.statusText));
+                    }
+                } catch (e) {
+                    alert('上传失败: ' + e.message);
+                }
+            });
+            input.click();
         });
     }
 

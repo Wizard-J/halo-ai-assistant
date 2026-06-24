@@ -32,6 +32,7 @@ public class PersonaController {
         return RouterFunctions.route()
                 .GET("/api/ai-assistant/personas", this::handleListPersonas)
                 .POST("/api/ai-assistant/persona/upload", this::handleUploadPersona)
+                .POST("/api/ai-assistant/persona/{id}/context", this::handleUploadContext)
                 .DELETE("/api/ai-assistant/persona/{id}", this::handleDeletePersona)
                 .GET("/api/ai-assistant/persona/{id}/conversations", this::handleListConversations)
                 .DELETE("/api/ai-assistant/persona/{id}/conversations/{convId}",
@@ -101,6 +102,28 @@ public class PersonaController {
                 .map(dataBuffer -> {
                     DataBufferUtils.release(dataBuffer);
                     return "";
+                });
+    }
+
+    /**
+     * POST /api/ai-assistant/persona/{id}/context
+     * 上传上下文内容（如 AGENTS.md），附加到该 Persona 的 system prompt
+     */
+    private Mono<ServerResponse> handleUploadContext(ServerRequest request) {
+        String personaId = request.pathVariable("id");
+        return request.body(BodyExtractors.toMultipartData())
+                .flatMap(parts -> {
+                    Part filePart = parts.getFirst("file");
+                    if (!(filePart instanceof FilePart skillFile)) {
+                        return ServerResponse.badRequest()
+                                .bodyValue(Map.of("error", "请上传上下文文件"));
+                    }
+                    return personaService.uploadContext(skillFile, personaId)
+                            .flatMap(persona -> ServerResponse.ok()
+                                    .bodyValue(Map.of("success", true, "message", "上下文已上传")))
+                            .onErrorResume(IllegalArgumentException.class, e ->
+                                    ServerResponse.badRequest()
+                                            .bodyValue(Map.of("error", e.getMessage())));
                 });
     }
 

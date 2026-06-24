@@ -43,6 +43,9 @@ public class PersonaDefinition extends AbstractExtension {
         /** 欢迎语 */
         private String greeting;
 
+        /** 上传的上下文内容（如 AGENTS.md），附加到 system prompt */
+        private String contextContent;
+
         /** 是否为系统内置（不可删除） */
         private boolean builtin;
 

@@ -159,17 +159,68 @@ public class AiChatEndpoint {
                 systemPrompt = "你是一个智能博客助手，可以帮助用户管理博客。";
             }
 
-            // 构建带 system prompt 的完整消息列表
-            List<AgentService.ChatMessage> fullHistory = new ArrayList<>();
-            fullHistory.add(new AgentService.ChatMessage("system", systemPrompt));
-            fullHistory.addAll(history);
+            // 追加 Persona 上下文内容（如 AGENTS.md）
+            final String finalSystemPrompt;
+            String contextContent = persona.getSpec() != null
+                    ? persona.getSpec().getContextContent() : null;
+            if (contextContent != null && !contextContent.isBlank()) {
+                finalSystemPrompt = systemPrompt + "\n\n【上下文信息】\n" + contextContent;
+            } else {
+                finalSystemPrompt = systemPrompt;
+            }
 
-            // 流式返回（暂时简化，后续迭代加入服务端持久化）
-            return ServerResponse.ok()
-                    .header("Content-Type", "text/event-stream; charset=utf-8")
-                    .header("Cache-Control", "no-cache")
-                    .body(BodyInserters.fromProducer(
-                            agentService.chat(fullHistory), String.class));
+            // 加载服务端对话历史 + 压缩
+            return personaService.getOrCreateConversation(sessionId, personaId)
+                    .flatMap(conv -> {
+                        // 压缩过长的对话
+                        personaService.compressConversation(conv);
+
+                        // 构建完整消息列表
+                        List<AgentService.ChatMessage> fullHistory = new ArrayList<>();
+                        fullHistory.add(new AgentService.ChatMessage("system", finalSystemPrompt));
+
+                        // 添加服务端已有的历史消息
+                        ArrayNode serverMessages = conv.getSpec() != null
+                                ? conv.getSpec().getMessages() : null;
+                        if (serverMessages != null) {
+                            for (JsonNode msg : serverMessages) {
+                                fullHistory.add(new AgentService.ChatMessage(
+                                        msg.path("role").asText(),
+                                        msg.path("content").asText()));
+                            }
+                        }
+
+                        // 添加当前会话的用户消息（history 已包含 body.history + body.message）
+                        // 跳过第一个 system 消息，从第一条 user 消息开始追加
+                        for (AgentService.ChatMessage msg : history) {
+                            if (!"system".equals(msg.role())) {
+                                fullHistory.add(msg);
+                            }
+                        }
+
+                        // 保存服务端持久化（追加本次用户消息）
+                        // 异步保存，不阻塞流式响应
+                        ArrayNode messagesJson = objectMapper.createArrayNode();
+                        for (AgentService.ChatMessage msg : history) {
+                            if (!"system".equals(msg.role())) {
+                                ObjectNode msgNode = objectMapper.createObjectNode();
+                                msgNode.put("role", msg.role());
+                                msgNode.put("content", msg.content());
+                                messagesJson.add(msgNode);
+                            }
+                        }
+                        if (messagesJson.size() > 0) {
+                            personaService.appendMessages(sessionId, personaId, messagesJson)
+                                    .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                                    .subscribe();
+                        }
+
+                        return ServerResponse.ok()
+                                .header("Content-Type", "text/event-stream; charset=utf-8")
+                                .header("Cache-Control", "no-cache")
+                                .body(BodyInserters.fromProducer(
+                                        agentService.chat(fullHistory), String.class));
+                    });
         });
     }
 
