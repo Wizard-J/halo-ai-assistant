@@ -1006,13 +1006,13 @@
     let loadingPersonas = false;
     let history = [];
     let conversationId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
-    let sessionId = getOrCreateSessionId();
-    let isStreaming = false;
-    let abortController = null;
-
     // 会话 ID：优先用服务端登录用户，无登录时回退到 localStorage
     let serverSessionId = null;
     let serverFetchDone = false;
+
+    let sessionId = getOrCreateSessionId();
+    let isStreaming = false;
+    let abortController = null;
 
     async function fetchServerSession() {
         if (serverFetchDone) return;
@@ -1762,6 +1762,10 @@
     document.addEventListener('DOMContentLoaded', () => {
         // 先获取登录用户的 session
         fetchServerSession().then(() => {
+            // 如果服务端有 session，替换之前 localStorage 生成的 sessionId
+            if (serverSessionId) {
+                sessionId = serverSessionId;
+            }
             loadPersonas();
             // Try to load existing conversation for default persona
             loadSessionConversation();
