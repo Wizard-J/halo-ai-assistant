@@ -1766,11 +1766,37 @@
             if (serverSessionId) {
                 sessionId = serverSessionId;
             }
-            loadPersonas();
-            // Try to load existing conversation for default persona
-            loadSessionConversation();
+            // 尝试加载服务端的最新对话
+            return loadServerConversation().then(loaded => {
+                if (!loaded) {
+                    // 没有服务端对话时，回退到 localStorage
+                    loadSessionConversation();
+                }
+                loadPersonas();
+            });
         });
     });
+
+    async function loadServerConversation() {
+        try {
+            const resp = await fetch('/api/ai-assistant/persona/'
+                + encodeURIComponent(activePersona.id)
+                + '/conversations/current?sessionId=' + encodeURIComponent(sessionId));
+            if (!resp.ok) return false;
+            const data = await resp.json();
+            const msgs = data.messages || [];
+            if (msgs.length === 0) return false;
+            history = msgs;
+            conversationId = data.id;
+            messagesElement.replaceChildren();
+            welcomeElement.hidden = false;
+            msgs.forEach(msg => createMessage(msg.role, msg.content, { instant: true }));
+            welcomeElement.hidden = true;
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
 
     const personaButton = document.getElementById('personaButton');
     const personaMenu = document.getElementById('personaMenu');

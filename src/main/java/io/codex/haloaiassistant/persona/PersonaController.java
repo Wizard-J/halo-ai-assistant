@@ -1,5 +1,6 @@
 package io.codex.haloaiassistant.persona;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -35,6 +36,7 @@ public class PersonaController {
                 .POST("/api/ai-assistant/persona/{id}/context", this::handleUploadContext)
                 .DELETE("/api/ai-assistant/persona/{id}", this::handleDeletePersona)
                 .GET("/api/ai-assistant/persona/{id}/conversations", this::handleListConversations)
+                .GET("/api/ai-assistant/persona/{id}/conversations/current", this::handleGetCurrentConversation)
                 .DELETE("/api/ai-assistant/persona/{id}/conversations/{convId}",
                         this::handleDeleteConversation)
                 .DELETE("/api/ai-assistant/session/conversations",
@@ -155,6 +157,41 @@ public class PersonaController {
                 .map(list -> list.stream().map(this::toConversationSummary).toList())
                 .flatMap(list -> ServerResponse.ok()
                         .bodyValue(Map.of("conversations", list)));
+    }
+
+    /**
+     * GET /api/ai-assistant/persona/{id}/conversations/current?sessionId=xxx
+     * 返回最新对话的完整消息列表
+     */
+    private Mono<ServerResponse> handleGetCurrentConversation(ServerRequest request) {
+        String personaId = request.pathVariable("id");
+        String sessionId = request.queryParam("sessionId").orElse("");
+        if (sessionId.isBlank()) {
+            return ServerResponse.badRequest()
+                    .bodyValue(Map.of("error", "缺少 sessionId 参数"));
+        }
+        return personaService.getOrCreateConversation(sessionId, personaId)
+                .map(conv -> {
+                    var spec = conv.getSpec();
+                    java.util.List<Map<String, String>> msgs = new java.util.ArrayList<>();
+                    ArrayNode raw = personaService.parseMessages(conv);
+                    if (raw != null) {
+                        for (JsonNode msg : raw) {
+                            Map<String, String> m = new java.util.HashMap<>();
+                            m.put("role", msg.path("role").asText());
+                            m.put("content", msg.path("content").asText());
+                            msgs.add(m);
+                        }
+                    }
+                    return Map.of(
+                            "id", conv.getMetadata().getName(),
+                            "messages", msgs,
+                            "title", spec != null ? spec.getTitle() : "",
+                            "updatedAt", spec != null && spec.getUpdatedAt() != null
+                                    ? spec.getUpdatedAt().toString() : ""
+                    );
+                })
+                .flatMap(data -> ServerResponse.ok().bodyValue(data));
     }
 
     /**
