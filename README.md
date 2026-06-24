@@ -1,203 +1,129 @@
 # Halo AI Assistant
 
-一款面向 [Halo 2](https://www.halo.run/) 的 AI 博客助手插件。它通过 OpenAI 兼容接口理解自然语言，管理文章、分类、标签和评论，并支持三组自动运维管线，以不同身份定时整理并发布优质内容。
+一款面向 [Halo 2](https://www.halo.run/) 的 AI 博客助手插件。支持自然语言管理博客、多角色 AI 助手（Persona 系统）、自动运维三人物管线、每日推送。
 
 ## 功能
 
-- 自然语言查看、创建、更新、删除文章
-- 管理文章分类、标签和评论
-- 对话历史、新建会话和流式响应
-- 每日自动读取 RSS/Atom 资讯
-- AI 筛选、去重、生成结构化日报
-- **三个人物管线**：
-  - **巫师前沿站**（`wizard-frontier`）— AI/科技前沿资讯，标签 `AI前沿`
-  - **书虫漫步**（`bookworm-wanderer`）— 人物传记/好书推荐，标签 `人物传记, 每日好书`
-  - **技术猎手**（`tech-hunter`）— 系统设计/工程实践，标签 `技术干货, 优质译文`
-- 自动创建专属作者
-- 自动发布或仅保存草稿
-- 测试按钮一键验证三组管线
+- **智能对话**：自然语言管理文章、分类、标签和评论，流式 SSE 响应
+- **多角色 Persona 系统**：
+  - **老巫师** 🧙 — 博客管理助手，默认角色
+  - **芒格视角** — 以查理·芒格的多元思维模型对话分析问题
+  - 支持上传 SKILL.md 自定义角色
+- **自动标签**：`autoTagArticles` 一键用 AI 分析所有文章标题并自动打标签
+- **自动运维**（三人物管线，定时执行）：
+  - **巫师前沿站** — AI/科技前沿资讯，标签 `AI前沿`
+  - **书虫漫步** — 人物传记/好书推荐，标签 `人物传记, 每日好书`
+  - **技术猎手** — 系统设计/工程实践，标签 `技术干货, 优质译文`
+- **每日推送**：通过 Server酱/PushPlus 推送到微信
+- **对话历史**：按 Persona + session 持久化
 
 ## 环境要求
 
-- Halo `2.20.0+`（开发与验证版本：`2.22.x`）
+- Halo `2.20.0+`（验证版本：`2.22.8`）
 - JDK `21+`
-- OpenAI 兼容的模型 API，例如 DeepSeek 或 OpenAI
+- OpenAI 兼容的模型 API（如 DeepSeek / OpenAI）
 
-## 构建
-
-```bash
-./gradlew clean build
-```
-
-构建产物位于：
-
-```text
-build/libs/halo-ai-assistant-1.2.0.jar
-```
-
-如安装了多个 JDK：
+## 快速构建
 
 ```bash
 JAVA_HOME=/path/to/jdk-21 ./gradlew clean build
 ```
 
+产物：`build/libs/halo-ai-assistant-2.24.0.jar`
+
 ## 安装
 
-1. 登录 Halo 管理后台。
-2. 进入"插件"页面。
-3. 上传 `build/libs` 下生成的 JAR。
-4. 启用"AI 智能助手"。
-5. 打开插件设置完成模型配置。
+1. 登录 Halo 管理后台 → 插件 → 上传 JAR → 启用
+2. 打开插件设置，配置 API Key、模型等
+3. 聊天页面：`https://你的域名/api/ai-assistant/chat-page`
 
-聊天页面地址：
+## 配置文件
 
-```text
-https://你的域名/api/ai-assistant/chat-page
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| Base URL | API 端点 | `https://api.deepseek.com` |
+| API Key | 模型密钥 | — |
+| 模型名称 | Chat 模型 | `deepseek-v4-flash` |
+| 最大 Token | 单次输出上限 | `16384` |
+| 页面标题 | 浏览器标签页 + 顶部品牌名 | `老巫师` |
+| 页面图标 | 左上角图标（Emoji / Remix 类名 / 图片 URL） | `🧙` |
+| 欢迎语 | 页面打开时显示的标题 | `你好，我是老巫师，巫师前沿站的AI助手` |
+
+## Persona 系统
+
+### 内置角色
+
+| ID | 名称 | 头像 | 说明 |
+|----|------|------|------|
+| `default` | 老巫师 | wizard-avatar.png | 博客管理助手 |
+| `munger` | 芒格视角 | munger.jpeg | 查理·芒格思维模型 |
+
+### 自定义角色
+
+上传 SKILL.md 文件可创建新角色。SKILL.md 格式：
+
+```markdown
+---
+name: 角色名称
+description: 简短描述
+---
+
+## 角色定义
+
+角色系统提示词...
 ```
 
-## 基本配置
+## 自动运维：三人物管线
 
-| 配置项 | 说明 | 示例 |
-| --- | --- | --- |
-| Base URL | OpenAI 兼容接口地址 | `https://api.deepseek.com` |
-| API Key | 模型服务密钥 | `sk-...` |
-| 模型名称 | Chat Completions 模型 | `deepseek-chat` |
-| 最大 Token 数 | 单次对话输出上限 | `2048` |
-| 系统提示词 | 助手角色与行为约束 | 默认即可 |
-| 页面标题 | 浏览器标签页和顶部的品牌名称 | `巫师前沿站` |
-| 页面图标 | 左上角品牌图标（Emoji 或 Remix 类名） | `🧠` 或 `ri-sparkling-2-fill` |
-| 欢迎语 | 页面打开时显示的欢迎标题 | `你好，我是巫师前沿站` |
+每天定时读取 RSS/Atom 来源 → AI 筛选 → 生成文章 → 保存/发布。
 
-> API Key 只应保存在 Halo 插件配置中，不要写入代码或提交到 Git。
+| 人物 | 作者 | 标签 | RSS 源类型 |
+|------|------|------|------------|
+| 巫师前沿站 | wizard-frontier | AI前沿 | 主要 60% + 次要 40% |
+| 书虫漫步 | bookworm-wanderer | 人物传记, 每日好书 | 独立人文源 |
+| 技术猎手 | tech-hunter | 技术干货, 优质译文 | 独立技术源 |
 
-## 自动运维：三个人物管线
+## 部署到服务器
 
-### 人物一：巫师前沿站
-
-自动运维任务在设定时间读取配置的 RSS/Atom 来源，筛选尚未处理的资讯，调用模型生成中文技术日报，并使用独立作者"巫师前沿站"保存或发布文章。
-
-- 主要 RSS 源（头条/重点来源，占 60% 配额）
-- 次要 RSS 源（补充来源，占 40% 配额）
-- 标签：`AI前沿`
-
-### 人物二：书虫漫步
-
-独立的人物管线，使用独立的 RSS 源和标签系统：
-
-- RSS 来源：人物传记、书评、人文类源
-- 标签：`人物传记, 每日好书`
-- 独立去重记录
-
-### 人物三：技术猎手
-
-独立的人物管线，关注深度技术内容：
-
-- RSS 来源：系统设计、架构、工程实践类源
-- 标签：`技术干货, 优质译文`
-- 独立去重记录
-
-### 测试自动运维
-
-聊天页顶部提供"测试自动运维"按钮。测试会同时检查三个人物的 RSS、AI、作者创建与文章写入，并始终生成草稿，不会自动发布，也不会占用正式任务的新闻去重记录。
-
-### 默认新闻来源
-
-**巫师前沿站 — 主要源（高优先级）：**
-
-- Hacker News（社区精选）
-- Ars Technica（深度技术）
-- InfoQ（软件工程）
-
-**巫师前沿站 — 次要源：**
-
-- GitHub Changelog
-- Cloudflare Blog
-- OpenAI News
-- Google AI Blog
-
-**书虫漫步：**
-
-- The Marginalian
-- The New Yorker Books
-- The Guardian Books
-- Aeon
-- LitHub
-
-**技术猎手：**
-
-- High Scalability
-- Martin Fowler
-- The Pragmatic Engineer
-- ByteByteGo
-- Quastor
-
-## 自动运维 + 每日推送
-
-### 整体流程
-
-```
-每天 08:00 — 自动运维生成文章
-    │
-每天 08:30 — 每日推送 → 微信
-    │
-1Panel 计划任务 ──curl──► 插件推送 API
-```
-
-### 配置推送
-
-1. 注册 [Server酱](https://sct.ftqq.com) 或 [PushPlus](https://pushplus.plus)
-2. Halo 后台 → 插件 → AI 智能助手 → 配置 → 每日推送
-3. 设置 1Panel 定时任务：
+### 一键构建 + 热部署
 
 ```bash
-curl -s "https://你的域名/plugins/ai-assistant/api/ai-assistant/daily-push?secret=你的密钥"
+cd /Users/zhangjianmin/project/halo-ai-assistant && \
+  JAVA_HOME=/path/to/jdk-21 ./gradlew clean build && \
+  scp build/libs/halo-ai-assistant-2.24.0.jar root@your-server:/tmp/ && \
+  ssh root@your-server "docker cp /tmp/halo-ai-assistant-2.24.0.jar <container>:/root/.halo2/plugins/"
+```
+
+> 替换 JAR 后 Halo 自动热加载（约 15-30s），无需重启容器。
+
+### 数据库直接更新 Persona
+
+```sql
+UPDATE extensions SET data = JSON_SET(CONVERT(data USING utf8mb4),
+  '$.spec.iconUrl', 'https://your.domain/upload/image.png')
+WHERE name = '/registry/.../personadefinitions/default';
 ```
 
 ## 架构
 
-```text
-Chat Page (可配置页面标题/图标/欢迎语)
-   │
-   ├── AgentService ── OpenAI-compatible API
-   │        │
-   │        └── ToolRegistry
-   │              ├── ArticleTool (+ tags)
-   │              ├── CategoryTool
-   │              ├── TagTool
-   │              └── CommentTool
-   │
-   └── AutoOpsService
-            ├── 人物一：巫师前沿站（AI前沿）
-            │     ├── 主要 RSS 源（60% 配额）
-            │     ├── 次要 RSS 源（40% 配额）
-            │     ├── AI 生成 → 标签 "AI前沿"
-            │     └── Halo Post + Snapshot
-            │
-            ├── 人物二：书虫漫步（人物传记/每日好书）
-            │     ├── 独立 RSS 源
-            │     ├── 独立去重记录
-            │     ├── AI 生成 → 标签 "人物传记, 每日好书"
-            │     └── Halo Post + Snapshot
-            │
-            └── 人物三：技术猎手（技术干货）
-                  ├── 独立 RSS 源
-                  ├── 独立去重记录
-                  ├── AI 生成 → 标签 "技术干货, 优质译文"
-                  └── Halo Post + Snapshot
 ```
-
-## 安全提示
-
-- 自动发布前建议先使用草稿模式观察一段时间。
-- RSS 和网页内容会被视为不可信输入，不能覆盖系统提示词。
-- 文章应保留来源链接及 AI 整理声明。
-- 控制每日新闻数量和 Token 上限，避免意外消耗。
-- 对外开放聊天接口前，建议在反向代理或 Halo 权限层增加访问控制。
+聊天页面（可配置标题/图标/欢迎语）
+  ├── AgentService ── AI API
+  │     └── ToolRegistry
+  │           ├── ArticleTool（+ autoTagArticles）
+  │           ├── CategoryTool
+  │           ├── TagTool
+  │           └── CommentTool
+  ├── Persona 系统（上传 SKILL.md / 内置角色）
+  │     ├── PersonaDefinition（角色定义）
+  │     └── Conversation（对话持久化）
+  └── AutoOpsService（三人物定时管线）
+```
 
 ## 查看日志
 
 ```bash
-docker logs -f <halo-container> | grep -E "自动运维|新闻源|巫师|书虫|技术猎手"
+docker logs -f <halo-container> | grep -E "已注册工具|autoTag|Persona|自动运维"
 ```
 
 ## License
