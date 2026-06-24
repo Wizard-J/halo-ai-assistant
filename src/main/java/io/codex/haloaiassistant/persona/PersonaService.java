@@ -207,7 +207,7 @@ public class PersonaService {
                 "你好，我是老巫师，巫师前沿站的AI助手")
                 .then(createBuiltinPersona("munger", "芒格视角",
                         "以查理·芒格的视角对话和分析问题。",
-                        "ri-team-fill", "#1E3A5F",
+                        "https://wizardj.cn/upload/munger.jpeg", "#1E3A5F",
                         loadMungerSystemPrompt(),
                         "你好，我是老芒格，有什么需要分析的？"))
                 .then();
