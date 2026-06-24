@@ -172,8 +172,15 @@ public class PersonaController {
             return ServerResponse.badRequest()
                     .bodyValue(Map.of("error", "缺少 sessionId 参数"));
         }
-        return personaService.getOrCreateConversation(sessionId, personaId)
-                .map(conv -> {
+        // 仅返回已有对话，不自动创建
+        return personaService.listConversations(sessionId, personaId)
+                .flatMap(list -> {
+                    if (list.isEmpty()) {
+                        return ServerResponse.ok()
+                                .bodyValue(Map.of("id", "", "messages", java.util.Collections.emptyList(),
+                                        "title", "", "updatedAt", ""));
+                    }
+                    Conversation conv = list.get(0);
                     var spec = conv.getSpec();
                     java.util.List<Map<String, String>> msgs = new java.util.ArrayList<>();
                     ArrayNode raw = personaService.parseMessages(conv);
@@ -185,15 +192,14 @@ public class PersonaController {
                             msgs.add(m);
                         }
                     }
-                    return Map.of(
+                    return ServerResponse.ok().bodyValue(Map.of(
                             "id", conv.getMetadata().getName(),
                             "messages", msgs,
                             "title", spec != null ? spec.getTitle() : "",
                             "updatedAt", spec != null && spec.getUpdatedAt() != null
                                     ? spec.getUpdatedAt().toString() : ""
-                    );
-                })
-                .flatMap(data -> ServerResponse.ok().bodyValue(data));
+                    ));
+                });
     }
 
     /**
@@ -251,6 +257,7 @@ public class PersonaController {
         if (spec != null) result.put("iconUrl", spec.getIconUrl());
         result.put("brandColor", spec != null ? spec.getBrandColor() : "#2563eb");
         result.put("greeting", spec != null ? spec.getGreeting() : "");
+        result.put("thinkingPhrases", spec != null && spec.getThinkingPhrases() != null ? spec.getThinkingPhrases() : "[]");
         result.put("builtin", spec != null && spec.isBuiltin());
         return result;
     }
@@ -262,8 +269,14 @@ public class PersonaController {
         result.put("title", spec != null ? spec.getTitle() : "");
         result.put("updatedAt", spec != null && spec.getUpdatedAt() != null
                 ? spec.getUpdatedAt().toString() : "");
-        result.put("messageCount", spec != null && spec.getMessages() != null
-                ? 0 : 0);
+        int msgCount = 0;
+        if (spec != null && spec.getMessages() != null) {
+            try {
+                var arr = objectMapper.readTree(spec.getMessages());
+                msgCount = arr.isArray() ? arr.size() : 0;
+            } catch (Exception e) { /* ignore */ }
+        }
+        result.put("messageCount", msgCount);
         return result;
     }
 }

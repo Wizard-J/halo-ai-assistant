@@ -692,29 +692,19 @@
             text-align: center;
         }
 
-        .history-item {
-            display: block;
-            width: 100%;
-            padding: 12px;
-            border: 0;
-            border-radius: 8px;
-            background: transparent;
-            color: var(--text);
-            text-align: left;
-            cursor: pointer;
-        }
-
-        .history-item:hover {
-            background: var(--surface-subtle);
-        }
         .history-item-wrap {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 2px;
+            border-radius: 8px;
+            overflow: hidden;
         }
-        .history-item-wrap button {
+        .history-item-wrap:hover {
+            background: var(--surface-subtle);
+        }
+        .history-item {
             flex: 1;
-            display: block;
+            min-width: 0;
             padding: 12px;
             border: 0;
             border-radius: 8px;
@@ -722,14 +712,15 @@
             color: var(--text);
             text-align: left;
             cursor: pointer;
+            font: inherit;
         }
-        .history-item-wrap button:hover {
-            background: var(--surface-subtle);
+        .history-item:hover {
+            background: transparent;
         }
-        .history-delete-btn {
+        .history-action-btn {
             flex: 0 0 auto;
-            width: 32px;
-            height: 32px;
+            width: 34px;
+            height: 34px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -738,16 +729,21 @@
             background: transparent;
             color: var(--text-muted, #999);
             cursor: pointer;
-            font-size: 16px;
+            font-size: 15px;
             opacity: 0;
             transition: opacity 0.15s, background 0.15s;
+            flex-shrink: 0;
         }
-        .history-item-wrap:hover .history-delete-btn {
+        .history-item-wrap:hover .history-action-btn {
             opacity: 1;
         }
-        .history-delete-btn:hover {
+        .history-action-btn:hover {
             background: rgba(239,68,68,0.12);
             color: #ef4444;
+        }
+        .history-action-btn.rename:hover {
+            background: rgba(59,130,246,0.12);
+            color: #3b82f6;
         }
 
         .history-item-title {
@@ -1046,6 +1042,8 @@
     let activePersona = { id: 'default', displayName: 'AI 智能助手', iconUrl: null, brandColor: '#2563eb', greeting: '你好，我是 Halo AI 智能助手' };
     let personas = [];
     let loadingPersonas = false;
+    let thinkingTimer = null;
+    let currentThinkingIdx = 0;
     let history = [];
     let conversationId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
     // 会话 ID：优先用服务端登录用户，无登录时回退到 localStorage
@@ -1308,6 +1306,36 @@
         return content;
     }
 
+    function getThinkingPhrases() {
+        try {
+            if (activePersona && activePersona.thinkingPhrases) {
+                const phrases = JSON.parse(activePersona.thinkingPhrases);
+                if (Array.isArray(phrases) && phrases.length > 0) return phrases;
+            }
+        } catch(e) {}
+        return [];
+    }
+
+    function cycleThinkingPhrase() {
+        const phrases = getThinkingPhrases();
+        if (!phrases.length) {
+            activityElement.querySelector('span:last-child').textContent = '正在连接 AI 服务…';
+            return;
+        }
+        currentThinkingIdx = (currentThinkingIdx + 1) % phrases.length;
+        activityElement.querySelector('span:last-child').textContent = phrases[currentThinkingIdx];
+    }
+
+    function startThinkingAnimation() {
+        currentThinkingIdx = -1;
+        cycleThinkingPhrase();
+        thinkingTimer = setInterval(cycleThinkingPhrase, 2200);
+    }
+
+    function stopThinkingAnimation() {
+        if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null; }
+    }
+
     function setStreamingState(streaming) {
         isStreaming = streaming;
         sendButton.hidden = streaming;
@@ -1315,6 +1343,11 @@
         toolButton.disabled = streaming;
         input.disabled = streaming;
         activityElement.hidden = !streaming;
+        if (streaming) {
+            startThinkingAnimation();
+        } else {
+            stopThinkingAnimation();
+        }
     }
 
     function autoResizeInput() {
@@ -1343,8 +1376,20 @@
         localStorage.setItem(storageKey(), JSON.stringify(conversations.slice(0, 20)));
     }
 
-    function renderHistoryList() {
-        const conversations = getSavedConversations();
+    async function renderHistoryList() {
+        let conversations = [];
+        try {
+            const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations?sessionId=' + encodeURIComponent(sessionId));
+            if (resp.ok) {
+                const data = await resp.json();
+                conversations = data.conversations || [];
+            }
+        } catch (e) {
+            console.warn('服务端获取对话失败', e);
+        }
+        if (!conversations.length) {
+            conversations = getSavedConversations();
+        }
         historyList.replaceChildren();
         if (!conversations.length) {
             const empty = document.createElement('p');
@@ -1360,11 +1405,11 @@
             wrap.className = 'history-item-wrap';
             const btn = document.createElement('button');
             btn.className = 'history-item';
-            btn.innerHTML = `<span class="history-item-title">${escapeHtml(conversation.title)}</span><span class="history-item-time">${new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(conversation.updatedAt)}</span>`;
+            btn.innerHTML = `<span class="history-item-title">${escapeHtml(conversation.title)}</span><span class="history-item-time">${new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(conversation.updatedAt))}</span>`;
             btn.addEventListener('click', () => loadConversation(conversation));
             wrap.appendChild(btn);
             const renameBtn = document.createElement('button');
-            renameBtn.className = 'history-delete-btn';
+            renameBtn.className = 'history-action-btn rename';
             renameBtn.innerHTML = '<i class="ri-edit-line"></i>';
             renameBtn.title = '重命名';
             renameBtn.addEventListener('click', (e) => {
@@ -1373,7 +1418,7 @@
             });
             wrap.appendChild(renameBtn);
             const delBtn = document.createElement('button');
-            delBtn.className = 'history-delete-btn';
+            delBtn.className = 'history-action-btn';
             delBtn.innerHTML = '<i class="ri-delete-bin-line"></i>';
             delBtn.title = '删除此对话';
             delBtn.addEventListener('click', (e) => {
@@ -1386,7 +1431,7 @@
     }
 
     function openHistory() {
-        renderHistoryList();
+        renderHistoryList().then(() => {}).catch(() => {});
         drawerBackdrop.hidden = false;
         historyDrawer.classList.add('open');
         historyDrawer.setAttribute('aria-hidden', 'false');
@@ -1415,10 +1460,20 @@
         scrollArea.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    function renameConversation(conv) {
+    async function renameConversation(conv) {
         const newTitle = prompt('输入新名称：', conv.title || '');
         if (!newTitle || newTitle === conv.title) return;
-        // 更新 localStorage
+        try {
+            await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id)
+                + '/conversations/' + encodeURIComponent(conv.id) + '/rename', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title: newTitle })
+            });
+        } catch (e) {
+            console.warn('服务端重命名失败', e);
+        }
+        // 同时更新 localStorage
         const convs = getSavedConversations().map(c => {
             if (c.id === conv.id) c.title = newTitle;
             return c;
@@ -1427,15 +1482,19 @@
         openHistory();
     }
 
-    function deleteConversation(conv) {
+    async function deleteConversation(conv) {
         if (!confirm('确认删除此对话？')) return;
-        // 从 localStorage 删除
+        try {
+            await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations/' + encodeURIComponent(conv.id), {
+                method: 'DELETE'
+            });
+        } catch (e) {
+            console.warn('服务端删除失败', e);
+        }
+        // 同时从 localStorage 删除
         const convs = getSavedConversations().filter(c => c.id !== conv.id);
         localStorage.setItem(storageKey(), JSON.stringify(convs.slice(0, 20)));
-        // 如果当前正在显示这个对话，清空
-        if (conv.id === conversationId) {
-            resetConversation();
-        }
+        if (conv.id === conversationId) resetConversation();
         openHistory();
     }
 
@@ -1745,26 +1804,19 @@
 
     async function loadPersonaConversations() {
         try {
-            const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations?sessionId=' + encodeURIComponent(sessionId));
+            const resp = await fetch('/api/ai-assistant/persona/'
+                + encodeURIComponent(activePersona.id)
+                + '/conversations/current?sessionId=' + encodeURIComponent(sessionId));
             if (!resp.ok) return;
             const data = await resp.json();
-            const convs = data.conversations || [];
-            // 加载最新的对话
-            if (convs.length > 0) {
-                try {
-                    const convResp = await fetch('/api/ai-assistant/chat', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            persona: activePersona.id,
-                            sessionId: sessionId,
-                            message: '',
-                            history: [],
-                            loadConversation: convs[0].id
-                        })
-                    });
-                } catch (e) {}
-            }
+            const msgs = data.messages || [];
+            if (msgs.length === 0) return;
+            history = msgs;
+            conversationId = data.id;
+            messagesElement.replaceChildren();
+            welcomeElement.hidden = false;
+            msgs.forEach(msg => createMessage(msg.role, msg.content, { instant: true }));
+            welcomeElement.hidden = true;
         } catch (e) {
             console.warn('加载对话历史失败', e);
         }

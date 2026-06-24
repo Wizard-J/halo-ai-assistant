@@ -46,6 +46,9 @@ public class PersonaDefinition extends AbstractExtension {
         /** 上传的上下文内容（如 AGENTS.md），附加到 system prompt */
         private String contextContent;
 
+        /** 思考/等待时的短语列表（JSON 数组），如：["摘下眼镜…","擦拭眼镜…"] */
+        private String thinkingPhrases;
+
         /** 是否为系统内置（不可删除） */
         private boolean builtin;
 

@@ -204,19 +204,21 @@ public class PersonaService {
                 + "- 管理分类和标签\n"
                 + "- 查看和管理评论\n"
                 + "请用友好的语气与用户交流。",
-                "你好，我是老巫师，巫师前沿站的AI助手")
+                "你好，我是老巫师，巫师前沿站的AI助手",
+                "[\"翻动古籍…\",\"挥动法杖\",\"念动咒语…\",\"推演星象…\",\"施展奥术…\"]")
                 .then(createBuiltinPersona("munger", "芒格视角",
                         "以查理·芒格的视角对话和分析问题。",
                         "https://wizardj.cn/upload/munger.jpeg", "#1E3A5F",
                         loadMungerSystemPrompt(),
-                        "你好，我是老芒格，有什么需要分析的？"))
+                        "你好，我是老芒格，有什么需要分析的？",
+                        "[\"摘下眼镜…\",\"擦拭镜片…\",\"翻看笔记…\",\"沉思片刻…\",\"整理思路…\"]"))
                 .then();
     }
 
     private Mono<PersonaDefinition> createBuiltinPersona(String id, String displayName,
                                                           String description, String iconUrl,
                                                           String brandColor, String systemPrompt,
-                                                          String greeting) {
+                                                          String greeting, String thinkingPhrases) {
         return client.fetch(PersonaDefinition.class, id)
                 .flatMap(existing -> {
                     // 已存在则更新所有字段
@@ -226,6 +228,7 @@ public class PersonaService {
                     existing.getSpec().setBrandColor(brandColor);
                     existing.getSpec().setSystemPrompt(systemPrompt);
                     existing.getSpec().setGreeting(greeting);
+                    existing.getSpec().setThinkingPhrases(thinkingPhrases);
                     existing.getSpec().setUpdatedAt(Instant.now());
                     return client.update(existing);
                 })
@@ -242,6 +245,7 @@ public class PersonaService {
                     spec.setBrandColor(brandColor);
                     spec.setSystemPrompt(systemPrompt);
                     spec.setGreeting(greeting);
+                    spec.setThinkingPhrases(thinkingPhrases);
                     spec.setBuiltin(true);
                     spec.setCreatedAt(Instant.now());
                     spec.setUpdatedAt(Instant.now());
@@ -321,24 +325,26 @@ public class PersonaService {
      * 列出某个 session + persona 的所有对话（按更新时间倒序）
      */
     public Mono<List<Conversation>> listConversations(String sessionId, String personaId) {
-        // 先获取所有 Conversation，再在内存中过滤（Halo 2 client.list 按谓词过滤可能受索引影响）
-        return client.list(Conversation.class, null, null)
+        log.debug("listConversations: sessionId={}, personaId={}", sessionId, personaId);
+        return client.listAll(Conversation.class, null, null)
                 .filter(conv -> conv.getSpec() != null
                         && sessionId.equals(conv.getSpec().getSessionId())
-                        && personaId.equals(conv.getSpec().getPersonaId()))
+                        && personaId.equals(conv.getSpec().getPersonaId())
+                        && (conv.getMetadata() == null || conv.getMetadata().getDeletionTimestamp() == null))
                 .sort((a, b) -> {
                     Instant ta = a.getSpec() != null ? a.getSpec().getUpdatedAt() : Instant.EPOCH;
                     Instant tb = b.getSpec() != null ? b.getSpec().getUpdatedAt() : Instant.EPOCH;
                     return tb.compareTo(ta);
                 })
-                .collectList();
+                .collectList()
+                .doOnSuccess(list -> log.debug("listConversations result count: {}", list.size()));
     }
 
     private Mono<Conversation> createConversation(String sessionId, String personaId) {
         // 检查该 session 的对话数量限制
-        return client.list(Conversation.class,
-                        conv -> conv.getSpec() != null && sessionId.equals(conv.getSpec().getSessionId()),
-                        null)
+        return client.listAll(Conversation.class, null, null)
+                .filter(conv -> conv.getSpec() != null && sessionId.equals(conv.getSpec().getSessionId())
+                        && (conv.getMetadata() == null || conv.getMetadata().getDeletionTimestamp() == null))
                 .count()
                 .flatMap(count -> {
                     if (count >= MAX_CONVERSATIONS_PER_SESSION) {

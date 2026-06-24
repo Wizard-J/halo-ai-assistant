@@ -4,7 +4,7 @@
 
 ## 功能
 
-- **智能对话**：自然语言管理文章、分类、标签和评论，流式 SSE 响应
+- **智能对话**：自然语言管理文章、分类、标签和评论，流式 SSE 响应，支持 Persona 思考短语动画
 - **多角色 Persona 系统**：
   - **老巫师** 🧙 — 博客管理助手，默认角色
   - **芒格视角** — 以查理·芒格的多元思维模型对话分析问题
@@ -26,16 +26,35 @@
 ## 快速构建
 
 ```bash
+# 完整构建（含编译 + 测试）
 JAVA_HOME=/path/to/jdk-21 ./gradlew clean build
+
+# 仅运行测试
+JAVA_HOME=/path/to/jdk-21 ./gradlew test
 ```
 
 产物：`build/libs/halo-ai-assistant-2.24.0.jar`
 
+> 测试：19 个单元测试（PersonaUtils 12 + AutoOps 7），覆盖 token 估算、压缩逻辑、Reactor 异常处理、RSS 解析等。
+> 注：PersonaService 集成测试需在 Halo 运行时验证（`ReactiveExtensionClient` 为 compileOnly）。
+
 ## 安装
 
 1. 登录 Halo 管理后台 → 插件 → 上传 JAR → 启用
-2. 打开插件设置，配置 API Key、模型等
+2. 打开插件设置，配置 API Key、模型、页面标题/图标/欢迎语等
 3. 聊天页面：`https://你的域名/api/ai-assistant/chat-page`
+
+### 热部署
+
+替换 JAR 后 Halo 自动热加载（约 15-30s），无需重启容器：
+
+```bash
+# 一键构建 + 部署
+cd halo-ai-assistant && \
+  JAVA_HOME=/path/to/jdk-21 ./gradlew clean build && \
+  scp build/libs/halo-ai-assistant-2.24.0.jar root@your-server:/tmp/ && \
+  ssh root@your-server "docker cp /tmp/halo-ai-assistant-2.24.0.jar <container>:/root/.halo2/plugins/"
+```
 
 ## 配置文件
 
@@ -53,10 +72,10 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew clean build
 
 ### 内置角色
 
-| ID | 名称 | 头像 | 说明 |
-|----|------|------|------|
-| `default` | 老巫师 | wizard-avatar.png | 博客管理助手 |
-| `munger` | 芒格视角 | munger.jpeg | 查理·芒格思维模型 |
+| ID | 名称 | 头像 | 思考短语 | 说明 |
+|----|------|------|------|------|
+| `default` | 老巫师 | wizard-avatar.png | 翻动古籍…挥动法杖…念动咒语… | 博客管理助手 |
+| `munger` | 芒格视角 | munger.jpeg | 摘下眼镜…擦拭眼镜…翻阅《穷查理宝典》… | 查理·芒格思维模型 |
 
 ### 自定义角色
 
@@ -116,6 +135,7 @@ WHERE name = '/registry/.../personadefinitions/default';
   │           └── CommentTool
   ├── Persona 系统（上传 SKILL.md / 内置角色）
   │     ├── PersonaDefinition（角色定义）
+  │     ├── PersonaUtils（Token 估算/压缩 纯函数）
   │     └── Conversation（对话持久化）
   └── AutoOpsService（三人物定时管线）
 ```
@@ -125,6 +145,15 @@ WHERE name = '/registry/.../personadefinitions/default';
 ```bash
 docker logs -f <halo-container> | grep -E "已注册工具|autoTag|Persona|自动运维"
 ```
+
+## 测试
+
+```bash
+# 运行所有单元测试（19 个）
+JAVA_HOME=/path/to/jdk-21 ./gradlew test
+```
+
+> 测试覆盖：Token 估算（中/英/混合）、压缩判断、消息裁剪、Reactor defer 异常处理、null publisher 兜底、RSS 源解析、去重逻辑。
 
 ## License
 
