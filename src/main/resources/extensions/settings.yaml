@@ -19,7 +19,7 @@ spec:
         - $formkit: text
           name: model
           label: 模型名称
-          value: "deepseek-chat"
+          value: "deepseek-v4-flash"
           help: "如 deepseek-chat、gpt-4o-mini 等"
         - $formkit: number
           name: maxTokens
