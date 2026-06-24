@@ -811,6 +811,28 @@
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+    /* Persona 菜单容器保证垂直排列 */
+    #personaList {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+    }
+    /* Persona 菜单项图标统一样式 */
+    .persona-menu-item > i:first-child,
+    .persona-menu-item > img:first-child,
+    .persona-menu-item > span:first-child {
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        font-size: 20px;
+        border-radius: 50%;
+    }
+    .persona-menu-item.active > i:first-child {
+        color: var(--active-color, #2563eb);
+    }
     </style>
 </head>
 <body>
@@ -1479,7 +1501,7 @@
         if (persona.iconUrl) {
             return '<span class="pi-emoji">' + escapeHtml(persona.iconUrl) + '</span>';
         }
-        return '<span class="pi-emoji">🤖</span>';
+        return '<i class="ri-sparkling-2-fill"></i>';
     }
 
     async function loadPersonas() {
@@ -1492,6 +1514,14 @@
             personas = data.personas || [];
             // 缓存
             try { localStorage.setItem(PERSONA_LIST_KEY, JSON.stringify(personas)); } catch (e) {}
+            // 用 API 数据刷新当前 activePersona
+            const match = personas.find(p => p.id === activePersona.id);
+            if (match) {
+                activePersona.displayName = match.displayName || activePersona.id;
+                if (match.iconUrl !== undefined) activePersona.iconUrl = match.iconUrl;
+                if (match.brandColor) activePersona.brandColor = match.brandColor;
+                if (match.greeting) activePersona.greeting = match.greeting;
+            }
             // 尝试恢复之前选中的 persona
             try {
                 const savedId = localStorage.getItem('halo-ai-active-persona');
@@ -1501,6 +1531,7 @@
                 }
             } catch(e) {}
             renderPersonaMenu();
+            updatePersonaUI();
             // 确保当前 persona 仍存在
             const stillExists = personas.some(p => p.id === activePersona.id);
             if (!stillExists && personas.length > 0) {
@@ -1514,6 +1545,7 @@
                 if (cached) {
                     personas = JSON.parse(cached);
                     renderPersonaMenu();
+            updatePersonaUI();
                 }
             } catch (e2) {}
         } finally {

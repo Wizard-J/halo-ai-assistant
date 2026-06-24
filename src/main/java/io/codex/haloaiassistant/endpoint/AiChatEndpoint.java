@@ -219,9 +219,9 @@ public class AiChatEndpoint {
 
                     String html = CHAT_PAGE_HTML
                             .replace("<title>AI 智能助手</title>", "<title>" + escapeHtml(title) + "</title>")
-                            .replace("AI 智能助手", escapeHtml(title))
                             .replace("你好，我是 Halo AI 智能助手",
-                                    escapeHtml(greeting));
+                                    escapeHtml(greeting))
+                            .replace("AI 智能助手", escapeHtml(title));
                     return ServerResponse.ok()
                             .header("Content-Type", "text/html; charset=utf-8")
                             .bodyValue(html);
