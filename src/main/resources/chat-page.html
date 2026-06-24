@@ -1343,27 +1343,8 @@
         localStorage.setItem(storageKey(), JSON.stringify(conversations.slice(0, 20)));
     }
 
-    async function renderHistoryList() {
-        // 优先从服务端获取对话列表
-        let conversations = [];
-        let serverFailed = false;
-        try {
-            const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations?sessionId=' + encodeURIComponent(sessionId));
-            if (resp.ok) {
-                const data = await resp.json();
-                conversations = data.conversations || [];
-            } else {
-                serverFailed = true;
-                console.warn('服务端获取对话失败:', resp.status, await resp.text().catch(()=>''));
-            }
-        } catch (e) {
-            serverFailed = true;
-            console.warn('服务端获取对话异常:', e);
-        }
-        // 服务端没有时回退到 localStorage
-        if (!conversations.length) {
-            conversations = getSavedConversations();
-        }
+    function renderHistoryList() {
+        const conversations = getSavedConversations();
         historyList.replaceChildren();
         if (!conversations.length) {
             const empty = document.createElement('p');
@@ -1437,29 +1418,25 @@
     function renameConversation(conv) {
         const newTitle = prompt('输入新名称：', conv.title || '');
         if (!newTitle || newTitle === conv.title) return;
-        fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id)
-            + '/conversations/' + encodeURIComponent(conv.id) + '/rename', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title: newTitle })
-        }).then(resp => {
-            if (resp.ok) openHistory();
-        }).catch(e => console.warn('重命名失败', e));
+        // 更新 localStorage
+        const convs = getSavedConversations().map(c => {
+            if (c.id === conv.id) c.title = newTitle;
+            return c;
+        });
+        localStorage.setItem(storageKey(), JSON.stringify(convs.slice(0, 20)));
+        openHistory();
     }
 
-    async function deleteConversation(conv) {
+    function deleteConversation(conv) {
         if (!confirm('确认删除此对话？')) return;
-        try {
-            const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations/' + encodeURIComponent(conv.id), {
-                method: 'DELETE'
-            });
-            if (resp.ok) {
-                // 重新加载历史列表
-                openHistory();
-            }
-        } catch (e) {
-            console.warn('删除对话失败', e);
+        // 从 localStorage 删除
+        const convs = getSavedConversations().filter(c => c.id !== conv.id);
+        localStorage.setItem(storageKey(), JSON.stringify(convs.slice(0, 20)));
+        // 如果当前正在显示这个对话，清空
+        if (conv.id === conversationId) {
+            resetConversation();
         }
+        openHistory();
     }
 
     function loadConversation(conversation) {
