@@ -39,6 +39,8 @@ public class PersonaController {
                 .GET("/api/ai-assistant/persona/{id}/conversations/current", this::handleGetCurrentConversation)
                 .DELETE("/api/ai-assistant/persona/{id}/conversations/{convId}",
                         this::handleDeleteConversation)
+                .PUT("/api/ai-assistant/persona/{id}/conversations/{convId}/rename",
+                        this::handleRenameConversation)
                 .DELETE("/api/ai-assistant/session/conversations",
                         this::handleClearSessionConversations)
                 .build();
@@ -202,6 +204,25 @@ public class PersonaController {
         return personaService.deleteConversation(convId)
                 .then(ServerResponse.ok()
                         .bodyValue(Map.of("success", true)));
+    }
+
+    /**
+     * PUT /api/ai-assistant/persona/{id}/conversations/{convId}/rename
+     */
+    private Mono<ServerResponse> handleRenameConversation(ServerRequest request) {
+        String convId = request.pathVariable("convId");
+        return request.bodyToMono(Map.class)
+                .flatMap(body -> {
+                    String newTitle = (String) body.get("title");
+                    if (newTitle == null || newTitle.isBlank()) {
+                        return ServerResponse.badRequest()
+                                .bodyValue(Map.of("error", "标题不能为空"));
+                    }
+                    return personaService.updateConversationTitle(convId, newTitle)
+                            .then(ServerResponse.ok().bodyValue(Map.of("success", true)))
+                            .onErrorResume(e -> ServerResponse.badRequest()
+                                    .bodyValue(Map.of("error", e.getMessage())));
+                });
     }
 
     /**

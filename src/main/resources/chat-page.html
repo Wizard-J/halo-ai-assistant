@@ -707,6 +707,48 @@
         .history-item:hover {
             background: var(--surface-subtle);
         }
+        .history-item-wrap {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .history-item-wrap button {
+            flex: 1;
+            display: block;
+            padding: 12px;
+            border: 0;
+            border-radius: 8px;
+            background: transparent;
+            color: var(--text);
+            text-align: left;
+            cursor: pointer;
+        }
+        .history-item-wrap button:hover {
+            background: var(--surface-subtle);
+        }
+        .history-delete-btn {
+            flex: 0 0 auto;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--text-muted, #999);
+            cursor: pointer;
+            font-size: 16px;
+            opacity: 0;
+            transition: opacity 0.15s, background 0.15s;
+        }
+        .history-item-wrap:hover .history-delete-btn {
+            opacity: 1;
+        }
+        .history-delete-btn:hover {
+            background: rgba(239,68,68,0.12);
+            color: #ef4444;
+        }
 
         .history-item-title {
             display: block;
@@ -1314,10 +1356,32 @@
         conversations.forEach(conversation => {
             const item = document.createElement('button');
             item.type = 'button';
-            item.className = 'history-item';
-            item.innerHTML = `<span class="history-item-title">${escapeHtml(conversation.title)}</span><span class="history-item-time">${new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(conversation.updatedAt)}</span>`;
-            item.addEventListener('click', () => loadConversation(conversation));
-            historyList.appendChild(item);
+            const wrap = document.createElement('div');
+            wrap.className = 'history-item-wrap';
+            const btn = document.createElement('button');
+            btn.className = 'history-item';
+            btn.innerHTML = `<span class="history-item-title">${escapeHtml(conversation.title)}</span><span class="history-item-time">${new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(conversation.updatedAt)}</span>`;
+            btn.addEventListener('click', () => loadConversation(conversation));
+            wrap.appendChild(btn);
+            const renameBtn = document.createElement('button');
+            renameBtn.className = 'history-delete-btn';
+            renameBtn.innerHTML = '<i class="ri-edit-line"></i>';
+            renameBtn.title = '重命名';
+            renameBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                renameConversation(conversation);
+            });
+            wrap.appendChild(renameBtn);
+            const delBtn = document.createElement('button');
+            delBtn.className = 'history-delete-btn';
+            delBtn.innerHTML = '<i class="ri-delete-bin-line"></i>';
+            delBtn.title = '删除此对话';
+            delBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteConversation(conversation);
+            });
+            wrap.appendChild(delBtn);
+            historyList.appendChild(wrap);
         });
     }
 
@@ -1349,6 +1413,34 @@
         input.focus();
         closeHistory();
         scrollArea.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function renameConversation(conv) {
+        const newTitle = prompt('输入新名称：', conv.title || '');
+        if (!newTitle || newTitle === conv.title) return;
+        fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id)
+            + '/conversations/' + encodeURIComponent(conv.id) + '/rename', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title: newTitle })
+        }).then(resp => {
+            if (resp.ok) openHistory();
+        }).catch(e => console.warn('重命名失败', e));
+    }
+
+    async function deleteConversation(conv) {
+        if (!confirm('确认删除此对话？')) return;
+        try {
+            const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations/' + encodeURIComponent(conv.id), {
+                method: 'DELETE'
+            });
+            if (resp.ok) {
+                // 重新加载历史列表
+                openHistory();
+            }
+        } catch (e) {
+            console.warn('删除对话失败', e);
+        }
     }
 
     function loadConversation(conversation) {

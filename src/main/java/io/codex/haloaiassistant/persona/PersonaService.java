@@ -395,6 +395,26 @@ public class PersonaService {
     }
 
     /**
+     * 获取单条对话
+     */
+    public Mono<Conversation> getConversation(String conversationId) {
+        return client.get(Conversation.class, conversationId);
+    }
+
+    /**
+     * 更新对话标题
+     */
+    public Mono<Void> updateConversationTitle(String conversationId, String newTitle) {
+        return client.get(Conversation.class, conversationId)
+                .flatMap(conv -> {
+                    conv.getSpec().setTitle(newTitle);
+                    conv.getSpec().setUpdatedAt(java.time.Instant.now());
+                    return client.update(conv);
+                })
+                .then();
+    }
+
+    /**
      * 删除单条对话
      */
     public Mono<Void> deleteConversation(String conversationId) {
