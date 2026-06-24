@@ -353,7 +353,7 @@ public class PersonaService {
                     spec.setSessionId(sessionId);
                     spec.setPersonaId(personaId);
                     spec.setTitle("新对话");
-                    spec.setMessages(objectMapper.createArrayNode());
+                    spec.setMessages("[]");
                     spec.setCreatedAt(Instant.now());
                     spec.setUpdatedAt(Instant.now());
                     spec.setCompressed(false);
@@ -371,14 +371,11 @@ public class PersonaService {
         return getOrCreateConversation(sessionId, personaId)
                 .flatMap(conv -> {
                     Conversation.ConversationSpec spec = conv.getSpec();
-                    ArrayNode existing = spec.getMessages();
-                    if (existing == null) {
-                        existing = objectMapper.createArrayNode();
-                    }
+                    ArrayNode existing = parseMessages(conv);
                     for (JsonNode msg : newMessages) {
                         existing.add(msg);
                     }
-                    spec.setMessages(existing);
+                    spec.setMessages(serializeMessages(existing));
                     spec.setUpdatedAt(Instant.now());
 
                     // 更新标题（取首条 user 消息）
@@ -415,6 +412,28 @@ public class PersonaService {
                         null)
                 .flatMap(client::delete)
                 .then();
+    }
+
+    // ========== 消息序列化辅助 ==========
+
+    public ArrayNode parseMessages(Conversation conv) {
+        if (conv == null || conv.getSpec() == null) return objectMapper.createArrayNode();
+        String raw = conv.getSpec().getMessages();
+        if (raw == null || raw.isBlank()) return objectMapper.createArrayNode();
+        try {
+            JsonNode parsed = objectMapper.readTree(raw);
+            return parsed instanceof ArrayNode ? (ArrayNode) parsed : objectMapper.createArrayNode();
+        } catch (Exception e) {
+            return objectMapper.createArrayNode();
+        }
+    }
+
+    private String serializeMessages(ArrayNode messages) {
+        try {
+            return objectMapper.writeValueAsString(messages);
+        } catch (Exception e) {
+            return "[]";
+        }
     }
 
     // ========== 上下文压缩（方案 A：滑动窗口） ==========
@@ -460,7 +479,7 @@ public class PersonaService {
         Conversation.ConversationSpec spec = conv.getSpec();
         if (spec == null || spec.getMessages() == null) return conv;
 
-        ArrayNode messages = spec.getMessages();
+        ArrayNode messages = parseMessages(conv);
         if (shouldCompress(messages, DEFAULT_MODEL_WINDOW)) {
             // 从后往前保留最后 RESERVED_ROUNDS 轮（每轮 user + assistant = 2 条）
             java.util.List<JsonNode> retainedList = new java.util.ArrayList<>();
@@ -485,7 +504,7 @@ public class PersonaService {
                 retained.add(node);
             }
 
-            spec.setMessages(retained);
+            spec.setMessages(serializeMessages(retained));
             spec.setCompressed(true);
             spec.setSummary("已压缩早期 " + (pruned / 2) + " 轮对话");
             spec.setUpdatedAt(Instant.now());

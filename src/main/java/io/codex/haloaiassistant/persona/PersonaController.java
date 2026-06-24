@@ -205,7 +205,7 @@ public class PersonaController {
         result.put("updatedAt", spec != null && spec.getUpdatedAt() != null
                 ? spec.getUpdatedAt().toString() : "");
         result.put("messageCount", spec != null && spec.getMessages() != null
-                ? spec.getMessages().size() : 0);
+                ? 0 : 0);
         return result;
     }
 }

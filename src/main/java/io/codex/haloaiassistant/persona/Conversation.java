@@ -1,6 +1,5 @@
 package io.codex.haloaiassistant.persona;
 
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import java.time.Instant;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -35,8 +34,8 @@ public class Conversation extends AbstractExtension {
         /** 对话标题（首条用户消息的前42字符） */
         private String title;
 
-        /** 消息列表 JSON */
-        private ArrayNode messages;
+        /** 消息列表 JSON（序列化为 String） */
+        private String messages;
 
         /** 创建时间 */
         private Instant createdAt;

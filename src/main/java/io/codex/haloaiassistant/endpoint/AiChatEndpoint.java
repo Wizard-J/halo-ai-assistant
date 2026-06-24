@@ -180,9 +180,8 @@ public class AiChatEndpoint {
                         List<AgentService.ChatMessage> fullHistory = new ArrayList<>();
                         fullHistory.add(new AgentService.ChatMessage("system", finalSystemPrompt));
 
-                        // 添加服务端已有的历史消息
-                        ArrayNode serverMessages = conv.getSpec() != null
-                                ? conv.getSpec().getMessages() : null;
+                        // 添加服务端已有的历史消息（从 JSON String 解析）
+                        ArrayNode serverMessages = personaService.parseMessages(conv);
                         if (serverMessages != null) {
                             for (JsonNode msg : serverMessages) {
                                 fullHistory.add(new AgentService.ChatMessage(
