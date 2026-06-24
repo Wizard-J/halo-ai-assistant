@@ -166,6 +166,38 @@ ssh root@wizardj.cn "docker logs --tail 50 1Panel-halo-GOvD 2>&1 | grep -iE '已
 - **maxTokens 16384**：适配 `deepseek-v4-flash` 模型的大输出窗口
 
 
+
+### 页面标题/欢迎语替换逻辑
+
+`AiChatEndpoint.handleChatPage()` 中对 HTML 字符串做三步替换：
+
+```java
+.replace("<title>AI 智能助手</title>", "<title>" + escapeHtml(title) + "</title>")
+.replace("你好，我是 Halo AI 智能助手", escapeHtml(greeting))
+.replace("AI 智能助手", escapeHtml(title));
+```
+
+1. **必须先用精确的完整匹配替换 greeting**（`你好，我是 Halo AI 智能助手`），再替换剩余的所有 `AI 智能助手`。
+2. 如果顺序颠倒（先替换 `AI 智能助手`），会把 `你好，我是 Halo AI 智能助手` 破坏为 `你好，我是 Halo 老巫师`，导致第二步匹配失败。
+
+### Persona 刷新和页面加载
+
+- `chat-page.html` 中 `activePersona` 的 JS 初始默认值为 `displayName: 'AI 智能助手'`。
+- 页面加载后 `loadPersonas()` 从 API 获取 Persona 列表，但**即使 savedId 匹配也不会更新 `activePersona` 的字段**。
+- 修复：在 `loadPersonas()` 中缓存 Persona 列表后，立即用 API 数据刷新 `activePersona`（displayName、iconUrl、brandColor、greeting），然后调用 `updatePersonaUI()`。
+
+### 头像图标兜底
+
+- `getPersonaIconHtml()` 和 `renderPersonaAvatar()` 对 `iconUrl === null` 应返回 `ri-sparkling-2-fill` RemixIcon，而不是空白。
+- Persona 菜单容器 `#personaList` 应显式设置 `display: flex; flex-direction: column` 确保垂直排列。
+
+### 芒格头像替换
+
+芒格 Persona 的 iconUrl 目前为 `ri-team-fill`。若用户上传真实图片，只需：
+1. 将图片上传到服务器并通过 HTTP 可访问
+2. 在 `PersonaService.initBuiltinPersonas()` 中或通过 API 更新 Munger Persona 的 `iconUrl` 为图片 URL
+
+
 ## 编码规范
 
 - **Reactor 线程**：阻塞操作用 `Schedulers.boundedElastic()`
