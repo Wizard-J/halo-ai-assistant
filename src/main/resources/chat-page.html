@@ -311,6 +311,14 @@
 
         .avatar-img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; vertical-align: middle; }
         .avatar-emoji { font-size: 20px; line-height: 1; }
+        .message-avatar img,
+        .assistant-avatar img,
+        .welcome-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 50%;
+        }
         .message-avatar {
             display: grid;
             flex: 0 0 auto;
@@ -1493,7 +1501,7 @@
     function getPersonaIconHtml(persona) {
         if (!persona) return '<i class="ri-sparkling-2-fill"></i>';
         if (persona.iconUrl && persona.iconUrl.startsWith('http')) {
-            return '<img src="' + escapeHtml(persona.iconUrl) + '" alt="">';
+            return '<img src="' + escapeHtml(persona.iconUrl) + '" alt="" class="avatar-img">';
         }
         if (persona.iconUrl && persona.iconUrl.startsWith('ri-')) {
             return '<i class="' + escapeHtml(persona.iconUrl) + '"></i>';
