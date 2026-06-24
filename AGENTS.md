@@ -145,13 +145,15 @@ if (tertiaryEnabled) fireInBackground("技术猎手", () -> runTertiaryPipeline(
 | **插件目录** | `/root/.halo2/plugins/` |
 | **SSH** | `root@wizardj.cn`（密钥 `~/.ssh/id_ed25519`） |
 
-### 一键构建 + 部署
+### 一键构建 + 热部署（不重启容器）
 ```bash
-cd /Users/zhangjianmin/project/halo-ai-assistant &&   JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build &&   scp build/libs/halo-ai-assistant-2.24.0.jar root@wizardj.cn:/tmp/ai-assistant-latest.jar &&   ssh root@wizardj.cn \
-    "docker exec 1Panel-halo-GOvD rm -f /root/.halo2/plugins/ai-assistant-2.24.0.jar && \
-     docker cp /tmp/ai-assistant-latest.jar 1Panel-halo-GOvD:/root/.halo2/plugins/ai-assistant-2.24.0.jar && \
-     docker restart 1Panel-halo-GOvD"
+cd /Users/zhangjianmin/project/halo-ai-assistant && \
+  JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build && \
+  scp build/libs/halo-ai-assistant-2.24.0.jar root@wizardj.cn:/tmp/ai-assistant-latest.jar && \
+  ssh root@wizardj.cn "docker cp /tmp/ai-assistant-latest.jar 1Panel-halo-GOvD:/root/.halo2/plugins/ai-assistant-2.24.0.jar"
 ```
+
+> **不要 \`docker restart\` 容器**：Halo 2 有插件文件监听器，替换 JAR 后自动热加载（约 15-30s）。重启容器会导致 502 持续 1-2 分钟。若热加载未生效再考虑重启。
 
 ### 验证部署（查看服务器日志）
 ```bash
