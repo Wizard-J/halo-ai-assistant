@@ -219,8 +219,13 @@ public class PersonaService {
                                                           String greeting) {
         return client.fetch(PersonaDefinition.class, id)
                 .flatMap(existing -> {
-                    // 已存在则更新
+                    // 已存在则更新所有字段
+                    existing.getSpec().setDisplayName(displayName);
+                    existing.getSpec().setDescription(description);
+                    existing.getSpec().setIconUrl(iconUrl);
+                    existing.getSpec().setBrandColor(brandColor);
                     existing.getSpec().setSystemPrompt(systemPrompt);
+                    existing.getSpec().setGreeting(greeting);
                     existing.getSpec().setUpdatedAt(Instant.now());
                     return client.update(existing);
                 })
