@@ -74,7 +74,7 @@ halo-ai-assistant/
 ├─ 自动运维（三人物管线）
 │   ├── @Scheduled(fixedDelay=60s) → tick() → runIfDue()
 │   │   ├── 人物一：巫师前沿站  → primaryRssSources + rssSources → 6:4 → 标签 "AI前沿"
-│   │   ├── 【条件执行】书虫漫步 → secondaryRssSources → 标签 "人物传记, 每日好书"
+│   │   ├── 【条件执行】书虫漫步 → secondaryRssSources → 标签 "知识卡片, 好书快读"
 │   │   └── 【条件执行】技术猎手 → tertiaryRssSources → 标签 "技术干货, 优质译文"
 │   │
 │   └── POST /api/ai-assistant/auto-ops/test → testNow()
@@ -89,7 +89,7 @@ halo-ai-assistant/
 | Persona | 作者 | 标签 | RSS 源（配置字段） | 评分 |
 |---------|------|------|-------------------|------|
 | 巫师前沿站 | wizard-frontier | AI前沿 | primaryRssSources / rssSources | 6:4 primary:secondary |
-| 书虫漫步 | bookworm-wanderer | 人物传记, 每日好书 | secondaryRssSources | 全量, 最多5条 |
+| 书虫漫步 | bookworm-wanderer | 知识卡片, 好书快读 | secondaryRssSources | 全量, 最多5条 |
 | 技术猎手 | tech-hunter | 技术干货, 优质译文 | tertiaryRssSources | 全量, 最多5条 |
 
 各自独立的 processed 记录（90 天过期），互不干扰。

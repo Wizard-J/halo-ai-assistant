@@ -196,9 +196,9 @@ public class AutoOpsService {
             throw new IllegalStateException("第二人物 RSS 来源均无可用新闻");
 
         String systemPrompt = "你是'" + defaultText(auto.getSecondaryAuthorName(), "书虫漫步")
-                + "'，一名专注于人物传记与好书推荐的编辑。请用娓娓道来的笔调写作。";
+                + "'，一名跨学科知识卡片与好书核心观点的编辑。行文简洁有实质，每篇聚焦一个具体知识点或思维模型，让读者读完有收获。";
         StringBuilder prompt = new StringBuilder("日期：" + now.toLocalDate()
-                + "\n关注方向：" + defaultText(auto.getSecondaryTopics(), "人物传记, 书评, 人文")
+                + "\n关注方向：" + defaultText(auto.getSecondaryTopics(), "科学, 心理学, 思维模型, 历史, 哲学, 商业认知")
                 + "\n请从以下候选中选择最有价值的内容，生成一篇人物传记或好书推荐。\n\n");
         for (int i = 0; i < candidates.size(); i++) {
             ScoredNewsItem item = candidates.get(i);
@@ -215,7 +215,7 @@ public class AutoOpsService {
         GeneratedArticle article = parseGenerated(generated, now.toLocalDate());
 
         String result = publishArticle(article.title(), article.content(),
-                defaultText(auto.getSecondaryTags(), "人物传记, 每日好书"),
+                defaultText(auto.getSecondaryTags(), "知识卡片, 好书快读"),
                 defaultText(auto.getSecondaryAuthorUsername(), "bookworm-wanderer"),
                 now, !testMode && Boolean.TRUE.equals(auto.getAutoPublish()));
 
@@ -227,7 +227,7 @@ public class AutoOpsService {
         }
         log.info("书虫漫步 完成: {}", article.title());
         return personaResult("书虫漫步", testMode, candidates.size(), article.title(), result,
-                defaultText(auto.getSecondaryTags(), "人物传记, 每日好书"));
+                defaultText(auto.getSecondaryTags(), "知识卡片, 好书快读"));
     }
 
     private Map<String, Object> runTertiaryPipeline(AutoOpsSetting auto, AiAssistantSetting basic,

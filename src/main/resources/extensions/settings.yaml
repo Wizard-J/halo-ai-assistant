@@ -159,7 +159,7 @@ spec:
           name: secondaryEnabled
           label: 书虫漫步 - 启用
           value: false
-          help: "开启后将使用独立的 RSS 源和标签，生成人物传记/好书推荐"
+          help: "开启后将生成跨学科知识卡片与好书核心观点提炼"
         - $formkit: text
           name: secondaryAuthorName
           label: 书虫漫步 - 作者昵称
@@ -173,21 +173,21 @@ spec:
           name: secondaryRssSources
           label: 书虫漫步 - RSS 来源
           value: |-
-            https://www.themarginalian.org/feed/
-            https://www.newyorker.com/feed/books
-            https://www.theguardian.com/books/rss
             https://aeon.co/feed.rss
-            https://lithub.com/feed/
-          help: "每行一个 RSS/Atom 地址，建议人物传记、书评、人文类源"
+            https://www.quantamagazine.org/feed/
+            https://fs.blog/feed/
+            https://www.themarginalian.org/feed/
+            https://nautil.us/feed/
+          help: "每行一个 RSS/Atom 地址，建议科普、跨学科、思维模型类源"
         - $formkit: text
           name: secondaryTopics
           label: 书虫漫步 - 关注方向
-          value: "人物传记, 书评, 人文思想, 历史, 哲学, 文学"
+          value: "科学, 心理学, 思维模型, 历史, 哲学, 商业认知"
         - $formkit: text
           name: secondaryTags
           label: 书虫漫步 - 文章标签
-          value: "人物传记, 每日好书"
-          help: "多个标签用逗号分隔"
+          value: "知识卡片, 好书快读"
+          help: "多个标签用逗号分隔，建议知识卡片/好书快读等"
         - $formkit: number
           name: secondaryMaxNewsItems
           label: 书虫漫步 - 新闻数量上限
