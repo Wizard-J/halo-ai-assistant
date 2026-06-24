@@ -1766,13 +1766,15 @@
             if (serverSessionId) {
                 sessionId = serverSessionId;
             }
-            // 尝试加载服务端的最新对话
-            return loadServerConversation().then(loaded => {
-                if (!loaded) {
-                    // 没有服务端对话时，回退到 localStorage
-                    loadSessionConversation();
-                }
-                loadPersonas();
+            // 先加载 Persona 列表（会恢复 localStorage 中保存的角色）
+            loadPersonas().then(() => {
+                // 此时 activePersona 已正确恢复，再加载服务端对话
+                loadServerConversation().then(loaded => {
+                    if (!loaded) {
+                        // 没有服务端对话时，回退到 localStorage
+                        loadSessionConversation();
+                    }
+                });
             });
         });
     });
