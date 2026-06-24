@@ -65,6 +65,7 @@ public class AiChatEndpoint {
                 .GET("/api/ai-assistant/chat-page", this::handleChatPage)
                 .GET("/api/ai-assistant/auto-ops/test", this::handleAutoOpsTest)
                 .GET("/api/ai-assistant/", this::handleChatPageRedirect)
+                .GET("/api/ai-assistant/config-check", this::handleConfigCheck)
                 .GET("/api/ai-assistant/daily-push", this::handleDailyPush)
                 .build();
     }
@@ -243,6 +244,31 @@ public class AiChatEndpoint {
 
     private Mono<ServerResponse> handleChatPageRedirect(ServerRequest request) {
         return ServerResponse.permanentRedirect(URI.create("/api/ai-assistant/chat-page")).build();
+    }
+
+
+    private Mono<ServerResponse> handleConfigCheck(ServerRequest request) {
+        return Mono.fromCallable(() -> {
+            StringBuilder sb = new StringBuilder("Config Check:\n");
+            try {
+                java.util.Optional<AiAssistantSetting> opt = settingFetcher.fetch("basic", AiAssistantSetting.class);
+                if (opt.isPresent()) {
+                    AiAssistantSetting s = opt.get();
+                    sb.append("pageTitle: ").append(s.getPageTitle()).append("\n");
+                    sb.append("greeting: ").append(s.getGreeting()).append("\n");
+                    sb.append("pageIcon: ").append(s.getPageIcon()).append("\n");
+                    sb.append("model: ").append(s.getModel()).append("\n");
+                    sb.append("maxTokens: ").append(s.getMaxTokens()).append("\n");
+                } else {
+                    sb.append("Config not found (empty Optional)\n");
+                }
+            } catch (Exception e) {
+                sb.append("Error reading config: ").append(e.getMessage()).append("\n");
+            }
+            return ServerResponse.ok()
+                    .header("Content-Type", "text/plain; charset=utf-8")
+                    .bodyValue(sb.toString());
+        }).flatMap(r -> r);
     }
 
     private Mono<ServerResponse> handleDailyPush(ServerRequest request) {
