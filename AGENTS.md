@@ -200,6 +200,24 @@ ssh root@wizardj.cn "docker logs --tail 50 1Panel-halo-GOvD 2>&1 | grep -iE '已
 2. 在 `PersonaService.initBuiltinPersonas()` 中或通过 API 更新 Munger Persona 的 `iconUrl` 为图片 URL
 
 
+
+
+### 直接更新数据库中的 Persona 记录
+
+Persona 数据存储在 Halo 的 `extensions` 表中（`data` 列是 JSON）。如果 JAR 热加载后 Persona 未更新，可直接修改数据库：
+
+```bash
+# 查看当前 Persona
+ssh root@wizardj.cn "docker exec 1Panel-mysql-Kqls mysql -uroot -pmysql_6fmwPP halo_3nc2dh \
+  -e \"SELECT JSON_EXTRACT(CONVERT(data USING utf8mb4), '\$.spec.iconUrl') as iconUrl FROM extensions WHERE name = '/registry/ai-assistant.plugin.halo.run/personadefinitions/default';\""
+
+# 更新 iconUrl
+ssh root@wizardj.cn "docker exec 1Panel-mysql-Kqls mysql -uroot -pmysql_6fmwPP halo_3nc2dh \
+  -e \"UPDATE extensions SET data = JSON_SET(CONVERT(data USING utf8mb4), '\$.spec.iconUrl', 'https://wizardj.cn/upload/xxx.png') WHERE name = '/registry/ai-assistant.plugin.halo.run/personadefinitions/default';\""
+```
+
+> 注意：直接 `docker cp` 文件到 `/root/.halo2/attachments/upload/` 目录后，文件可通过 `/upload/文件名` 访问，但不会出现在 Halo 附件管理页面中。
+
 ## 编码规范
 
 - **Reactor 线程**：阻塞操作用 `Schedulers.boundedElastic()`
