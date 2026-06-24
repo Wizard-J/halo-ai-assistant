@@ -763,6 +763,54 @@
                 display: none;
             }
         }
+
+    .persona-menu-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 10px 12px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        cursor: pointer;
+        font-size: 14px;
+        color: var(--text, #333);
+        text-align: left;
+        transition: background 0.15s;
+        box-sizing: border-box;
+    }
+    .persona-menu-item:hover {
+        background: var(--hover-bg, rgba(0,0,0,0.05));
+    }
+    .persona-menu-item.active {
+        background: var(--active-bg, rgba(37,99,235,0.08));
+        color: var(--active-color, #2563eb);
+        font-weight: 600;
+    }
+    .persona-menu-item .pi-check {
+        margin-left: auto;
+        color: #2563eb;
+    }
+    .persona-menu-item img {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        object-fit: cover;
+    }
+    .persona-menu-item i.avatar-img {
+        font-size: 20px;
+    }
+    .persona-menu-item .avatar-emoji {
+        font-size: 20px;
+        line-height: 1;
+    }
+    .persona-menu-item span {
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
     </style>
 </head>
 <body>
@@ -1444,6 +1492,14 @@
             personas = data.personas || [];
             // 缓存
             try { localStorage.setItem(PERSONA_LIST_KEY, JSON.stringify(personas)); } catch (e) {}
+            // 尝试恢复之前选中的 persona
+            try {
+                const savedId = localStorage.getItem('halo-ai-active-persona');
+                if (savedId && savedId !== activePersona.id) {
+                    const saved = personas.find(p => p.id === savedId);
+                    if (saved) { switchPersona(saved); return; }
+                }
+            } catch(e) {}
             renderPersonaMenu();
             // 确保当前 persona 仍存在
             const stillExists = personas.some(p => p.id === activePersona.id);
@@ -1489,6 +1545,8 @@
         saveConversation();
         // 切换 persona
         activePersona = persona;
+        // 持久化选中的 persona
+        try { localStorage.setItem('halo-ai-active-persona', persona.id); } catch(e) {}
         // 重置对话
         history = [];
         conversationId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
