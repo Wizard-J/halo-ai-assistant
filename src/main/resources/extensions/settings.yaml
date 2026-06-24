@@ -45,7 +45,7 @@ spec:
         - $formkit: text
           name: pageIcon
           label: 页面图标
-          value: "🧙"
+          value: "https://wizardj.cn/upload/wizard-avatar.png"
           help: "左上角品牌图标，Emoji 或 Remix 图标类名（如 ri-sparkling-2-fill）"
         - $formkit: text
           name: greeting

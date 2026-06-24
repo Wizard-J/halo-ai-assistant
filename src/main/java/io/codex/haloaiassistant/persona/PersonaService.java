@@ -197,7 +197,7 @@ public class PersonaService {
     public Mono<Void> initBuiltinPersonas() {
         return createBuiltinPersona("default", "老巫师",
                 "老巫师视角的博客管理助手，可管理文章、分类、标签和评论。",
-                "🤖", "#2563eb",
+                "https://wizardj.cn/upload/wizard-avatar.png", "#2D1B69",
                 "你是一个智能博客助手，可以帮助用户管理博客。\n"
                 + "你可以执行以下操作：\n"
                 + "- 查看文章列表、创建文章、更新文章、删除文章\n"
