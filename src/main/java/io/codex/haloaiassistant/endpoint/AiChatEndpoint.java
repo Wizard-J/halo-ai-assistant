@@ -226,6 +226,7 @@ public class AiChatEndpoint {
                             .header("Content-Type", "text/html; charset=utf-8")
                             .bodyValue(html);
                 })
+                .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(r -> r)
                 .onErrorResume(e -> {
                     log.error("渲染聊天页面失败", e);

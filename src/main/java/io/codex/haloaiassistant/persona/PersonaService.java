@@ -195,8 +195,8 @@ public class PersonaService {
      * 初始化系统预置 Persona
      */
     public Mono<Void> initBuiltinPersonas() {
-        return createBuiltinPersona("default", "AI 智能助手",
-                "默认博客助手，可管理文章、分类、标签和评论。",
+        return createBuiltinPersona("default", "老巫师",
+                "老巫师视角的博客管理助手，可管理文章、分类、标签和评论。",
                 "🤖", "#2563eb",
                 "你是一个智能博客助手，可以帮助用户管理博客。\n"
                 + "你可以执行以下操作：\n"
@@ -204,7 +204,7 @@ public class PersonaService {
                 + "- 管理分类和标签\n"
                 + "- 查看和管理评论\n"
                 + "请用友好的语气与用户交流。",
-                "你好，我是 Halo AI 智能助手")
+                "你好，我是老巫师，巫师前沿站的AI助手")
                 .then(createBuiltinPersona("munger", "芒格视角",
                         "以查理·芒格的视角对话和分析问题。",
                         null, "#1E3A5F",
