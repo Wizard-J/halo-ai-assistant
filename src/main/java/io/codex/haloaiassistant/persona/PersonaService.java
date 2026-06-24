@@ -321,15 +321,16 @@ public class PersonaService {
      * 列出某个 session + persona 的所有对话（按更新时间倒序）
      */
     public Mono<List<Conversation>> listConversations(String sessionId, String personaId) {
-        return client.list(Conversation.class,
-                        conv -> conv.getSpec() != null
-                                && sessionId.equals(conv.getSpec().getSessionId())
-                                && personaId.equals(conv.getSpec().getPersonaId()),
-                        (a, b) -> {
-                            Instant ta = a.getSpec() != null ? a.getSpec().getUpdatedAt() : Instant.EPOCH;
-                            Instant tb = b.getSpec() != null ? b.getSpec().getUpdatedAt() : Instant.EPOCH;
-                            return tb.compareTo(ta);
-                        })
+        // 先获取所有 Conversation，再在内存中过滤（Halo 2 client.list 按谓词过滤可能受索引影响）
+        return client.list(Conversation.class, null, null)
+                .filter(conv -> conv.getSpec() != null
+                        && sessionId.equals(conv.getSpec().getSessionId())
+                        && personaId.equals(conv.getSpec().getPersonaId()))
+                .sort((a, b) -> {
+                    Instant ta = a.getSpec() != null ? a.getSpec().getUpdatedAt() : Instant.EPOCH;
+                    Instant tb = b.getSpec() != null ? b.getSpec().getUpdatedAt() : Instant.EPOCH;
+                    return tb.compareTo(ta);
+                })
                 .collectList();
     }
 

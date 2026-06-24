@@ -1346,13 +1346,20 @@
     async function renderHistoryList() {
         // 优先从服务端获取对话列表
         let conversations = [];
+        let serverFailed = false;
         try {
             const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations?sessionId=' + encodeURIComponent(sessionId));
             if (resp.ok) {
                 const data = await resp.json();
                 conversations = data.conversations || [];
+            } else {
+                serverFailed = true;
+                console.warn('服务端获取对话失败:', resp.status, await resp.text().catch(()=>''));
             }
-        } catch (e) {}
+        } catch (e) {
+            serverFailed = true;
+            console.warn('服务端获取对话异常:', e);
+        }
         // 服务端没有时回退到 localStorage
         if (!conversations.length) {
             conversations = getSavedConversations();
