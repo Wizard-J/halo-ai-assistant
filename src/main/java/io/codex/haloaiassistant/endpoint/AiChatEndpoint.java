@@ -35,6 +35,7 @@ import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import run.halo.app.core.extension.content.Post;
@@ -215,11 +216,30 @@ public class AiChatEndpoint {
                                     .subscribe();
                         }
 
+                        // 流式返回 + 在结束时保存助手的回复
+                        Flux<String> chatStream = agentService.chat(fullHistory);
+                        StringBuilder assistantResponse = new StringBuilder();
+
+                        Flux<String> savingStream = chatStream
+                                .doOnNext(chunk -> assistantResponse.append(chunk))
+                                .doOnComplete(() -> {
+                                    String reply = assistantResponse.toString();
+                                    if (!reply.isBlank()) {
+                                        ArrayNode assistantMsg = objectMapper.createArrayNode();
+                                        ObjectNode msgNode = objectMapper.createObjectNode();
+                                        msgNode.put("role", "assistant");
+                                        msgNode.put("content", reply);
+                                        assistantMsg.add(msgNode);
+                                        personaService.appendMessages(sessionId, personaId, assistantMsg)
+                                                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+                                                .subscribe();
+                                    }
+                                });
+
                         return ServerResponse.ok()
                                 .header("Content-Type", "text/event-stream; charset=utf-8")
                                 .header("Cache-Control", "no-cache")
-                                .body(BodyInserters.fromProducer(
-                                        agentService.chat(fullHistory), String.class));
+                                .body(BodyInserters.fromProducer(savingStream, String.class));
                     });
         });
     }
