@@ -49,6 +49,9 @@ public class PersonaDefinition extends AbstractExtension {
         /** 思考/等待时的短语列表（JSON 数组），如：["摘下眼镜…","擦拭眼镜…"] */
         private String thinkingPhrases;
 
+        /** 对话名称列表（JSON 数组），用于绕过 Halo 扩展索引查询 */
+        private String conversationNames;
+
         /** 是否为系统内置（不可删除） */
         private boolean builtin;
 
