@@ -169,6 +169,51 @@ JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./grad
 2. 登录 1Panel → 插件 → 上传 JAR 文件
 3. Halo 自动热加载，无需重启
 
+### 部署（命令行，可选）
+
+> 仅在用户明确要求“命令行发布到 Halo 实例”时使用。优先走 Halo Console API 上传/升级插件，**不要**用 SCP、`docker cp` 或 `./gradlew reloadPlugin` 操作生产站。
+
+前置条件：
+
+- 在 Halo 后台创建/准备一个有插件管理权限的 Personal Access Token。
+- 本地环境变量 `HALO_PAT` 保存该 Token。
+- 目标插件已经安装时使用 `upgrade`；首次安装才使用 `install`。
+
+```bash
+cd /Users/zhangjianmin/project/halo-ai-assistant
+
+VERSION="$(sed -n 's/^version=//p' gradle.properties)"
+JAR="build/libs/halo-ai-assistant-${VERSION}.jar"
+HALO_BASE_URL="https://wizardj.cn"
+PLUGIN_NAME="ai-assistant"
+
+JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build
+test -f "$JAR"
+
+# 已安装插件：升级/覆盖 JAR
+curl -fsS -X POST \
+  -H "Authorization: Bearer ${HALO_PAT}" \
+  -F "file=@${JAR}" \
+  "${HALO_BASE_URL}/apis/api.console.halo.run/v1alpha1/plugins/${PLUGIN_NAME}/upgrade"
+
+# 首次安装插件才使用下面这个端点：
+# curl -fsS -X POST \
+#   -H "Authorization: Bearer ${HALO_PAT}" \
+#   -F "file=@${JAR}" \
+#   "${HALO_BASE_URL}/apis/api.console.halo.run/v1alpha1/plugins/install"
+```
+
+部署后验证：
+
+```bash
+curl -fsS \
+  -H "Authorization: Bearer ${HALO_PAT}" \
+  "${HALO_BASE_URL}/apis/api.console.halo.run/v1alpha1/plugins/${PLUGIN_NAME}" \
+  | jq '{name: .metadata.name, enabled: .spec.enabled, version: .status.version, phase: .status.phase}'
+```
+
+如果 API 返回 401/403，说明 `HALO_PAT` 权限不足或过期；如果返回 404，先确认 `PLUGIN_NAME=ai-assistant` 是否已安装，未安装时改用 `plugins/install` 端点。
+
 ### 验证日志
 ```bash
 ssh root@wizardj.cn "docker logs --tail 50 1Panel-halo-GOvD 2>&1 | grep -iE 'PersonaDefinition|已注册|已初始|AI 智能'"
@@ -678,7 +723,7 @@ gh release upload "v${VERSION}" "$JAR" --clobber
 
 #### 生产站部署仍然手动
 
-WizardJ 生产站仍按前文“部署方式说明”：本地构建 JAR 后，通过 1Panel/Halo 插件管理上传。不要用命令行 SCP、`docker cp` 或 `reloadPlugin` 去操作生产站，除非用户明确要求。
+WizardJ 生产站默认仍按前文“部署方式说明”：本地构建 JAR 后，通过 1Panel/Halo 插件管理上传。若用户明确要求命令行部署，使用 Halo Console API 的 `plugins/{name}/upgrade` 上传 JAR；不要用命令行 SCP、`docker cp` 或 `reloadPlugin` 去操作生产站。
 
 ### 硬编码的环境依赖（必须修改）
 
