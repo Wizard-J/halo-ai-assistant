@@ -513,3 +513,86 @@ JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./grad
 2. **新增扩展 kind 时，必须一步到位注册好索引**，否则后续无法补充
 3. **部署后确认日志**：检查 `Start to initialize indices for type: ConvRef` 和 `Total indexed count` 是否正常
 4. **不要在已有数据的 kind 上改索引策略**，要创建新 kind 并迁移或重建
+
+---
+
+## 🔬 全量 Bug 复盘与质量保障
+
+### Bug 清单（2026-06-24 ~ 06-25）
+
+| # | 现象 | 根因 | 分类 |
+|---|------|------|------|
+| 1 | `No indices found for type: Conversation` | Halo 2.22.x scheme 缓存不可覆写，已有 kind 补索引无效 | **基础设施** |
+| 2 | `No indices found for type: PersonaDefinition` | 同上，GVK version 混乱（v1alpha1 ↔ v1alpha2）导致资源不可访问 | **基础设施** |
+| 3 | 新对话消息不持久化 | `createConversation().thenReturn(ref)` 返回无 version 的 ref，后续 update 静默失败 | **数据一致性** |
+| 4 | 新建对话的消息追加到旧对话 | `getOrCreateConversation()` 总是返回已有对话，不理解前端的"新建对话"概念 | **架构设计** |
+| 5 | 新建对话不在历史记录中 | 同 #4 + 前端 `saveConversation` 只写 localStorage | **架构设计** |
+| 6 | AI 回复不保存到服务端 | 两次 `appendMessages(conv, …)` 异步竞争同一个 ref 的乐观锁 | **并发安全** |
+| 7 | 点击历史记录不回显消息 | 历史列表 API 不返回 messages，loadConversation 期望 messages 在对象内 | **接口契约** |
+| 8 | thinkingPhrases 一直显示"正在连接 AI 服务…" | loadPersonas() 漏掉了 thinkingPhrases 字段传播 | **前端状态同步** |
+| 9 | 切换 Persona 后刷新回退到老巫师 | localStorage 和 activePersona 初始值不匹配 | **前端状态同步** |
+
+### 根因分类
+
+#### A. Halo 基础设施陷阱
+
+- **scheme 缓存不可覆写**：某个 GVK 一旦注册，修改索引定义或 version 都不会重建 scheme
+- **对策**：新 kind 一步到位注册索引（`schemeManager.register(Class, Consumer<IndexSpecs>)`），不存在后续补索引的情况
+- **出问题时**：只能创建**全新的 kind**（如 ConvRef），永远不要在已注册的 kind 上修修补补
+
+#### B. 数据一致性
+
+- `client.create(ref)` 必须返回服务器返回的对象（含 version），`.thenReturn(ref)` 是 bug
+  - **规则**：永远用 `.map(created -> created)`，永不 `.thenReturn(ref)`
+- `client.update(ref)` 依赖 version 做乐观锁，无 version 时**静默失败**（不抛异常）
+  - **这对 Halo 扩展 API 的反直觉行为，是最容易埋坑的地方**
+
+#### C. 并发安全
+
+- **两个异步调用不能在同一个 ref 对象上竞争更新**
+  - 同一个 `conv` 的 `appendMessages` 只能调用一次
+  - 如需多次追加，要么等第一次完成后再追加，要么合并为一次调用
+  - **规则**：Mono 链中同一对象最多有**一个** `.subscribe()` 做持久化
+
+#### D. 接口契约
+
+- 前端用到的 API 返回结构必须包含足够的字段来满足前端逻辑
+- 修改 API 返回字段时**必须同步检查前端调用侧**
+- 关键 API 契约：
+  - `/conversations` → `[{id, title, updatedAt, messageCount}]`
+  - `/conversations/current` → `{id, title, messages, updatedAt}`
+  - `/conversations/{convId}` → `{id, title, messages, updatedAt}`
+  - `/personas` → `[{id, displayName, iconUrl, brandColor, greeting, thinkingPhrases}]`
+
+#### E. 前后端状态同步
+
+- `activePersona` 的完整字段 MUST 都从 API 传播
+- 初始值不能有遗漏字段（否则竞态）
+- localStorage 不能作为唯一数据源（跨设备问题）
+
+---
+
+### 改动前检查清单
+
+每次修改代码前，问自己：
+
+```
+□ 这个改动会不会影响 ConversationRef 的创建/更新/删除流程？
+□ 是否引入了新的 client.create()/.update()/.delete() 调用？
+□ 有没有 .thenReturn(ref) 或 .subscribe() 的异步持久化？
+□ 是否在同一个对象上做了多次异步更新？
+□ 修改 API 返回字段后，前端对应的 fetch 调用是否有同步更新？
+□ 新增字段是否在前后端都完整传播？
+□ 新增 kind 有没有一步到位注册索引？
+```
+
+### 测试保护
+
+现有 PersonaServiceTest 覆盖：
+- createConversation → 返回 server-created ref（含 version）
+- appendMessages → 消息合并、title 更新、null-safe
+- compressConversation → 短对话不压缩、长对话触发滑动窗口
+- listConversations → session+persona 过滤
+- deleteConversation → 正常删除、不存在静默处理
+
+**新增测试的时机**：修改了以上任何方法，必须先跑 `./gradlew test`。

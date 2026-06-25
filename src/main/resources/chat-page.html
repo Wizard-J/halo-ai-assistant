@@ -1511,13 +1511,40 @@
     }
 
     function loadConversation(conversation) {
-        history = Array.isArray(conversation.messages) ? conversation.messages : [];
-        conversationId = conversation.id;
-        messagesElement.replaceChildren();
-        welcomeElement.hidden = history.length > 0;
-        history.forEach(message => createMessage(message.role, message.content, { instant: true }));
-        closeHistory();
-        input.focus();
+        // 如果有完整的消息列表，直接加载
+        if (Array.isArray(conversation.messages) && conversation.messages.length > 0) {
+            history = conversation.messages;
+            conversationId = conversation.id;
+            messagesElement.replaceChildren();
+            welcomeElement.hidden = history.length > 0;
+            history.forEach(message => createMessage(message.role, message.content, { instant: true }));
+            closeHistory();
+            input.focus();
+            return;
+        }
+        // 从服务端获取完整消息
+        fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations/' + encodeURIComponent(conversation.id))
+            .then(resp => resp.ok ? resp.json() : Promise.reject('HTTP ' + resp.status))
+            .then(data => {
+                const msgs = data.messages || [];
+                history = msgs.map(m => ({ role: m.role, content: m.content }));
+                conversationId = data.id || conversation.id;
+                messagesElement.replaceChildren();
+                welcomeElement.hidden = history.length > 0;
+                history.forEach(message => createMessage(message.role, message.content, { instant: true }));
+                closeHistory();
+                input.focus();
+            })
+            .catch(e => {
+                console.warn('获取对话失败', e);
+                // 回退：作为新对话打开
+                history = [];
+                conversationId = conversation.id;
+                messagesElement.replaceChildren();
+                welcomeElement.hidden = false;
+                closeHistory();
+                input.focus();
+            });
     }
 
     function usePrompt(prompt, submit = false) {

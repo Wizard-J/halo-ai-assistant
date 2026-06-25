@@ -37,6 +37,8 @@ public class PersonaController {
                 .DELETE("/api/ai-assistant/persona/{id}", this::handleDeletePersona)
                 .GET("/api/ai-assistant/persona/{id}/conversations", this::handleListConversations)
                 .GET("/api/ai-assistant/persona/{id}/conversations/current", this::handleGetCurrentConversation)
+                .GET("/api/ai-assistant/persona/{id}/conversations/{convId}",
+                        this::handleGetConversation)
                 .DELETE("/api/ai-assistant/persona/{id}/conversations/{convId}",
                         this::handleDeleteConversation)
                 .PUT("/api/ai-assistant/persona/{id}/conversations/{convId}/rename",
@@ -210,6 +212,39 @@ public class PersonaController {
                             "updatedAt", spec != null && spec.getUpdatedAt() != null
                                     ? spec.getUpdatedAt().toString() : ""
                     ));
+                });
+    }
+
+    /**
+     * GET /api/ai-assistant/persona/{id}/conversations/{convId}
+     * 获取单条对话的完整消息
+     */
+    private Mono<ServerResponse> handleGetConversation(ServerRequest request) {
+        String convId = request.pathVariable("convId");
+        return personaService.getConversation(convId)
+                .flatMap(conv -> {
+                    var spec = conv.getSpec();
+                    java.util.List<Map<String, String>> msgs = new java.util.ArrayList<>();
+                    ArrayNode raw = personaService.parseMessages(conv);
+                    if (raw != null) {
+                        for (JsonNode msg : raw) {
+                            Map<String, String> m = new java.util.HashMap<>();
+                            m.put("role", msg.path("role").asText());
+                            m.put("content", msg.path("content").asText());
+                            msgs.add(m);
+                        }
+                    }
+                    return ServerResponse.ok().bodyValue(Map.of(
+                            "id", conv.getMetadata().getName(),
+                            "messages", msgs,
+                            "title", spec != null ? spec.getTitle() : "",
+                            "updatedAt", spec != null && spec.getUpdatedAt() != null
+                                    ? spec.getUpdatedAt().toString() : ""
+                    ));
+                })
+                .onErrorResume(e -> {
+                    log.warn("获取对话 {} 失败: {}", convId, e.getMessage());
+                    return ServerResponse.notFound().build();
                 });
     }
 

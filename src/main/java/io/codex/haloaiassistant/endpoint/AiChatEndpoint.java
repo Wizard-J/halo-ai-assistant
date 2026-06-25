@@ -226,27 +226,25 @@ public class AiChatEndpoint {
                                 messagesJson.add(msgNode);
                             }
                         }
-                        if (messagesJson.size() > 0) {
-                            personaService.appendMessages(conv, messagesJson)
-                                    .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
-                                    .subscribe();
-                        }
-
-                        // 流式返回 + 在结束时保存助手的回复
+                        // 流式返回 + 结束时一次性保存用户消息 + AI 回复
                         Flux<String> chatStream = agentService.chat(fullHistory);
                         StringBuilder assistantResponse = new StringBuilder();
+
+                        // 准备需要持久化的消息（用户输入）
+                        ArrayNode allMessagesToSave = messagesJson;
 
                         Flux<String> savingStream = chatStream
                                 .doOnNext(chunk -> assistantResponse.append(chunk))
                                 .doOnComplete(() -> {
                                     String reply = assistantResponse.toString();
                                     if (!reply.isBlank()) {
-                                        ArrayNode assistantMsg = objectMapper.createArrayNode();
-                                        ObjectNode msgNode = objectMapper.createObjectNode();
-                                        msgNode.put("role", "assistant");
-                                        msgNode.put("content", reply);
-                                        assistantMsg.add(msgNode);
-                                        personaService.appendMessages(conv, assistantMsg)
+                                        ObjectNode assistNode = objectMapper.createObjectNode();
+                                        assistNode.put("role", "assistant");
+                                        assistNode.put("content", reply);
+                                        allMessagesToSave.add(assistNode);
+                                    }
+                                    if (allMessagesToSave.size() > 0) {
+                                        personaService.appendMessages(conv, allMessagesToSave)
                                                 .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
                                                 .subscribe();
                                     }
