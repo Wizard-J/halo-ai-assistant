@@ -1467,18 +1467,21 @@
 
     async function renderHistoryList() {
         let conversations = [];
+        let shouldUseLocalFallback = false;
         try {
             const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations?sessionId=' + encodeURIComponent(sessionId));
             if (resp.ok) {
                 const data = await resp.json();
                 conversations = data.conversations || [];
+            } else {
+                shouldUseLocalFallback = true;
             }
         } catch (e) {
             console.warn('服务端获取对话失败', e);
+            shouldUseLocalFallback = true;
         }
-        if (!conversations.length) {
-            // 服务端返回空或错误时，从 localStorage 回退
-            // localStorage 在删除/创建时同步更新，数据是最新的
+        if (shouldUseLocalFallback && !conversations.length) {
+            // 只有服务端不可用时才从 localStorage 回退；服务端明确返回空列表时应显示为空。
             conversations = getSavedConversations();
         }
         historyList.replaceChildren();
@@ -1576,9 +1579,10 @@
     async function deleteConversation(conv) {
         if (!confirm('确认删除此对话？')) return;
         try {
-            await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations/' + encodeURIComponent(conv.id), {
+            const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations/' + encodeURIComponent(conv.id), {
                 method: 'DELETE'
             });
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
         } catch (e) {
             console.warn('服务端删除失败', e);
         }

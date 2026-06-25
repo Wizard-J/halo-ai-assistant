@@ -177,7 +177,9 @@ public class AiChatEndpoint {
             Mono<ConversationRef> convMono;
             if (!convId.isBlank()) {
                 // 尝试按 ID 获取，不存在则创建
-                String convName = "conv-" + sessionId + "-" + personaId + "-" + convId;
+                String convName = convId.startsWith("conv-")
+                        ? convId
+                        : "conv-" + sessionId + "-" + personaId + "-" + convId;
                 convMono = personaService.getConversationByGVK(convName)
                         .onErrorResume(e ->
                                 personaService.createConversation(sessionId, personaId, convName));
