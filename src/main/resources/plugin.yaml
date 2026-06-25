@@ -11,7 +11,7 @@ spec:
   logo: "logo.png"
   homepage: "https://github.com/Wizard-J/halo-ai-assistant"
   displayName: "AI 智能助手"
-  description: "AI 智能博客助手。支持自然语言管理文章/分类/标签/评论，多角色 AI 对话（老巫师/芒格视角），自动推送与每日自动发布（RSS 聚合 + AI 润色）。基于 DeepSeek 或 OpenAI 模型，支持 Halo 2.20+。"
+  description: "AI 智能博客助手（管理员专用）。支持自然语言管理文章/分类/标签/评论，多角色 AI 对话（老巫师/芒格视角），自动推送与每日自动发布（RSS 聚合 + AI 润色）。需要 Halo 超级管理员权限。"
   settingName: ai-assistant-settings
   configMapName: ai-assistant-configmap
   entry: "/api/ai-assistant/chat-page"
