@@ -8,7 +8,6 @@ import io.codex.haloaiassistant.agent.AgentService;
 import io.codex.haloaiassistant.agent.ToolRegistry;
 import io.codex.haloaiassistant.autoops.AutoOpsService;
 import io.codex.haloaiassistant.config.AiAssistantSetting;
-import io.codex.haloaiassistant.persona.Conversation;
 import io.codex.haloaiassistant.persona.PersonaDefinition;
 import io.codex.haloaiassistant.persona.PersonaService;
 import java.io.IOException;
@@ -175,7 +174,7 @@ public class AiChatEndpoint {
             return personaService.getOrCreateConversation(sessionId, personaId)
                     .onErrorResume(e -> {
                         log.warn("获取/创建对话失败，尝试直接创建新对话: {}", e.getMessage());
-                        // 如果 Conversation 扩展索引问题导致失败，使用内存中会话
+                        // 如果 ConvRef 扩展索引问题导致失败，使用内存中会话
                         return personaService.createFallbackConversation(sessionId, personaId);
                     })
                     .flatMap(conv -> {

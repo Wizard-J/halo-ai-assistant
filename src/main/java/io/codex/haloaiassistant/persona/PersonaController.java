@@ -191,7 +191,7 @@ public class PersonaController {
                                 .bodyValue(Map.of("id", "", "messages", java.util.Collections.emptyList(),
                                         "title", "", "updatedAt", ""));
                     }
-                    Conversation conv = list.get(0);
+                    ConversationRef conv = list.get(0);
                     var spec = conv.getSpec();
                     java.util.List<Map<String, String>> msgs = new java.util.ArrayList<>();
                     ArrayNode raw = personaService.parseMessages(conv);
@@ -371,7 +371,7 @@ public class PersonaController {
         return result;
     }
 
-    private Map<String, Object> toConversationSummary(Conversation c) {
+    private Map<String, Object> toConversationSummary(ConversationRef c) {
         var spec = c.getSpec();
         Map<String, Object> result = new java.util.HashMap<>();
         result.put("id", c.getMetadata().getName());

@@ -1,5 +1,6 @@
 package io.codex.haloaiassistant.persona;
 
+import java.time.Instant;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -7,10 +8,8 @@ import run.halo.app.extension.AbstractExtension;
 import run.halo.app.extension.GVK;
 
 /**
- * 对话引用索引 —— 绕过 Halo 扩展索引系统。
- * 这是一个全新的扩展类型（kind="ConvRef"），Halo 从未注册过，
- * 会强制创建带 metadata.name 索引的新 scheme。
- * 每个记录对应一个对话，包含 sessionId + personaId + conversationName。
+ * 对话记录 —— 直接存储在 ConvRef 扩展中，绕过 Conversation 的索引缺失问题。
+ * ConvRef 是全新的扩展 kind，索引正常运行。
  */
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -32,10 +31,25 @@ public class ConversationRef extends AbstractExtension {
         /** 关联的 Persona ID */
         private String personaId;
 
-        /** 对应的 Conversation 资源名称 */
-        private String conversationName;
+        /** 对话标题 */
+        private String title;
+
+        /** 消息列表 JSON */
+        private String messages;
+
+        /** 创建时间 */
+        private Instant createdAt;
 
         /** 更新时间 */
-        private java.time.Instant updatedAt;
+        private Instant updatedAt;
+
+        /** 是否已压缩 */
+        private boolean compressed;
+
+        /** 压缩后的历史摘要 */
+        private String summary;
+
+        /** 已提炼的消息条数 */
+        private int refinedMessageCount;
     }
 }

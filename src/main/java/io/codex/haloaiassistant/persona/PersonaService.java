@@ -23,6 +23,7 @@ import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import run.halo.app.extension.Metadata;
+import run.halo.app.extension.GroupVersionKind;
 import run.halo.app.extension.ReactiveExtensionClient;
 
 import run.halo.app.plugin.ReactiveSettingFetcher;
@@ -382,28 +383,39 @@ public class PersonaService {
     /**
      * 获取某个 session + persona 的当前对话
      */
-    public Mono<Conversation> getOrCreateConversation(String sessionId, String personaId) {
+    public Mono<ConversationRef> getOrCreateConversation(String sessionId, String personaId) {
         return listConversations(sessionId, personaId)
                 .flatMap(list -> {
                     if (list.isEmpty()) {
                         return createConversation(sessionId, personaId);
                     }
                     return Mono.just(list.get(0));
+                })
+                .onErrorResume(e -> {
+                    log.warn("getOrCreateConversation 失败: {}", e.getMessage());
+                    return createFallbackConversation(sessionId, personaId);
                 });
+    }
+
+    /**
+     * 使用 GVK 获取 ConversationRef，绕过索引问题
+     */
+    public Mono<ConversationRef> getConversationByGVK(String conversationName) {
+        return client.get(ConversationRef.class, conversationName);
     }
 
     /**
      * 创建回退对话 —— 当 Conversation 扩展索引失败时的兜底方案。
      * 不依赖 listAll()，直接创建新对话。
      */
-    public Mono<Conversation> createFallbackConversation(String sessionId, String personaId) {
-        String convName = "conv-" + sessionId + "-" + personaId + "-" + Instant.now().toEpochMilli();
-        Conversation conv = new Conversation();
+    public Mono<ConversationRef> createFallbackConversation(String sessionId, String personaId) {
+        String refName = "conv-" + sessionId + "-" + personaId + "-" + Instant.now().toEpochMilli();
+        ConversationRef ref = new ConversationRef();
         Metadata metadata = new Metadata();
-        metadata.setName(convName);
-        conv.setMetadata(metadata);
+        metadata.setName(refName);
+        ref.setMetadata(metadata);
 
-        Conversation.ConversationSpec spec = new Conversation.ConversationSpec();
+        ConversationRef.ConvRefSpec spec = new ConversationRef.ConvRefSpec();
         spec.setSessionId(sessionId);
         spec.setPersonaId(personaId);
         spec.setTitle("新对话");
@@ -412,68 +424,46 @@ public class PersonaService {
         spec.setUpdatedAt(Instant.now());
         spec.setCompressed(false);
         spec.setSummary(null);
-        conv.setSpec(spec);
-        return client.create(conv)
-                .flatMap(created -> addConversationRef(sessionId, personaId, convName)
-                        .onErrorResume(e -> {
-                            log.warn("回退创建对话时添加 ConvRef 失败: {}", e.getMessage());
-                            return Mono.empty();
-                        }))
-                .thenReturn(conv)
+        spec.setRefinedMessageCount(0);
+        ref.setSpec(spec);
+        return client.create(ref)
+                .thenReturn(ref)
                 .onErrorResume(e -> {
                     log.warn("回退创建对话也失败了: {}", e.getMessage());
-                    return Mono.just(conv);
+                    return Mono.just(ref);
                 });
     }
 
     /**
      * 列出某个 session + persona 的所有对话（按更新时间倒序）
      */
-    public Mono<List<Conversation>> listConversations(String sessionId, String personaId) {
+    public Mono<List<ConversationRef>> listConversations(String sessionId, String personaId) {
         log.debug("listConversations: sessionId={}, personaId={}", sessionId, personaId);
-        // 从 ConvRef 索引获取对话名称列表（全新扩展，索引可靠）
         return client.listAll(ConversationRef.class, null, null)
                 .filter(ref -> ref.getSpec() != null
                         && sessionId.equals(ref.getSpec().getSessionId())
-                        && personaId.equals(ref.getSpec().getPersonaId()))
-                .map(ref -> ref.getSpec().getConversationName())
-                .collectList()
-                .flatMap(names -> {
-                    if (names.isEmpty()) {
-                        return Mono.just(new java.util.ArrayList<Conversation>());
-                    }
-                    java.util.List<Mono<Conversation>> monos = new java.util.ArrayList<>();
-                    for (String name : names) {
-                        monos.add(client.fetch(Conversation.class, name)
-                                .filter(conv -> conv.getSpec() != null
-                                        && (conv.getMetadata() == null || conv.getMetadata().getDeletionTimestamp() == null))
-                                .onErrorResume(e -> {
-                                    log.warn("获取对话 {} 失败，跳过: {}", name, e.getMessage());
-                                    return Mono.empty();
-                                }));
-                    }
-                    return Flux.concat(monos)
-                            .sort((a, b) -> {
-                                Instant ta = a.getSpec() != null ? a.getSpec().getUpdatedAt() : Instant.EPOCH;
-                                Instant tb = b.getSpec() != null ? b.getSpec().getUpdatedAt() : Instant.EPOCH;
-                                return tb.compareTo(ta);
-                            })
-                            .collectList();
+                        && personaId.equals(ref.getSpec().getPersonaId())
+                        && (ref.getMetadata() == null || ref.getMetadata().getDeletionTimestamp() == null))
+                .sort((a, b) -> {
+                    Instant ta = a.getSpec() != null ? a.getSpec().getUpdatedAt() : Instant.EPOCH;
+                    Instant tb = b.getSpec() != null ? b.getSpec().getUpdatedAt() : Instant.EPOCH;
+                    return tb.compareTo(ta);
                 })
+                .collectList()
                 .onErrorResume(e -> {
                     log.warn("listConversations 失败: {}", e.getMessage());
-                    return Mono.just(new java.util.ArrayList<Conversation>());
+                    return Mono.just(new java.util.ArrayList<ConversationRef>());
                 });
     }
 
-    private Mono<Conversation> createConversation(String sessionId, String personaId) {
-        String convName = "conv-" + sessionId + "-" + personaId + "-" + Instant.now().toEpochMilli();
-        Conversation conv = new Conversation();
+    private Mono<ConversationRef> createConversation(String sessionId, String personaId) {
+        String refName = "conv-" + sessionId + "-" + personaId + "-" + Instant.now().toEpochMilli();
+        ConversationRef ref = new ConversationRef();
         Metadata metadata = new Metadata();
-        metadata.setName(convName);
-        conv.setMetadata(metadata);
+        metadata.setName(refName);
+        ref.setMetadata(metadata);
 
-        Conversation.ConversationSpec spec = new Conversation.ConversationSpec();
+        ConversationRef.ConvRefSpec spec = new ConversationRef.ConvRefSpec();
         spec.setSessionId(sessionId);
         spec.setPersonaId(personaId);
         spec.setTitle("新对话");
@@ -482,48 +472,22 @@ public class PersonaService {
         spec.setUpdatedAt(Instant.now());
         spec.setCompressed(false);
         spec.setSummary(null);
-        conv.setSpec(spec);
-
-        // 创建对话后，添加 ConvRef 索引
-        return client.create(conv)
-                .flatMap(created -> addConversationRef(sessionId, personaId, convName))
-                .thenReturn(conv);
-    }
-
-    /**
-     * 将对话名称添加到 PersonaDefinition 的 conversationNames 列表中
-     */
-    private Mono<Void> addConversationRef(String sessionId, String personaId, String convName) {
-        ConversationRef ref = new ConversationRef();
-        run.halo.app.extension.Metadata meta = new run.halo.app.extension.Metadata();
-        meta.setName("cref-" + sessionId + "-" + personaId + "-" + java.time.Instant.now().toEpochMilli());
-        ref.setMetadata(meta);
-        ConversationRef.ConvRefSpec spec = new ConversationRef.ConvRefSpec();
-        spec.setSessionId(sessionId);
-        spec.setPersonaId(personaId);
-        spec.setConversationName(convName);
-        spec.setUpdatedAt(java.time.Instant.now());
+        spec.setRefinedMessageCount(0);
         ref.setSpec(spec);
-        return client.create(ref).then();
-    }
 
-    private Mono<Void> removeConversationRef(String convName) {
-        return client.listAll(ConversationRef.class, null, null)
-                .filter(ref -> ref.getSpec() != null && convName.equals(ref.getSpec().getConversationName()))
-                .next()
-                .flatMap(ref -> client.delete(ref))
-                .then();
+        return client.create(ref)
+                .thenReturn(ref);
     }
 
     /**
      * 向对话追加消息
      */
-    public Mono<Conversation> appendMessages(String sessionId, String personaId,
-                                              ArrayNode newMessages) {
+    public Mono<ConversationRef> appendMessages(String sessionId, String personaId,
+                                                  ArrayNode newMessages) {
         return getOrCreateConversation(sessionId, personaId)
-                .flatMap(conv -> {
-                    Conversation.ConversationSpec spec = conv.getSpec();
-                    ArrayNode existing = parseMessages(conv);
+                .flatMap(ref -> {
+                    ConversationRef.ConvRefSpec spec = ref.getSpec();
+                    ArrayNode existing = parseConvRefMessages(ref);
                     for (JsonNode msg : newMessages) {
                         existing.add(msg);
                     }
@@ -542,10 +506,10 @@ public class PersonaService {
                         }
                     }
 
-                    return client.update(conv);
+                    return client.update(ref);
                 })
                 .onErrorResume(e -> {
-                    log.warn("追加消息失败（可能索引问题），返回原对话: {}", e.getMessage());
+                    log.warn("追加消息失败，重试: {}", e.getMessage());
                     return getOrCreateConversation(sessionId, personaId);
                 });
     }
@@ -553,23 +517,23 @@ public class PersonaService {
     /**
      * 获取单条对话
      */
-    public Mono<Conversation> getConversation(String conversationId) {
-        return client.get(Conversation.class, conversationId);
+    public Mono<ConversationRef> getConversation(String conversationId) {
+        return client.get(ConversationRef.class, conversationId);
     }
 
     /**
      * 更新对话标题
      */
     public Mono<Void> updateConversationTitle(String conversationId, String newTitle) {
-        return client.get(Conversation.class, conversationId)
-                .flatMap(conv -> {
-                    conv.getSpec().setTitle(newTitle);
-                    conv.getSpec().setUpdatedAt(java.time.Instant.now());
-                    return client.update(conv);
+        return client.get(ConversationRef.class, conversationId)
+                .flatMap(ref -> {
+                    ref.getSpec().setTitle(newTitle);
+                    ref.getSpec().setUpdatedAt(java.time.Instant.now());
+                    return client.update(ref);
                 })
                 .then()
                 .onErrorResume(e -> {
-                    log.warn("更新对话标题失败（可能索引问题），忽略: {}", e.getMessage());
+                    log.warn("更新对话标题失败，忽略: {}", e.getMessage());
                     return Mono.empty();
                 });
     }
@@ -577,18 +541,10 @@ public class PersonaService {
     /**
      * 删除单条对话
      */
-    public Mono<Void> deleteConversation(String conversationId) {
-        return client.get(Conversation.class, conversationId)
-                .flatMap(conv -> {
-                    String personaId = conv.getSpec() != null ? conv.getSpec().getPersonaId() : null;
-                    return client.delete(conv)
-                            .then(Mono.defer(() -> {
-                                if (personaId != null) {
-                                    return removeConversationNameFromPersona(personaId, conversationId);
-                                }
-                                return Mono.empty();
-                            }));
-                })
+    
+public Mono<Void> deleteConversation(String conversationId) {
+        return client.get(ConversationRef.class, conversationId)
+                .flatMap(conv -> client.delete(conv))
                 .then()
                 .onErrorResume(e -> {
                     log.warn("删除对话失败（可能索引问题），忽略: {}", e.getMessage());
@@ -597,49 +553,18 @@ public class PersonaService {
     }
 
     /**
-     * 从 PersonaDefinition 的 conversationNames 中移除对话名称
-     */
-    private Mono<Void> removeConversationNameFromPersona(String personaId, String convName) {
-        return client.fetch(PersonaDefinition.class, personaId)
-                .flatMap(p -> {
-                    if (p.getSpec() == null) return Mono.empty();
-                    String namesJson = p.getSpec().getConversationNames();
-                    if (namesJson == null || namesJson.isBlank()) return Mono.empty();
-                    try {
-                        java.util.List<String> names = objectMapper.readValue(namesJson,
-                                objectMapper.getTypeFactory().constructCollectionType(java.util.ArrayList.class, String.class));
-                        names.remove(convName);
-                        p.getSpec().setConversationNames(objectMapper.writeValueAsString(names));
-                        p.getSpec().setUpdatedAt(Instant.now());
-                        return client.update(p);
-                    } catch (Exception e) {
-                        log.warn("更新 conversationNames 失败", e);
-                        return Mono.empty();
-                    }
-                })
-                .then();
-    }
-
-    /**
      * 删除某 session 的所有对话（用户清除数据时）
      */
     public Mono<Void> deleteSessionConversations(String sessionId) {
         return client.listAll(ConversationRef.class, null, null)
                 .filter(ref -> ref.getSpec() != null && sessionId.equals(ref.getSpec().getSessionId()))
-                .flatMap(ref -> {
-                    String convName = ref.getSpec().getConversationName();
-                    return client.delete(ref)
-                            .then(client.fetch(Conversation.class, convName)
-                                    .flatMap(client::delete)
-                                    .onErrorResume(e -> Mono.empty()))
-                            .onErrorResume(e -> Mono.empty());
-                })
+                .flatMap(ref -> client.delete(ref).onErrorResume(e -> Mono.empty()))
                 .then();
     }
 
     // ========== 消息序列化辅助 ==========
 
-    public ArrayNode parseMessages(Conversation conv) {
+    public ArrayNode parseMessages(ConversationRef conv) {
         if (conv == null || conv.getSpec() == null) return objectMapper.createArrayNode();
         String raw = conv.getSpec().getMessages();
         if (raw == null || raw.isBlank()) return objectMapper.createArrayNode();
@@ -649,6 +574,10 @@ public class PersonaService {
         } catch (Exception e) {
             return objectMapper.createArrayNode();
         }
+    }
+
+    public ArrayNode parseConvRefMessages(ConversationRef ref) {
+        return parseMessages(ref);
     }
 
     private String serializeMessages(ArrayNode messages) {
@@ -698,11 +627,11 @@ public class PersonaService {
     /**
      * 压缩对话：保留最后 N 轮，前面的归档
      */
-    public Conversation compressConversation(Conversation conv) {
-        Conversation.ConversationSpec spec = conv.getSpec();
-        if (spec == null || spec.getMessages() == null) return conv;
+    public ConversationRef compressConversation(ConversationRef ref) {
+        ConversationRef.ConvRefSpec spec = ref.getSpec();
+        if (spec == null || spec.getMessages() == null) return ref;
 
-        ArrayNode messages = parseMessages(conv);
+        ArrayNode messages = parseConvRefMessages(ref);
         if (shouldCompress(messages, DEFAULT_MODEL_WINDOW)) {
             // 从后往前保留最后 RESERVED_ROUNDS 轮（每轮 user + assistant = 2 条）
             java.util.List<JsonNode> retainedList = new java.util.ArrayList<>();
@@ -750,7 +679,7 @@ public class PersonaService {
             spec.setSummary("已压缩早期 " + (pruned / 2) + " 轮对话");
             spec.setUpdatedAt(Instant.now());
         }
-        return conv;
+        return ref;
     }
     // ========== 上下文提炼（AI 合并对话到 AGENTS.md） ==========
 
@@ -785,7 +714,7 @@ public class PersonaService {
                     if (list.isEmpty()) {
                         return Mono.error(new IllegalArgumentException("该会话无对话记录"));
                     }
-                    Conversation conv = list.get(0);
+                    ConversationRef conv = list.get(0);
                     var spec = conv.getSpec();
                     if (spec == null || spec.getMessages() == null || spec.getMessages().isBlank()) {
                         return Mono.error(new IllegalArgumentException("对话记录为空"));
@@ -833,7 +762,7 @@ public class PersonaService {
                                             return client.update(p);
                                         })
                                         .then(Mono.defer(() -> {
-                                            // 7. 更新 Conversation 的 refinedMessageCount
+                                            // 7. 更新 ConversationRef 的 refinedMessageCount
                                             int newCountValue = data.refinedCount + data.newCount;
                                             data.conversation.getSpec().setRefinedMessageCount(newCountValue);
                                             data.conversation.getSpec().setUpdatedAt(Instant.now());
@@ -920,10 +849,10 @@ public class PersonaService {
     }
 
     /**
-     * 内部类：承载 Conversation + 已解析的未提炼文本 + 计数
+     * 内部类：承载 ConversationRef + 已解析的未提炼文本 + 计数
      */
     private record ConversationWithUnrefined(
-            Conversation conversation,
+            ConversationRef conversation,
             String unrefinedText,
             int refinedCount,
             int newCount) {}

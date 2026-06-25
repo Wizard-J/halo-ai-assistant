@@ -436,3 +436,80 @@ schemeManager.register(PersonaDefinition.class, indexSpecs -> {
 
 1. **2026-06-25**：未经确认就修改了 theme-jyf 主题的 ConfigMap（试图关闭热力图），导致 `JSON_OBJECT()` 将原本应该是 JSON 字符串的字段写成了 JSON 对象，页面 500 崩溃。最终通过 Python 生成正确结构的 JSON 并用 `UNHEX()` 修复。
 2. **教训**：Halo 的 extensions 表中 `data` 列存储的是序列化的 Halo Extension JSON，其中 ConfigMap 的 `data` 字段值必须是 JSON **字符串**（即双转义），而不是 JSON **对象**。用 `JSON_SET()` / `JSON_OBJECT()` 直接操作极易破坏数据结构。
+
+---
+
+## 2026-06-25 Conversation → ConversationRef 重构
+
+### 问题背景
+`Conversation` 自定义扩展（kind=`Conversation`, version=`v1alpha2`）在 Halo 2.22.x 上存在索引缓存问题。旧 scheme 被缓存后无法覆盖，`client.get()`/`listAll()` 报错 "No indices found"，即使显式注册 `metadata.name` 索引也无效。
+
+### 解决方案
+创建全新的扩展类型 `ConversationRef`（kind=`ConvRef`, group=`ai-assistant.plugin.halo.run`, version=`v1alpha1`），Halo 从未注册过该 kind，索引正常工作。
+
+### 变更文件
+- **新文件**：`ConversationRef.java` — 全新的 ConvRef 扩展，包含 `ConvRefSpec`（sessionId, personaId, title, messages, timestamps, compressed, summary, refinedMessageCount）
+- **修改**：`PersonaService.java` — 所有 `Conversation` 引用改为 `ConversationRef`
+  - `getOrCreateConversation()` 返回 `Mono<ConversationRef>`
+  - `parseMessages()` 接受 `ConversationRef`（新增 `parseConvRefMessages()` 别名）
+  - `deleteConversation()` 使用 `ConversationRef.class`
+  - 移除 `addConversationRef()` / `removeConversationRef()` / `removeConversationNameFromPersona()` 死代码
+  - `ConversationWithUnrefined` record 改用 `ConversationRef`
+  - `refineContext()` 使用 `ConversationRef`
+- **修改**：`PersonaController.java` — `toConversationSummary()` 接受 `ConversationRef`
+- **修改**：`AiChatEndpoint.java` — 移除 `Conversation` 导入
+- **保留**：`Conversation.java` 扩展类保留（GVK 不同不冲突，旧数据可读）
+
+### 构建命令
+```bash
+JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build
+```
+产物：`build/libs/halo-ai-assistant-*.jar`
+
+### 部署方式（手动上传到 1Panel）
+1. 构建成功后，产物在 `build/libs/halo-ai-assistant-<version>.jar`
+2. 登录 1Panel → 容器管理 → 1Panel-halo-GOvD → 插件管理
+3. 上传 JAR 覆盖，约 15-30s 热加载生效
+4. **勿自动部署** — 用户偏好手动上传
+
+### 重要：全局会话隔离
+- 会话粒度 = `sessionId`（固定为 `user-{username}`），同一用户跨浏览器/设备共享会话
+- `sessionId` **不依赖** localStorage，纯服务端隔离
+- 不同用户之间的 `sessionId` 不同，上下文天然隔离
+
+---
+
+## 复盘：Conversation 索引反复坏掉的原因
+
+### 现象
+- 对话历史记录为空（`{"conversations":[]}`）
+- 删除不生效
+- 服务器报 "No indices found for type: Conversation"
+
+### 修复历史（3次失败 → 最终解决）
+
+| 时间 | 尝试 | 结果 |
+|------|------|------|
+| 第一次 | `schemeManager.register(Conversation.class)` 自动注册 | ❌ Halo 2.22.x 简写方式不创建索引 |
+| 第二次 | 加 `registerConversationWithIndex()` 显式注册 `metadata.name` 索引 | ❌ 旧 scheme 已被缓存，新索引注册被静默忽略 |
+| 第三次 | 创建 `ConversationRef` 新 kind，半重构 | ❌ 编译不过（方法体未完成更新） |
+| 第四次（本次） | 完成 ConvRef 全链路重构 | ✅ 全新 kind，新 scheme + 全新索引 |
+
+### 根本原因
+
+**Halo 2.22.x 的 `SchemeManager` 存在 scheme 缓存不可覆写的限制：**
+
+1. 插件第一次启动时，用 `@GVK` 注解自动注册了 `Conversation`（version=`v1alpha2`），Halo 创建了 scheme 但没有索引
+2. 后续插件更新时，`schemeManager.register(Conversation.class, indexSpecs -> ...)` 不会再重新创建 scheme——缓存中的旧 scheme 没有索引，新注册的索引定义被忽略
+3. 因此 `client.fetch()` / `client.get()` / `client.delete()` 全部报 "No indices found"
+4. `client.listAll()` 带谓词过滤的可工作，但 `client.get()` 依赖 `metadata.name` 索引
+
+**为什么修改 GVK version（v1alpha1 → v1alpha2）也不行？** 因为在 Halo 的 scheme 缓存中，group + kind 是主键，不是 version。修改 version 不会触发 scheme 重建。
+
+**最终解决方案只能是创建全新的扩展 kind（ConvRef）**，Halo 从未见过这个 kind，会创建全新的 scheme + 索引。
+
+### 教训
+1. **不要在已有 scheme 上修索引**——Halo 2.22.x 不支持
+2. **新增扩展 kind 时，必须一步到位注册好索引**，否则后续无法补充
+3. **部署后确认日志**：检查 `Start to initialize indices for type: ConvRef` 和 `Total indexed count` 是否正常
+4. **不要在已有数据的 kind 上改索引策略**，要创建新 kind 并迁移或重建

@@ -1045,7 +1045,7 @@
     const drawerBackdrop = document.getElementById('drawerBackdrop');
     const closeHistoryButton = document.getElementById('closeHistoryButton');
 
-    let activePersona = { id: 'default', displayName: 'AI 智能助手', iconUrl: null, brandColor: '#2563eb', greeting: '你好，我是 Halo AI 智能助手' };
+    let activePersona = { id: 'default', displayName: 'AI 智能助手', iconUrl: null, brandColor: '#2563eb', greeting: '你好，我是 Halo AI 智能助手', thinkingPhrases: '[]' };
     let personas = [];
     let loadingPersonas = false;
     let thinkingTimer = null;
@@ -1718,6 +1718,7 @@
                 if (match.iconUrl !== undefined) activePersona.iconUrl = match.iconUrl;
                 if (match.brandColor) activePersona.brandColor = match.brandColor;
                 if (match.greeting) activePersona.greeting = match.greeting;
+                if (match.thinkingPhrases) activePersona.thinkingPhrases = match.thinkingPhrases;
             }
             // 尝试恢复之前选中的 persona
             try {
