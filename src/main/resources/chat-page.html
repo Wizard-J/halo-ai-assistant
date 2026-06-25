@@ -8,6 +8,23 @@
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.6.0/fonts/remixicon.css">
     <style>
+
+        /* === Safari 兼容性修复 === */
+        /* 确保 hidden 属性在所有浏览器都生效 */
+        [hidden] { display: none !important; }
+
+        /* Safari 移动端 100vh 修正 */
+        html, body { height: 100%; height: -webkit-fill-available; }
+        .workspace, .conversation { height: 100%; height: -webkit-fill-available; }
+
+        /* Safari flexbox gap fallback */
+        @supports not (gap: 10px) {
+            .messages { margin-bottom: 32px; }
+            .messages > * + * { margin-top: 32px; }
+            .suggestions > * + * { margin-left: 10px; margin-top: 10px; }
+            .message-row > * + * { margin-left: 13px; }
+        }
+
         :root {
             --accent: #2563eb;
             --accent-hover: #1d4ed8;
