@@ -427,7 +427,7 @@ public class PersonaService {
         spec.setRefinedMessageCount(0);
         ref.setSpec(spec);
         return client.create(ref)
-                .thenReturn(ref)
+                .map(created -> created)
                 .onErrorResume(e -> {
                     log.warn("回退创建对话也失败了: {}", e.getMessage());
                     return Mono.just(ref);
@@ -476,7 +476,7 @@ public class PersonaService {
         ref.setSpec(spec);
 
         return client.create(ref)
-                .thenReturn(ref);
+                .map(created -> created);
     }
 
     /**
@@ -485,33 +485,39 @@ public class PersonaService {
     public Mono<ConversationRef> appendMessages(String sessionId, String personaId,
                                                   ArrayNode newMessages) {
         return getOrCreateConversation(sessionId, personaId)
-                .flatMap(ref -> {
-                    ConversationRef.ConvRefSpec spec = ref.getSpec();
-                    ArrayNode existing = parseConvRefMessages(ref);
-                    for (JsonNode msg : newMessages) {
-                        existing.add(msg);
-                    }
-                    spec.setMessages(serializeMessages(existing));
-                    spec.setUpdatedAt(Instant.now());
-
-                    // 更新标题（取首条 user 消息）
-                    if ("新对话".equals(spec.getTitle()) || spec.getTitle() == null) {
-                        for (JsonNode msg : newMessages) {
-                            if ("user".equals(msg.path("role").asText())) {
-                                String content = msg.path("content").asText();
-                                if (content.length() > 42) content = content.substring(0, 42);
-                                spec.setTitle(content);
-                                break;
-                            }
-                        }
-                    }
-
-                    return client.update(ref);
-                })
+                .flatMap(ref -> appendMessages(ref, newMessages))
                 .onErrorResume(e -> {
                     log.warn("追加消息失败，重试: {}", e.getMessage());
                     return getOrCreateConversation(sessionId, personaId);
                 });
+    }
+
+    /**
+     * 向已存在的对话追加消息（复用已有 ConversationRef，避免重复创建）
+     */
+    public Mono<ConversationRef> appendMessages(ConversationRef ref, ArrayNode newMessages) {
+        ConversationRef.ConvRefSpec spec = ref.getSpec();
+        if (spec == null) return Mono.just(ref);
+        ArrayNode existing = parseConvRefMessages(ref);
+        for (JsonNode msg : newMessages) {
+            existing.add(msg);
+        }
+        spec.setMessages(serializeMessages(existing));
+        spec.setUpdatedAt(Instant.now());
+
+        // 更新标题（取首条 user 消息）
+        if ("新对话".equals(spec.getTitle()) || spec.getTitle() == null) {
+            for (JsonNode msg : newMessages) {
+                if ("user".equals(msg.path("role").asText())) {
+                    String content = msg.path("content").asText();
+                    if (content.length() > 42) content = content.substring(0, 42);
+                    spec.setTitle(content);
+                    break;
+                }
+            }
+        }
+
+        return client.update(ref);
     }
 
     /**

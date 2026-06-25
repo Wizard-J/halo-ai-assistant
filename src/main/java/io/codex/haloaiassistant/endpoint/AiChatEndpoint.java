@@ -215,7 +215,7 @@ public class AiChatEndpoint {
                             }
                         }
                         if (messagesJson.size() > 0) {
-                            personaService.appendMessages(sessionId, personaId, messagesJson)
+                            personaService.appendMessages(conv, messagesJson)
                                     .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
                                     .subscribe();
                         }
@@ -234,7 +234,7 @@ public class AiChatEndpoint {
                                         msgNode.put("role", "assistant");
                                         msgNode.put("content", reply);
                                         assistantMsg.add(msgNode);
-                                        personaService.appendMessages(sessionId, personaId, assistantMsg)
+                                        personaService.appendMessages(conv, assistantMsg)
                                                 .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
                                                 .subscribe();
                                     }
