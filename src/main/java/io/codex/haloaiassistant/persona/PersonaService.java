@@ -579,8 +579,8 @@ public class PersonaService {
     private static final double ASCII_CHARS_PER_TOKEN = 3.5;
     private static final double BUFFER_RATIO = 0.20;
     private static final double TRIGGER_RATIO = 0.70;
-    private static final int RESERVED_ROUNDS = 3;
-    private static final int DEFAULT_MODEL_WINDOW = 64000;
+    private static final int RESERVED_ROUNDS = 10;
+    private static final int DEFAULT_MODEL_WINDOW = 128000;
 
     public int estimateTokens(String text) {
         if (text == null || text.isBlank()) return 0;
@@ -627,11 +627,29 @@ public class PersonaService {
 
             int pruned = messages.size() - retainedList.size();
             if (pruned > 0) {
+                // 从被修剪的消息中提取关键主题（用户提问），构建上下文摘要
+                StringBuilder topics = new StringBuilder();
+                int topicCount = 0;
+                for (int i = 0; i < pruned; i++) {
+                    JsonNode msg = messages.get(i);
+                    if ("user".equals(msg.path("role").asText())) {
+                        String text = msg.path("content").asText();
+                        if (text.length() > 60) text = text.substring(0, 60) + "…";
+                        if (topicCount > 0) topics.append("; ");
+                        topics.append(text);
+                        topicCount++;
+                        if (topicCount >= 8) break; // 最多提取 8 个话题
+                    }
+                }
+                String summary = topics.length() > 0
+                        ? "已讨论过的话题：" + topics.toString() + "。"
+                        : "较早的话题已归档。";
                 // 添加系统提示说明
                 ObjectNode systemNote = objectMapper.createObjectNode();
                 systemNote.put("role", "system");
                 systemNote.put("content", "【系统提示】因对话较长，较早的 "
-                        + (pruned / 2) + " 轮对话已归档。如需回顾可主动询问。");
+                        + (pruned / 2) + " 轮对话已归档。" + summary
+                        + "如需回顾可主动询问。");
                 retainedList.add(0, systemNote);
             }
 
