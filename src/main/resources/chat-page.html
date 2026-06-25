@@ -14,8 +14,7 @@
         [hidden] { display: none !important; }
 
         /* Safari 移动端 100vh 修正 */
-        html, body { height: 100%; height: -webkit-fill-available; }
-        .workspace, .conversation { height: 100%; height: -webkit-fill-available; }
+        html, body { height: 100%; height: 100dvh; min-height: 100dvh; }
 
         /* Safari flexbox gap fallback */
         @supports not (gap: 10px) {
@@ -99,8 +98,8 @@
         }
 
         .app {
-            display: grid;
-            grid-template-rows: 64px minmax(0, 1fr);
+            display: flex;
+            flex-direction: column;
             height: 100%;
             background: var(--surface);
         }
@@ -221,16 +220,21 @@
         }
 
         .workspace {
+            flex: 1;
             min-height: 0;
+            display: flex;
+            flex-direction: column;
         }
 
         .conversation {
-            display: grid;
-            grid-template-rows: minmax(0, 1fr) auto;
-            height: 100%;
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
         }
 
-        .scroll-area {
+        .scroll-area { flex: 1;
+            min-height: 0;
             overflow-y: auto;
             overscroll-behavior: contain;
             scrollbar-gutter: stable;
@@ -782,7 +786,7 @@
 
         @media (max-width: 720px) {
             .app {
-                grid-template-rows: 58px minmax(0, 1fr);
+                min-height: 58px;
             }
 
             .app-header {
@@ -1921,7 +1925,7 @@
         if (welcomeSubtitle) {
             const descs = {
                 'default': '我可以帮你管理博客文章、分类、标签和评论。',
-                'munger': '用多元思维模型帮你拆解问题。'
+                'munger': '倒过来想，总是倒过来想。用跨学科智慧拆解世界的复杂性。'
             };
             welcomeSubtitle.textContent = descs[activePersona.id] || '';
         }
@@ -1939,7 +1943,7 @@
             if (!resp.ok) return;
             const data = await resp.json();
             const msgs = data.messages || [];
-            if (msgs.length === 0) return;
+            if (msgs.length === 0) { welcomeElement.hidden = false; return; }
             history = msgs;
             conversationId = data.id;
             messagesElement.replaceChildren();

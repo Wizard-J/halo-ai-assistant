@@ -6,8 +6,8 @@ spec:
   enabled: true
   requires: ">=2.20.0"
   author:
-    name: "Codex"
-    website: "https://github.com/your-repo"
+    name: "Wizard-J"
+    website: "https://github.com/Wizard-J/halo-ai-assistant"
   logo: ""
   homepage: ""
   displayName: "AI 智能助手"

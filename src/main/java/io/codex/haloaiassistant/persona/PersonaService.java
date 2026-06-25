@@ -216,7 +216,7 @@ public class PersonaService {
                         "以查理·芒格的视角对话和分析问题。",
                         "https://wizardj.cn/upload/munger.jpeg", "#1E3A5F",
                         loadMungerSystemPrompt(),
-                        "你好，我是老芒格，有什么需要分析的？",
+                        "嗯，说来听听。让我们用多元思维模型，一起把问题拆开看看。",
                         "[\"摘下眼镜…\",\"擦拭镜片…\",\"翻看笔记…\",\"沉思片刻…\",\"整理思路…\"]"))
                 .then();
     }
