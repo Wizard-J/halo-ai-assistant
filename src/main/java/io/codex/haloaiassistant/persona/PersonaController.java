@@ -130,9 +130,11 @@ public class PersonaController {
                     return personaService.uploadContext(skillFile, personaId)
                             .flatMap(persona -> ServerResponse.ok()
                                     .bodyValue(Map.of("success", true, "message", "上下文已上传")))
-                            .onErrorResume(IllegalArgumentException.class, e ->
-                                    ServerResponse.badRequest()
-                                            .bodyValue(Map.of("error", e.getMessage())));
+                            .onErrorResume(e -> {
+                                log.warn("上传上下文失败: {}", e.getMessage());
+                                return ServerResponse.badRequest()
+                                        .bodyValue(Map.of("error", "上传失败: " + e.getMessage()));
+                            });
                 });
     }
 

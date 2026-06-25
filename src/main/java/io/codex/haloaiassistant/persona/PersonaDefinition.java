@@ -15,7 +15,7 @@ import run.halo.app.extension.GVK;
 @EqualsAndHashCode(callSuper = true)
 @ToString(callSuper = true)
 @GVK(group = "ai-assistant.plugin.halo.run",
-     version = "v1alpha1",
+     version = "v1alpha2",
      kind = "PersonaDefinition",
      plural = "personadefinitions",
      singular = "personadefinition")
