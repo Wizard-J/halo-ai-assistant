@@ -203,7 +203,7 @@ public class PersonaService {
     public Mono<Void> initBuiltinPersonas() {
         return createBuiltinPersona("default", "老巫师",
                 "老巫师视角的博客管理助手，可管理文章、分类、标签和评论。",
-                "https://wizardj.cn/upload/wizard-avatar.png", "#2D1B69",
+                "ri-sparkling-2-fill", "#2D1B69",
                 "你是一个智能博客助手，可以帮助用户管理博客。\n"
                 + "你可以执行以下操作：\n"
                 + "- 查看文章列表、创建文章、更新文章、删除文章\n"
@@ -214,7 +214,7 @@ public class PersonaService {
                 "[\"翻动古籍…\",\"挥动法杖\",\"念动咒语…\",\"推演星象…\",\"施展奥术…\"]")
                 .then(createBuiltinPersona("munger", "芒格视角",
                         "以查理·芒格的视角对话和分析问题。",
-                        "https://wizardj.cn/upload/munger.jpeg", "#1E3A5F",
+                        "ri-team-fill", "#1E3A5F",
                         loadMungerSystemPrompt(),
                         "嗯，说来听听。让我们用多元思维模型，一起把问题拆开看看。",
                         "[\"摘下眼镜…\",\"擦拭镜片…\",\"翻看笔记…\",\"沉思片刻…\",\"整理思路…\"]"))
