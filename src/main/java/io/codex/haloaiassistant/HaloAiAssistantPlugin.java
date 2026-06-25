@@ -1,6 +1,7 @@
 package io.codex.haloaiassistant;
 
 import io.codex.haloaiassistant.persona.Conversation;
+import io.codex.haloaiassistant.persona.ConversationRef;
 import io.codex.haloaiassistant.persona.PersonaDefinition;
 import io.codex.haloaiassistant.persona.PersonaService;
 import lombok.extern.slf4j.Slf4j;
@@ -34,7 +35,8 @@ public class HaloAiAssistantPlugin extends BasePlugin {
         // 因此使用 register(Class, Consumer<IndexSpecs>) 显式注册索引。
         registerPersonaDefinitionWithIndex();
         registerConversationWithIndex();
-        log.info("已注册自定义扩展: PersonaDefinition, Conversation");
+        registerConversationRefWithIndex();
+        log.info("已注册自定义扩展: PersonaDefinition, Conversation, ConvRef");
 
         // 初始化内置 Persona
         personaService.initBuiltinPersonas()
@@ -102,4 +104,27 @@ public class HaloAiAssistantPlugin extends BasePlugin {
     public void stop() {
         log.info("AI 智能助手插件已停止");
     }
+
+    private void registerConversationRefWithIndex() {
+        try {
+            schemeManager.register(ConversationRef.class, indexSpecs -> {
+                indexSpecs.add(
+                    IndexSpecs.<ConversationRef, String>single(
+                            "metadata.name", String.class)
+                        .indexFunc(p -> p.getMetadata().getName())
+                        .unique(true)
+                        .nullable(false)
+                        .build()
+                );
+            });
+        } catch (Exception e) {
+            log.warn("ConvRef 索引注册失败，回退到基础注册", e);
+            try {
+                schemeManager.register(ConversationRef.class);
+            } catch (Exception e2) {
+                log.error("ConvRef 注册完全失败", e2);
+            }
+        }
+    }
+
 }
