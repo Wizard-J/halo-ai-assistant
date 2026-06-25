@@ -208,11 +208,11 @@ curl -fsS -X POST \
 ```bash
 curl -fsS \
   -H "Authorization: Bearer ${HALO_PAT}" \
-  "${HALO_BASE_URL}/apis/api.console.halo.run/v1alpha1/plugins/${PLUGIN_NAME}" \
+  "${HALO_BASE_URL}/apis/plugin.halo.run/v1alpha1/plugins/${PLUGIN_NAME}" \
   | jq '{name: .metadata.name, enabled: .spec.enabled, version: .status.version, phase: .status.phase}'
 ```
 
-如果 API 返回 401/403，说明 `HALO_PAT` 权限不足或过期；如果返回 404，先确认 `PLUGIN_NAME=ai-assistant` 是否已安装，未安装时改用 `plugins/install` 端点。
+如果 API 返回 401/403，说明 `HALO_PAT` 权限不足或过期；如果升级端点返回 404，先确认 `PLUGIN_NAME=ai-assistant` 是否已安装，未安装时改用 `plugins/install` 端点。
 
 ### 验证日志
 ```bash
