@@ -17,6 +17,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import run.halo.app.extension.GroupVersionKind;
+import run.halo.app.extension.JsonExtension;
 import reactor.test.StepVerifier;
 import run.halo.app.extension.Metadata;
 import run.halo.app.extension.ReactiveExtensionClient;
@@ -261,12 +263,10 @@ class PersonaServiceTest {
     @Test
     @DisplayName("deleteConversation → 删除指定 ConvRef")
     void deleteConversationById() {
-        ConversationRef ref = createRefWithMessages("s1", "default", "[]");
-        ref.getMetadata().setName("to-delete");
-        ref.getMetadata().setVersion(1L);
+        JsonExtension ref = jsonConvRef("to-delete");
 
-        when(client.listAll(eq(ConversationRef.class), isNull(), isNull()))
-                .thenReturn(Flux.just(ref));
+        when(client.getJsonExtension(any(GroupVersionKind.class), eq("to-delete")))
+                .thenReturn(Mono.just(ref));
         when(client.delete(ref)).thenReturn(Mono.just(ref));
 
         StepVerifier.create(personaService.deleteConversation("to-delete"))
@@ -278,13 +278,13 @@ class PersonaServiceTest {
     @Test
     @DisplayName("deleteConversation → 不存在的对话静默处理")
     void deleteConversationNotFound() {
-        when(client.listAll(eq(ConversationRef.class), isNull(), isNull()))
-                .thenReturn(Flux.empty());
+        when(client.getJsonExtension(any(GroupVersionKind.class), eq("not-exist")))
+                .thenReturn(Mono.empty());
 
         StepVerifier.create(personaService.deleteConversation("not-exist"))
                 .verifyComplete(); // 不应抛异常
 
-        verify(client, never()).delete(any(ConversationRef.class));
+        verify(client, never()).delete(any(JsonExtension.class));
     }
 
     // ========== 辅助方法 ==========
@@ -306,6 +306,16 @@ class PersonaServiceTest {
         spec.setRefinedMessageCount(0);
         ref.setSpec(spec);
         return ref;
+    }
+
+    private JsonExtension jsonConvRef(String name) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("apiVersion", "ai-assistant.plugin.halo.run/v1alpha1");
+        node.put("kind", "ConvRef");
+        ObjectNode metadata = node.putObject("metadata");
+        metadata.put("name", name);
+        metadata.put("version", 1L);
+        return new JsonExtension(objectMapper, node);
     }
 
     private int parseMsgCount(ConversationRef ref) {

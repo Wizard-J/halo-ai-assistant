@@ -22,6 +22,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import run.halo.app.extension.JsonExtension;
 import run.halo.app.extension.Metadata;
 import run.halo.app.extension.GroupVersionKind;
 import run.halo.app.extension.ReactiveExtensionClient;
@@ -33,6 +34,9 @@ import org.springframework.web.reactive.function.client.WebClient;
 @Component
 @RequiredArgsConstructor
 public class PersonaService {
+
+    private static final GroupVersionKind CONV_REF_GVK =
+            new GroupVersionKind("ai-assistant.plugin.halo.run", "v1alpha1", "ConvRef");
 
     private final ReactiveExtensionClient client;
     private final ReactiveSettingFetcher settingFetcher;
@@ -538,11 +542,8 @@ public class PersonaService {
      */
     
 public Mono<Void> deleteConversation(String conversationId) {
-        return client.listAll(ConversationRef.class, null, null)
-                .filter(ref -> ref.getMetadata() != null
-                        && conversationId.equals(ref.getMetadata().getName()))
-                .next()
-                .flatMap(conv -> client.delete(conv))
+        return client.getJsonExtension(CONV_REF_GVK, conversationId)
+                .flatMap((JsonExtension conv) -> client.delete(conv))
                 .then();
     }
 
