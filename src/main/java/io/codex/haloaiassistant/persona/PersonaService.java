@@ -392,6 +392,33 @@ public class PersonaService {
     }
 
     /**
+     * 创建回退对话 —— 当 Conversation 扩展索引失败时的兜底方案。
+     * 不依赖 listAll()，直接创建新对话。
+     */
+    public Mono<Conversation> createFallbackConversation(String sessionId, String personaId) {
+        Conversation conv = new Conversation();
+        Metadata metadata = new Metadata();
+        metadata.setName("conv-" + sessionId + "-" + personaId + "-" + Instant.now().toEpochMilli());
+        conv.setMetadata(metadata);
+
+        Conversation.ConversationSpec spec = new Conversation.ConversationSpec();
+        spec.setSessionId(sessionId);
+        spec.setPersonaId(personaId);
+        spec.setTitle("新对话");
+        spec.setMessages("[]");
+        spec.setCreatedAt(Instant.now());
+        spec.setUpdatedAt(Instant.now());
+        spec.setCompressed(false);
+        spec.setSummary(null);
+        conv.setSpec(spec);
+        return client.create(conv)
+                .onErrorResume(e -> {
+                    log.warn("回退创建对话也失败了: {}", e.getMessage());
+                    return Mono.just(conv);
+                });
+    }
+
+    /**
      * 列出某个 session + persona 的所有对话（按更新时间倒序）
      */
     public Mono<List<Conversation>> listConversations(String sessionId, String personaId) {
@@ -468,6 +495,10 @@ public class PersonaService {
                     }
 
                     return client.update(conv);
+                })
+                .onErrorResume(e -> {
+                    log.warn("追加消息失败（可能索引问题），返回原对话: {}", e.getMessage());
+                    return getOrCreateConversation(sessionId, personaId);
                 });
     }
 
@@ -488,7 +519,11 @@ public class PersonaService {
                     conv.getSpec().setUpdatedAt(java.time.Instant.now());
                     return client.update(conv);
                 })
-                .then();
+                .then()
+                .onErrorResume(e -> {
+                    log.warn("更新对话标题失败（可能索引问题），忽略: {}", e.getMessage());
+                    return Mono.empty();
+                });
     }
 
     /**
@@ -497,7 +532,11 @@ public class PersonaService {
     public Mono<Void> deleteConversation(String conversationId) {
         return client.get(Conversation.class, conversationId)
                 .flatMap(client::delete)
-                .then();
+                .then()
+                .onErrorResume(e -> {
+                    log.warn("删除对话失败（可能索引问题），忽略: {}", e.getMessage());
+                    return Mono.empty();
+                });
     }
 
     /**

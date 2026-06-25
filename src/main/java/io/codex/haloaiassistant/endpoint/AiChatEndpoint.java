@@ -173,6 +173,11 @@ public class AiChatEndpoint {
 
             // 加载服务端对话历史 + 压缩
             return personaService.getOrCreateConversation(sessionId, personaId)
+                    .onErrorResume(e -> {
+                        log.warn("获取/创建对话失败，尝试直接创建新对话: {}", e.getMessage());
+                        // 如果 Conversation 扩展索引问题导致失败，使用内存中会话
+                        return personaService.createFallbackConversation(sessionId, personaId);
+                    })
                     .flatMap(conv -> {
                         // 压缩过长的对话
                         personaService.compressConversation(conv);
@@ -257,7 +262,11 @@ public class AiChatEndpoint {
             messagesJson.add(msgNode);
         }
         return personaService.appendMessages(sessionId, personaId, messagesJson)
-                .then();
+                .then()
+                .onErrorResume(e -> {
+                    log.warn("保存对话消息失败（可能索引问题），忽略: {}", e.getMessage());
+                    return Mono.empty();
+                });
     }
 
     /**

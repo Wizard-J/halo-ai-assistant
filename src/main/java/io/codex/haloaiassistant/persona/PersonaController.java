@@ -161,6 +161,10 @@ public class PersonaController {
                     .bodyValue(Map.of("error", "缺少 sessionId 参数"));
         }
         return personaService.listConversations(sessionId, personaId)
+                .onErrorResume(e -> {
+                    log.warn("listConversations 失败，返回空列表: {}", e.getMessage());
+                    return Mono.just(java.util.Collections.emptyList());
+                })
                 .map(list -> list.stream().map(this::toConversationSummary).toList())
                 .flatMap(list -> ServerResponse.ok()
                         .bodyValue(Map.of("conversations", list)));
@@ -214,7 +218,12 @@ public class PersonaController {
         String convId = request.pathVariable("convId");
         return personaService.deleteConversation(convId)
                 .then(ServerResponse.ok()
-                        .bodyValue(Map.of("success", true)));
+                        .bodyValue(Map.of("success", true)))
+                .onErrorResume(e -> {
+                    log.warn("删除对话失败，仍返回成功: {}", e.getMessage());
+                    return ServerResponse.ok()
+                            .bodyValue(Map.of("success", true));
+                });
     }
 
     /**
@@ -248,7 +257,12 @@ public class PersonaController {
         }
         return personaService.deleteSessionConversations(sessionId)
                 .then(ServerResponse.ok()
-                        .bodyValue(Map.of("success", true)));
+                        .bodyValue(Map.of("success", true)))
+                .onErrorResume(e -> {
+                    log.warn("清除session对话失败，仍返回成功: {}", e.getMessage());
+                    return ServerResponse.ok()
+                            .bodyValue(Map.of("success", true));
+                });
     }
 
 

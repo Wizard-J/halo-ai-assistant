@@ -1384,16 +1384,19 @@
 
     async function renderHistoryList() {
         let conversations = [];
+        let serverAvailable = false;
         try {
             const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations?sessionId=' + encodeURIComponent(sessionId));
             if (resp.ok) {
                 const data = await resp.json();
                 conversations = data.conversations || [];
+                serverAvailable = true;
             }
         } catch (e) {
             console.warn('服务端获取对话失败', e);
         }
-        if (!conversations.length) {
+        if (!serverAvailable && !conversations.length) {
+            // 服务端不可用时（500或网络错误），从 localStorage 回退
             conversations = getSavedConversations();
         }
         historyList.replaceChildren();
@@ -1500,7 +1503,9 @@
         // 同时从 localStorage 删除
         const convs = getSavedConversations().filter(c => c.id !== conv.id);
         localStorage.setItem(storageKey(), JSON.stringify(convs.slice(0, 20)));
-        if (conv.id === conversationId) resetConversation();
+        if (conv.id === conversationId) {
+            resetConversation();
+        }
         openHistory();
     }
 
@@ -1847,48 +1852,12 @@
         }
     }
 
-    // ========== Session-based conversation save/load ==========
-
-    function saveConversationPerSession() {
-        if (!history.length || !sessionId) return;
-        // 服务端保存由后端处理，这里只做本地缓存
-        try {
-            const key = 'halo-ai-session-conv-' + activePersona.id;
-            const data = {
-                id: conversationId,
-                messages: history.slice(-20), // 只缓存最近20轮
-                updatedAt: Date.now()
-            };
-            localStorage.setItem(key, JSON.stringify(data));
-        } catch (e) {}
-    }
-
-    function loadSessionConversation() {
-        try {
-            const key = 'halo-ai-session-conv-' + activePersona.id;
-            const cached = localStorage.getItem(key);
-            if (cached) {
-                const data = JSON.parse(cached);
-                if (data.messages && data.messages.length > 0) {
-                    history = data.messages;
-                    conversationId = data.id;
-                    messagesElement.replaceChildren();
-                    welcomeElement.hidden = history.length > 0;
-                    history.forEach(msg => createMessage(msg.role, msg.content, { instant: true }));
-                    return true;
-                }
-            }
-        } catch (e) {}
-        return false;
-    }
-
     // ========== Init ==========
 
     // Override saveConversation to be persona-aware
     const _origSaveConversation = saveConversation;
     saveConversation = function() {
-        saveConversationPerSession();
-        // 也保存到全局历史记录（兼容旧版）
+        // 保存到全局历史记录
         if (!history.length) return;
         const conversations = getSavedConversations().filter(item => item.id !== conversationId);
         const firstUserMessage = history.find(msg => msg.role === 'user');
@@ -1915,12 +1884,7 @@
             // 先加载 Persona 列表（会恢复 localStorage 中保存的角色）
             loadPersonas().then(() => {
                 // 此时 activePersona 已正确恢复，再加载服务端对话
-                loadServerConversation().then(loaded => {
-                    if (!loaded) {
-                        // 没有服务端对话时，回退到 localStorage
-                        loadSessionConversation();
-                    }
-                });
+                loadServerConversation().then(() => {});
             });
         });
     });

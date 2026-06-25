@@ -33,7 +33,7 @@ public class HaloAiAssistantPlugin extends BasePlugin {
         // "No indices found for type"。
         // 因此使用 register(Class, Consumer<IndexSpecs>) 显式注册索引。
         registerPersonaDefinitionWithIndex();
-        schemeManager.register(Conversation.class);
+        registerConversationWithIndex();
         log.info("已注册自定义扩展: PersonaDefinition, Conversation");
 
         // 初始化内置 Persona
@@ -68,6 +68,32 @@ public class HaloAiAssistantPlugin extends BasePlugin {
                 schemeManager.register(PersonaDefinition.class);
             } catch (Exception e2) {
                 log.error("PersonaDefinition 注册完全失败", e2);
+            }
+        }
+    }
+
+    /**
+     * 注册 Conversation 扩展，显式创建 metadata.name 索引，
+     * 确保 client.get()/fetch()/delete() 能正常使用。
+     */
+    private void registerConversationWithIndex() {
+        try {
+            schemeManager.register(Conversation.class, indexSpecs -> {
+                indexSpecs.add(
+                    IndexSpecs.<Conversation, String>single(
+                            "metadata.name", String.class)
+                        .indexFunc(p -> p.getMetadata().getName())
+                        .unique(true)
+                        .nullable(false)
+                        .build()
+                );
+            });
+        } catch (Exception e) {
+            log.warn("显式索引注册 Conversation 失败，回退到基础注册", e);
+            try {
+                schemeManager.register(Conversation.class);
+            } catch (Exception e2) {
+                log.error("Conversation 注册完全失败", e2);
             }
         }
     }
