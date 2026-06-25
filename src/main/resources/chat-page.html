@@ -1799,11 +1799,16 @@
         const welcomeSubtitle = document.getElementById('welcomeSubtitle');
         if (welcomeAvatar) welcomeAvatar.innerHTML = icon;
         if (welcomeTitle) welcomeTitle.textContent = activePersona.greeting || ('你好，我是 ' + (activePersona.displayName || 'AI 助手'));
-        // 自动运维按钮仅对老巫师（default）可见
+        // 博客管理功能（建议按钮、工具菜单、自动运维）仅对老巫师（default）可见
+        const isDefault = activePersona.id === 'default';
         const autoOpsBtn = document.getElementById('autoOpsTestButton');
-        if (autoOpsBtn) {
-            autoOpsBtn.style.display = activePersona.id === 'default' ? '' : 'none';
-        }
+        if (autoOpsBtn) autoOpsBtn.style.display = isDefault ? '' : 'none';
+        const suggestions = document.querySelector('.suggestions');
+        if (suggestions) suggestions.style.display = isDefault ? '' : 'none';
+        const toolBtn = document.getElementById('toolButton');
+        if (toolBtn) toolBtn.style.display = isDefault ? '' : 'none';
+        const toolMenu = document.getElementById('toolMenu');
+        if (toolMenu) toolMenu.hidden = !isDefault;
         if (welcomeSubtitle) {
             const descs = {
                 'default': '我可以帮你管理博客文章、分类、标签和评论。',
