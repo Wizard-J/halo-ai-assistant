@@ -926,7 +926,7 @@
                     </div>
                 </div>
             </div>
-            <button class="button" id="autoOpsTestButton" type="button" title="测试 RSS、AI、作者和草稿创建">
+            <button class="button" id="autoOpsTestButton" type="button" title="测试 RSS、AI、作者和草稿创建" hidden>
                 <i class="ri-flask-line" aria-hidden="true"></i>
                 <span class="button-label">测试自动运维</span>
             </button>
@@ -1800,6 +1800,11 @@
         const welcomeSubtitle = document.getElementById('welcomeSubtitle');
         if (welcomeAvatar) welcomeAvatar.innerHTML = icon;
         if (welcomeTitle) welcomeTitle.textContent = activePersona.greeting || ('你好，我是 ' + (activePersona.displayName || 'AI 助手'));
+        // 自动运维按钮仅对老巫师（default）可见
+        const autoOpsBtn = document.getElementById('autoOpsTestButton');
+        if (autoOpsBtn) {
+            autoOpsBtn.hidden = activePersona.id !== 'default';
+        }
         if (welcomeSubtitle) {
             const descs = {
                 'default': '我可以帮你管理博客文章、分类、标签和评论。',
