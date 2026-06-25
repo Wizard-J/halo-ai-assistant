@@ -11,3 +11,6 @@ design-qa.md
 .env.*
 !.env.example
 chat-page.html.bak
+node_modules/
+package.json
+package-lock.json

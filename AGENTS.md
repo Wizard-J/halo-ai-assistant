@@ -647,12 +647,13 @@ git reset --hard HEAD~1
 
 - [x] `plugin.yaml` 的 `name`、`website`、`displayName`、`description` 已填写
 - [x] 硬编码 URL 已全部替换为 RemixIcon 类名
-- [ ] `plugin.yaml#logo` 未填写（需要准备 Logo 图片）
-- [ ] `plugin.yaml#homepage` 未填写（需要填写仓库地址）
+- [x] Logo 图片已准备（src/main/resources/logo.png，源自 wizard-avatar.png）
+- [x] homepage 已填写为 https://github.com/Wizard-J/halo-ai-assistant
 - [ ] `plugin.yaml#requires` 版本范围与目标 Halo 版本匹配
 - [ ] `build.gradle#version` 符合插件市场版本规范
-- [ ] 准备 Logo 图片和功能截图
-- [ ] 检查 CDN 资源国内可访问性（remixicon 等）
+- [x] Logo 已生成（256x256 PNG）
+- [ ] 功能截图已准备（design/screenshot-*.png），需手动上传到插件市场
+- [x] 头像已全部改用 RemixIcon 类名，无需 CDN 图片资源
 
 ---
 
