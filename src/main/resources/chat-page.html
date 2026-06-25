@@ -2139,8 +2139,12 @@
         document.getElementById('personaManagerDrawer').setAttribute('aria-hidden', 'true');
     }
 
-    document.getElementById('personaManagerClose').addEventListener('click', closePersonaManager);
-    document.getElementById('personaManagerBackdrop').addEventListener('click', closePersonaManager);
+    document.addEventListener('DOMContentLoaded', () => {
+        const closeBtn = document.getElementById('personaManagerClose');
+        const backdrop = document.getElementById('personaManagerBackdrop');
+        if (closeBtn) closeBtn.addEventListener('click', closePersonaManager);
+        if (backdrop) backdrop.addEventListener('click', closePersonaManager);
+    });
 
     function renderPersonaManagerList() {
         const container = document.getElementById('personaManagerList');

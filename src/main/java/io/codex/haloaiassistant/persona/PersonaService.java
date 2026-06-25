@@ -227,21 +227,27 @@ public class PersonaService {
                                                           String greeting, String thinkingPhrases) {
         return client.fetch(PersonaDefinition.class, id)
                 .flatMap(existing -> {
-                    // 保存已上传的上下文（initBuiltinPersonas 时不要覆盖它）
+                    // 保存已有配置（initBuiltinPersonas 时不覆盖用户自定义的）
                     String savedContext = existing.getSpec() != null ? existing.getSpec().getContextContent() : null;
+                    String savedIconUrl = existing.getSpec() != null ? existing.getSpec().getIconUrl() : null;
 
                     // 已存在则更新所有字段
                     existing.getSpec().setDisplayName(displayName);
                     existing.getSpec().setDescription(description);
-                    existing.getSpec().setIconUrl(iconUrl);
                     existing.getSpec().setBrandColor(brandColor);
                     existing.getSpec().setSystemPrompt(systemPrompt);
                     existing.getSpec().setGreeting(greeting);
                     existing.getSpec().setThinkingPhrases(thinkingPhrases);
                     existing.getSpec().setUpdatedAt(Instant.now());
-                    // 恢复已上传的上下文，不被覆盖
+                    // 恢复已有上下文字，不被覆盖
                     if (savedContext != null) {
                         existing.getSpec().setContextContent(savedContext);
+                    }
+                    // 保留已有的头像 URL（用户可能在管理面板自己上传了头像）
+                    if (savedIconUrl != null) {
+                        existing.getSpec().setIconUrl(savedIconUrl);
+                    } else {
+                        existing.getSpec().setIconUrl(iconUrl);
                     }
                     return client.update(existing);
                 })

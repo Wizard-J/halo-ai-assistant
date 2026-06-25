@@ -636,15 +636,19 @@ git reset --hard HEAD~1
 
 以下内容与 WizardJ 的服务器绑定，其他用户部署时会失效：
 
-| 文件 | 行号 | 内容 | 问题 |
-|------|------|------|------|
-| `PersonaService.java` | ~217 | `iconUrl: "https://wizardj.cn/upload/munger.jpeg"` | 他人部署时 404 |
-| `PersonaService.java` | ~216 | `iconUrl: "https://wizardj.cn/upload/sage-avatar.png"` | 同上 |
+| 文件 | 内容 | 当前状态 |
+|------|------|----------|
+| ~~`PersonaService.java`~~ | ~~`iconUrl: "https://wizardj.cn/upload/munger.jpeg"`~~ | ✅ 已改为 `ri-team-fill`（RemixIcon 类名），无需外部图片 |
+| ~~`PersonaService.java`~~ | ~~`iconUrl: "https://wizardj.cn/upload/sage-avatar.png"`~~ | ✅ 已改为 `ri-sparkling-2-fill`（RemixIcon 类名），无需外部图片 |
+| `extensions/settings.yaml` | `pageIcon` 默认值 `https://wizardj.cn/upload/wizard-avatar.png` | ✅ 已改为 `ri-sparkling-2-fill`，新用户开箱即用 |
+| `chat-page.html` | `document.getElementById('personaManagerClose')` 因脚本在 HTML 前执行返回 null | ✅ 已包裹 `DOMContentLoaded` 并加 null 保护 |
 
 ### 发布前检查清单
 
-- [ ] `plugin.yaml` 的 `name`、`website`、`logo`、`displayName`、`description` 填写完整
-- [ ] 硬编码 URL 替换为默认图标或可配置字段
+- [x] `plugin.yaml` 的 `name`、`website`、`displayName`、`description` 已填写
+- [x] 硬编码 URL 已全部替换为 RemixIcon 类名
+- [ ] `plugin.yaml#logo` 未填写（需要准备 Logo 图片）
+- [ ] `plugin.yaml#homepage` 未填写（需要填写仓库地址）
 - [ ] `plugin.yaml#requires` 版本范围与目标 Halo 版本匹配
 - [ ] `build.gradle#version` 符合插件市场版本规范
 - [ ] 准备 Logo 图片和功能截图
@@ -657,3 +661,4 @@ git reset --hard HEAD~1
 | Commit | 说明 |
 |--------|------|
 | `648bcdd` | 移动端布局修复 + 芒格开场白 + 切换角色欢迎页 + 插件作者信息 |
+| `HEAD` | 移除 settings.yaml 中硬编码的 wizardj.cn URL + 修复 personaManagerClose null addEventListener |
