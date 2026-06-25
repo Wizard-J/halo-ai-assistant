@@ -825,6 +825,42 @@
             .composer-hint {
                 display: none;
             }
+
+            /* 移动端：重命名/删除按钮始终可见 */
+            .history-action-btn {
+                opacity: 1;
+                width: 40px;
+                height: 40px;
+            }
+
+            .history-item-wrap {
+                display: flex;
+                flex-wrap: nowrap;
+                align-items: center;
+            }
+
+            .history-item {
+                flex: 1;
+                min-width: 0;
+            }
+
+            /* 移动端：Persona 下拉全宽 */
+            #personaMenu {
+                min-width: calc(100vw - 24px) !important;
+                right: 0;
+            }
+
+            /* 移动端：管理角色抽屉全宽 */
+            #personaManagerDrawer {
+                max-width: 100vw !important;
+                width: 100vw;
+            }
+
+            /* 移动端：工具菜单按钮手指友好 */
+            .tool-menu button {
+                padding: 14px 12px;
+                font-size: 15px;
+            }
         }
 
     .persona-menu-item {
