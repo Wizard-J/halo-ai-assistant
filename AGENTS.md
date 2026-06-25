@@ -596,3 +596,64 @@ JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./grad
 - deleteConversation → 正常删除、不存在静默处理
 
 **新增测试的时机**：修改了以上任何方法，必须先跑 `./gradlew test`。
+
+---
+
+## 开发工作流
+
+### 提交纪律
+
+每次功能修改完成后，必须：
+1. `git add -A && git commit -m "说明本次改动"`
+2. `git push`
+3. 确保当前 commit 是可回滚的稳定版本
+
+### 回滚策略
+
+```bash
+# 查看最近提交
+git log --oneline -10
+
+# 回滚到上一个稳定版本（保留工作区修改）
+git revert HEAD --no-edit
+
+# 或者硬回滚（丢弃工作区修改）
+git reset --hard HEAD~1
+```
+
+### 改动前必做
+
+1. ✓ 确保当前工作区干净（`git status` 无未提交修改）
+2. ✓ 记录当前 HEAD：`git rev-parse HEAD`
+3. 改动完成后提交并推送
+4. 如改坏，`git revert HEAD` 回滚到改动前
+
+---
+
+## 插件发布注意事项
+
+### 硬编码的环境依赖（必须修改）
+
+以下内容与 WizardJ 的服务器绑定，其他用户部署时会失效：
+
+| 文件 | 行号 | 内容 | 问题 |
+|------|------|------|------|
+| `PersonaService.java` | ~217 | `iconUrl: "https://wizardj.cn/upload/munger.jpeg"` | 他人部署时 404 |
+| `PersonaService.java` | ~216 | `iconUrl: "https://wizardj.cn/upload/sage-avatar.png"` | 同上 |
+
+### 发布前检查清单
+
+- [ ] `plugin.yaml` 的 `name`、`website`、`logo`、`displayName`、`description` 填写完整
+- [ ] 硬编码 URL 替换为默认图标或可配置字段
+- [ ] `plugin.yaml#requires` 版本范围与目标 Halo 版本匹配
+- [ ] `build.gradle#version` 符合插件市场版本规范
+- [ ] 准备 Logo 图片和功能截图
+- [ ] 检查 CDN 资源国内可访问性（remixicon 等）
+
+---
+
+## 历史里程碑（可回滚点）
+
+| Commit | 说明 |
+|--------|------|
+| `648bcdd` | 移动端布局修复 + 芒格开场白 + 切换角色欢迎页 + 插件作者信息 |
