@@ -1585,6 +1585,8 @@
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
         } catch (e) {
             console.warn('服务端删除失败', e);
+            alert('删除失败，请稍后重试。');
+            return;
         }
         // 同时从 localStorage 删除
         const convs = getSavedConversations().filter(c => c.id !== conv.id);

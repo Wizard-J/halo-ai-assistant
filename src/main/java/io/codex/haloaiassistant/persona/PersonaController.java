@@ -257,9 +257,9 @@ public class PersonaController {
                 .then(ServerResponse.ok()
                         .bodyValue(Map.of("success", true)))
                 .onErrorResume(e -> {
-                    log.warn("删除对话失败，仍返回成功: {}", e.getMessage());
-                    return ServerResponse.ok()
-                            .bodyValue(Map.of("success", true));
+                    log.warn("删除对话失败: {}", e.getMessage());
+                    return ServerResponse.status(500)
+                            .bodyValue(Map.of("success", false, "error", e.getMessage()));
                 });
     }
 

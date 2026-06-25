@@ -265,7 +265,8 @@ class PersonaServiceTest {
         ref.getMetadata().setName("to-delete");
         ref.getMetadata().setVersion(1L);
 
-        when(client.get(ConversationRef.class, "to-delete")).thenReturn(Mono.just(ref));
+        when(client.listAll(eq(ConversationRef.class), isNull(), isNull()))
+                .thenReturn(Flux.just(ref));
         when(client.delete(ref)).thenReturn(Mono.just(ref));
 
         StepVerifier.create(personaService.deleteConversation("to-delete"))
@@ -277,11 +278,13 @@ class PersonaServiceTest {
     @Test
     @DisplayName("deleteConversation → 不存在的对话静默处理")
     void deleteConversationNotFound() {
-        when(client.get(ConversationRef.class, "not-exist"))
-                .thenReturn(Mono.error(new RuntimeException("Not found")));
+        when(client.listAll(eq(ConversationRef.class), isNull(), isNull()))
+                .thenReturn(Flux.empty());
 
         StepVerifier.create(personaService.deleteConversation("not-exist"))
                 .verifyComplete(); // 不应抛异常
+
+        verify(client, never()).delete(any(ConversationRef.class));
     }
 
     // ========== 辅助方法 ==========

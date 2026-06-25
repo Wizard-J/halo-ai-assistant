@@ -538,13 +538,12 @@ public class PersonaService {
      */
     
 public Mono<Void> deleteConversation(String conversationId) {
-        return client.get(ConversationRef.class, conversationId)
+        return client.listAll(ConversationRef.class, null, null)
+                .filter(ref -> ref.getMetadata() != null
+                        && conversationId.equals(ref.getMetadata().getName()))
+                .next()
                 .flatMap(conv -> client.delete(conv))
-                .then()
-                .onErrorResume(e -> {
-                    log.warn("删除对话失败（可能索引问题），忽略: {}", e.getMessage());
-                    return Mono.empty();
-                });
+                .then();
     }
 
     /**
