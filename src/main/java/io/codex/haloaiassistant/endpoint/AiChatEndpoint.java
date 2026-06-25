@@ -8,6 +8,7 @@ import io.codex.haloaiassistant.agent.AgentService;
 import io.codex.haloaiassistant.agent.ToolRegistry;
 import io.codex.haloaiassistant.autoops.AutoOpsService;
 import io.codex.haloaiassistant.config.AiAssistantSetting;
+import io.codex.haloaiassistant.persona.ConversationRef;
 import io.codex.haloaiassistant.persona.PersonaDefinition;
 import io.codex.haloaiassistant.persona.PersonaService;
 import java.io.IOException;
@@ -171,10 +172,21 @@ public class AiChatEndpoint {
             }
 
             // 加载服务端对话历史 + 压缩
-            return personaService.getOrCreateConversation(sessionId, personaId)
+            // 优先使用前端传入的 conversationId，每个新建对话有独立 ID
+            String convId = body.has("conversationId") ? body.get("conversationId").asText("") : "";
+            Mono<ConversationRef> convMono;
+            if (!convId.isBlank()) {
+                // 尝试按 ID 获取，不存在则创建
+                String convName = "conv-" + sessionId + "-" + personaId + "-" + convId;
+                convMono = personaService.getConversationByGVK(convName)
+                        .onErrorResume(e ->
+                                personaService.createConversation(sessionId, personaId, convName));
+            } else {
+                convMono = personaService.getOrCreateConversation(sessionId, personaId);
+            }
+            return convMono
                     .onErrorResume(e -> {
                         log.warn("获取/创建对话失败，尝试直接创建新对话: {}", e.getMessage());
-                        // 如果 ConvRef 扩展索引问题导致失败，使用内存中会话
                         return personaService.createFallbackConversation(sessionId, personaId);
                     })
                     .flatMap(conv -> {

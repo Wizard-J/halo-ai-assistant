@@ -410,6 +410,10 @@ public class PersonaService {
      */
     public Mono<ConversationRef> createFallbackConversation(String sessionId, String personaId) {
         String refName = "conv-" + sessionId + "-" + personaId + "-" + Instant.now().toEpochMilli();
+        return createConversation(sessionId, personaId, refName);
+    }
+
+    public Mono<ConversationRef> createConversation(String sessionId, String personaId, String refName) {
         ConversationRef ref = new ConversationRef();
         Metadata metadata = new Metadata();
         metadata.setName(refName);
@@ -456,32 +460,11 @@ public class PersonaService {
                 });
     }
 
-    private Mono<ConversationRef> createConversation(String sessionId, String personaId) {
+    public Mono<ConversationRef> createConversation(String sessionId, String personaId) {
         String refName = "conv-" + sessionId + "-" + personaId + "-" + Instant.now().toEpochMilli();
-        ConversationRef ref = new ConversationRef();
-        Metadata metadata = new Metadata();
-        metadata.setName(refName);
-        ref.setMetadata(metadata);
-
-        ConversationRef.ConvRefSpec spec = new ConversationRef.ConvRefSpec();
-        spec.setSessionId(sessionId);
-        spec.setPersonaId(personaId);
-        spec.setTitle("新对话");
-        spec.setMessages("[]");
-        spec.setCreatedAt(Instant.now());
-        spec.setUpdatedAt(Instant.now());
-        spec.setCompressed(false);
-        spec.setSummary(null);
-        spec.setRefinedMessageCount(0);
-        ref.setSpec(spec);
-
-        return client.create(ref)
-                .map(created -> created);
+        return createConversation(sessionId, personaId, refName);
     }
 
-    /**
-     * 向对话追加消息
-     */
     public Mono<ConversationRef> appendMessages(String sessionId, String personaId,
                                                   ArrayNode newMessages) {
         return getOrCreateConversation(sessionId, personaId)

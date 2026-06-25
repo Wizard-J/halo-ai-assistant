@@ -1547,7 +1547,8 @@
                 message: text,
                 history: requestHistory,
                 persona: activePersona.id,
-                sessionId: sessionId
+                sessionId: sessionId,
+                conversationId: conversationId
             };
             if (activePersona.id !== 'default') {
                 requestBody.personaPrompt = true;
