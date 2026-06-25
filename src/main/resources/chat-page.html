@@ -1807,8 +1807,9 @@
         if (suggestions) suggestions.style.display = isDefault ? '' : 'none';
         const toolBtn = document.getElementById('toolButton');
         if (toolBtn) toolBtn.style.display = isDefault ? '' : 'none';
+        // 工具菜单由按钮切换控制，只在非默认角色时强制关闭
         const toolMenu = document.getElementById('toolMenu');
-        if (toolMenu) toolMenu.hidden = !isDefault;
+        if (toolMenu && !isDefault) toolMenu.hidden = true;
         if (welcomeSubtitle) {
             const descs = {
                 'default': '我可以帮你管理博客文章、分类、标签和评论。',
