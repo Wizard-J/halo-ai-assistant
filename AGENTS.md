@@ -632,6 +632,54 @@ git reset --hard HEAD~1
 
 ## 插件发布注意事项
 
+### 命令行发布流程（GitHub Release）
+
+> **重要区别**：`./gradlew reloadPlugin` 是 `run.halo.plugin.devtools` 提供的本地开发热重载任务，只用于本机 `haloServer`/开发容器，不是生产站部署或插件市场发布命令。本仓库目前没有 Gradle `publish`/`release` 任务。
+
+#### 正确的命令行发布命令
+
+发布公开下载版本时，先构建 JAR，再用 GitHub CLI 创建 Release 并上传 JAR 制品：
+
+```bash
+cd /Users/zhangjianmin/project/halo-ai-assistant
+
+VERSION="$(sed -n 's/^version=//p' gradle.properties)"
+JAR="build/libs/halo-ai-assistant-${VERSION}.jar"
+
+JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build
+test -f "$JAR"
+
+git status --short
+git push
+
+gh release create "v${VERSION}" "$JAR" \
+  --target "$(git rev-parse HEAD)" \
+  --title "v${VERSION}" \
+  --generate-notes
+```
+
+如果同版本 Release 已存在、只需要替换制品：
+
+```bash
+VERSION="$(sed -n 's/^version=//p' gradle.properties)"
+JAR="build/libs/halo-ai-assistant-${VERSION}.jar"
+gh release upload "v${VERSION}" "$JAR" --clobber
+```
+
+#### Halo 应用市场发布
+
+官方流程不是本地 Gradle 命令：
+
+1. 首次上架：到 Halo 官网开发者后台创建应用、创建版本、上传 JAR、提交审核。
+2. 后续版本：可在应用管理页面手动发布版本并上传 JAR。
+3. 如要 GitHub Release 后自动同步到应用市场，需要配置 CI/CD：设置应用市场 `app-id`，创建 Halo 官网个人令牌并保存为 GitHub Secret `HALO_PAT`。本仓库当前还没有这套工作流。
+
+官方文档：<https://docs.halo.run/developer-guide/app-store/publish-app>
+
+#### 生产站部署仍然手动
+
+WizardJ 生产站仍按前文“部署方式说明”：本地构建 JAR 后，通过 1Panel/Halo 插件管理上传。不要用命令行 SCP、`docker cp` 或 `reloadPlugin` 去操作生产站，除非用户明确要求。
+
 ### 硬编码的环境依赖（必须修改）
 
 以下内容与 WizardJ 的服务器绑定，其他用户部署时会失效：
