@@ -926,7 +926,7 @@
                     </div>
                 </div>
             </div>
-            <button class="button" id="autoOpsTestButton" type="button" title="测试 RSS、AI、作者和草稿创建" hidden>
+            <button class="button" id="autoOpsTestButton" type="button" title="测试 RSS、AI、作者和草稿创建">
                 <i class="ri-flask-line" aria-hidden="true"></i>
                 <span class="button-label">测试自动运维</span>
             </button>
@@ -1384,19 +1384,18 @@
 
     async function renderHistoryList() {
         let conversations = [];
-        let serverAvailable = false;
         try {
             const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations?sessionId=' + encodeURIComponent(sessionId));
             if (resp.ok) {
                 const data = await resp.json();
                 conversations = data.conversations || [];
-                serverAvailable = true;
             }
         } catch (e) {
             console.warn('服务端获取对话失败', e);
         }
-        if (!serverAvailable && !conversations.length) {
-            // 服务端不可用时（500或网络错误），从 localStorage 回退
+        if (!conversations.length) {
+            // 服务端返回空或错误时，从 localStorage 回退
+            // localStorage 在删除/创建时同步更新，数据是最新的
             conversations = getSavedConversations();
         }
         historyList.replaceChildren();
@@ -1803,7 +1802,7 @@
         // 自动运维按钮仅对老巫师（default）可见
         const autoOpsBtn = document.getElementById('autoOpsTestButton');
         if (autoOpsBtn) {
-            autoOpsBtn.hidden = activePersona.id !== 'default';
+            autoOpsBtn.style.display = activePersona.id === 'default' ? '' : 'none';
         }
         if (welcomeSubtitle) {
             const descs = {
