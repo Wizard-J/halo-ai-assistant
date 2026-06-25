@@ -10,6 +10,7 @@ design-qa.md
 .env
 .env.*
 !.env.example
+.halo-pat
 chat-page.html.bak
 node_modules/
 package.json
