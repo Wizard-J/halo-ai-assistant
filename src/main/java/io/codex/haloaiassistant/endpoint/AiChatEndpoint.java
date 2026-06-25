@@ -275,11 +275,15 @@ public class AiChatEndpoint {
      */
     private Mono<ServerResponse> handleGetMe(ServerRequest request) {
         return request.principal()
-                .map(p -> Map.of(
-                        "username", p.getName(),
-                        "sessionId", "user-" + p.getName(),
-                        "authenticated", true
-                ))
+                .map(p -> {
+                    String sid = "user-" + p.getName();
+                    log.info("handleGetMe: authenticated user={}, sessionId={}", p.getName(), sid);
+                    return Map.of(
+                            "username", p.getName(),
+                            "sessionId", sid,
+                            "authenticated", true
+                    );
+                })
                 .defaultIfEmpty(Map.of(
                         "sessionId", "",
                         "authenticated", false

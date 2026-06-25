@@ -1069,6 +1069,8 @@
                 const data = await resp.json();
                 if (data.authenticated && data.sessionId) {
                     serverSessionId = data.sessionId;
+                    // 持久化到 localStorage，刷新页面时优先使用（即使服务端还没响应）
+                    try { localStorage.setItem(SESSION_KEY, serverSessionId); } catch(e) {}
                 }
             }
         } catch (e) { /* 静默失败，回退到 localStorage */ }
@@ -1890,6 +1892,8 @@
             // 如果服务端有 session，替换之前 localStorage 生成的 sessionId
             if (serverSessionId) {
                 sessionId = serverSessionId;
+                // 持久化到 localStorage，让同设备下次打开直接用正确的 sessionId
+                try { localStorage.setItem(SESSION_KEY, serverSessionId); } catch(e) {}
             }
             // 先加载 Persona 列表（会恢复 localStorage 中保存的角色）
             loadPersonas().then(() => {
