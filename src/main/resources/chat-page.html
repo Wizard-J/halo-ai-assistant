@@ -221,7 +221,6 @@
         }
 
         .workspace {
-            position: relative;
             min-height: 0;
         }
 
@@ -571,6 +570,9 @@
 
         .composer textarea::placeholder {
             color: var(--text-faint);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .send-button,
@@ -822,6 +824,24 @@
                 padding: 10px 12px max(12px, env(safe-area-inset-bottom));
             }
 
+            .composer-box {
+                gap: 4px;
+                padding: 5px;
+            }
+
+            .composer textarea {
+                min-height: 36px;
+                max-height: 100px;
+                padding: 6px 3px;
+                font-size: 15px;
+            }
+
+            .send-button, .stop-button {
+                width: 34px;
+                height: 34px;
+                flex-shrink: 0;
+            }
+
             .composer-hint {
                 display: none;
             }
@@ -844,10 +864,14 @@
                 min-width: 0;
             }
 
-            /* 移动端：Persona 下拉全宽 */
+            /* 移动端：Persona 下拉屏宽居中（锚定视口） */
             #personaMenu {
-                min-width: calc(100vw - 24px) !important;
-                right: 0;
+                position: fixed !important;
+                top: 64px !important;
+                left: 12px !important;
+                right: 12px !important;
+                min-width: auto !important;
+                width: auto !important;
             }
 
             /* 移动端：管理角色抽屉全宽 */
