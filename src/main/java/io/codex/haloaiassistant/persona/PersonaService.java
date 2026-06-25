@@ -431,36 +431,52 @@ public class PersonaService {
      */
     public Mono<List<Conversation>> listConversations(String sessionId, String personaId) {
         log.debug("listConversations: sessionId={}, personaId={}", sessionId, personaId);
-        // 从 PersonaDefinition 获取对话名称列表（绕过 Halo 扩展索引查询）
+        // 优先从 PersonaDefinition 获取对话名称列表
         return client.fetch(PersonaDefinition.class, personaId)
                 .flatMap(p -> {
                     String namesJson = p.getSpec() != null ? p.getSpec().getConversationNames() : null;
-                    if (namesJson == null || namesJson.isBlank()) {
-                        return Mono.just(new java.util.ArrayList<Conversation>());
-                    }
-                    try {
-                        java.util.List<String> names = objectMapper.readValue(namesJson,
-                                objectMapper.getTypeFactory().constructCollectionType(java.util.ArrayList.class, String.class));
-                        // 逐个获取对话，过滤出匹配的
-                        java.util.List<Mono<Conversation>> monos = new java.util.ArrayList<>();
-                        for (String name : names) {
-                            monos.add(client.fetch(Conversation.class, name)
-                                    .filter(conv -> conv.getSpec() != null
-                                            && sessionId.equals(conv.getSpec().getSessionId())
-                                            && (conv.getMetadata() == null || conv.getMetadata().getDeletionTimestamp() == null)));
+                    if (namesJson != null && !namesJson.isBlank()) {
+                        try {
+                            java.util.List<String> names = objectMapper.readValue(namesJson,
+                                    objectMapper.getTypeFactory().constructCollectionType(java.util.ArrayList.class, String.class));
+                            java.util.List<Mono<Conversation>> monos = new java.util.ArrayList<>();
+                            for (String name : names) {
+                                monos.add(client.fetch(Conversation.class, name)
+                                        .filter(conv -> conv.getSpec() != null
+                                                && sessionId.equals(conv.getSpec().getSessionId())
+                                                && (conv.getMetadata() == null || conv.getMetadata().getDeletionTimestamp() == null))
+                                        .onErrorResume(e -> {
+                                            log.warn("获取对话 {} 失败，跳过: {}", name, e.getMessage());
+                                            return Mono.empty();
+                                        }));
+                            }
+                            return Flux.concat(monos)
+                                    .sort((a, b) -> {
+                                        Instant ta = a.getSpec() != null ? a.getSpec().getUpdatedAt() : Instant.EPOCH;
+                                        Instant tb = b.getSpec() != null ? b.getSpec().getUpdatedAt() : Instant.EPOCH;
+                                        return tb.compareTo(ta);
+                                    })
+                                    .collectList();
+                        } catch (Exception e) {
+                            log.warn("解析 conversationNames 失败", e);
                         }
-                        // 收集所有结果合并为列表
-                        return Flux.concat(monos)
-                                .sort((a, b) -> {
-                                    Instant ta = a.getSpec() != null ? a.getSpec().getUpdatedAt() : Instant.EPOCH;
-                                    Instant tb = b.getSpec() != null ? b.getSpec().getUpdatedAt() : Instant.EPOCH;
-                                    return tb.compareTo(ta);
-                                })
-                                .collectList();
-                    } catch (Exception e) {
-                        log.warn("解析 conversationNames 失败", e);
-                        return Mono.just(new java.util.ArrayList<Conversation>());
                     }
+                    // 没有名称列表时，fallback：用 null Predicate 列出所有对话后内存过滤
+                    return client.list(Conversation.class, null, null)
+                            .filter(conv -> conv.getSpec() != null
+                                    && sessionId.equals(conv.getSpec().getSessionId())
+                                    && personaId.equals(conv.getSpec().getPersonaId())
+                                    && (conv.getMetadata() == null || conv.getMetadata().getDeletionTimestamp() == null))
+                            .sort((a, b) -> {
+                                Instant ta = a.getSpec() != null ? a.getSpec().getUpdatedAt() : Instant.EPOCH;
+                                Instant tb = b.getSpec() != null ? b.getSpec().getUpdatedAt() : Instant.EPOCH;
+                                return tb.compareTo(ta);
+                            })
+                            .collectList()
+                            .onErrorResume(e -> {
+                                log.warn("listConversations fallback 也失败: {}", e.getMessage());
+                                return Mono.just(new java.util.ArrayList<Conversation>());
+                            });
                 })
                 .defaultIfEmpty(new java.util.ArrayList<Conversation>())
                 .doOnSuccess(list -> log.debug("listConversations result count: {}", list.size()));
