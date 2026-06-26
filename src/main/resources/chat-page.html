@@ -1700,6 +1700,10 @@
                 assistantElement.innerHTML = renderMarkdown(content);
                 scrollToBottom('auto');
             });
+            if (!fullContent.trim()) {
+                fullContent = '[错误] AI 服务没有返回内容，请稍后重试。';
+                assistantElement.innerHTML = renderMarkdown(fullContent);
+            }
 
             assistantElement.classList.remove('typing');
             history.push({ role: 'assistant', content: fullContent });

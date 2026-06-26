@@ -173,7 +173,18 @@ public class AgentService {
                         }
 
                         // 正常文本响应
-                        String content = message.path("content").asText();
+                        String content = message.path("content").asText("");
+                        if (content.isBlank()) {
+                            String finishReason = choice.path("finish_reason").asText("");
+                            String refusal = message.path("refusal").asText("");
+                            if (!refusal.isBlank()) {
+                                return Flux.just("[AI 拒绝回答] " + refusal);
+                            }
+                            log.warn("AI API 返回空内容，finish_reason={}，响应: {}",
+                                    finishReason, abbreviate(body, 1000));
+                            return Flux.just("[错误] AI 服务返回了空内容"
+                                    + (finishReason.isBlank() ? "" : "（finish_reason: " + finishReason + "）"));
+                        }
                         return Flux.just(content);
                     } catch (Exception e) {
                         log.error("解析 AI 响应失败", e);
