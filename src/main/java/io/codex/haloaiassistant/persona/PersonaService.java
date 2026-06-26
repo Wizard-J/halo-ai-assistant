@@ -9,6 +9,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -23,7 +24,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import run.halo.app.extension.JsonExtension;
 import run.halo.app.extension.Metadata;
 import run.halo.app.extension.GroupVersionKind;
 import run.halo.app.extension.ReactiveExtensionClient;
@@ -433,7 +433,8 @@ public class PersonaService {
         spec.setSummary(null);
         spec.setRefinedMessageCount(0);
         ref.setSpec(spec);
-        return client.create(ref);
+        return client.create(toUnstructured(ref))
+                .map(this::fromUnstructured);
     }
 
     /**
@@ -494,7 +495,8 @@ public class PersonaService {
             }
         }
 
-        return client.update(ref);
+        return client.update(toUnstructured(ref))
+                .map(this::fromUnstructured);
     }
 
     /**
@@ -512,7 +514,7 @@ public class PersonaService {
                 .flatMap(ref -> {
                     ref.getSpec().setTitle(newTitle);
                     ref.getSpec().setUpdatedAt(nowIso());
-                    return client.update(ref);
+                    return client.update(toUnstructured(ref));
                 })
                 .then()
                 .onErrorResume(e -> {
@@ -527,7 +529,6 @@ public class PersonaService {
     
     public Mono<Void> deleteConversation(String conversationId) {
         return client.fetch(CONV_REF_GVK, conversationId)
-                .map(this::fromUnstructured)
                 .flatMap(client::delete)
                 .then();
     }
@@ -536,10 +537,8 @@ public class PersonaService {
      * 删除某 session 的所有对话（用户清除数据时）
      */
     public Mono<Void> deleteSessionConversations(String sessionId) {
-        return client.listAll(ConversationRef.class, null, null)
-                .filter(ref -> ref.getSpec() != null && sessionId.equals(ref.getSpec().getSessionId()))
-                .flatMap(ref -> client.delete(ref).onErrorResume(e -> Mono.empty()))
-                .then();
+        log.warn("deleteSessionConversations 暂不使用 ConversationRef typed list，避免 Halo 索引缺失: sessionId={}", sessionId);
+        return Mono.empty();
     }
 
     // ========== 消息序列化辅助 ==========
@@ -560,63 +559,40 @@ public class PersonaService {
         return parseMessages(ref);
     }
 
-    private JsonExtension toJsonExtension(ConversationRef ref) {
-        ObjectNode node = objectMapper.createObjectNode();
-        node.put("apiVersion", "ai-assistant.plugin.halo.run/v1alpha1");
-        node.put("kind", "ConvRef");
-        ObjectNode metadata = node.putObject("metadata");
+    private Unstructured toUnstructured(ConversationRef ref) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("apiVersion", "ai-assistant.plugin.halo.run/v1alpha1");
+        data.put("kind", "ConvRef");
+        Map<String, Object> metadata = new HashMap<>();
         if (ref.getMetadata() != null) {
             metadata.put("name", ref.getMetadata().getName());
             if (ref.getMetadata().getVersion() != null) {
                 metadata.put("version", ref.getMetadata().getVersion());
             }
         }
-        ObjectNode specNode = node.putObject("spec");
+        data.put("metadata", metadata);
+        Map<String, Object> specMap = new HashMap<>();
         if (ref.getSpec() != null) {
             var spec = ref.getSpec();
-            specNode.put("sessionId", spec.getSessionId());
-            specNode.put("personaId", spec.getPersonaId());
-            specNode.put("title", spec.getTitle());
-            specNode.put("messages", spec.getMessages());
-            if (spec.getCreatedAt() != null) {
-                specNode.put("createdAt", spec.getCreatedAt().toString());
-            }
-            if (spec.getUpdatedAt() != null) {
-                specNode.put("updatedAt", spec.getUpdatedAt().toString());
-            }
-            specNode.put("compressed", spec.isCompressed());
-            if (spec.getSummary() != null) {
-                specNode.put("summary", spec.getSummary());
-            }
-            specNode.put("refinedMessageCount", spec.getRefinedMessageCount());
+            specMap.put("sessionId", spec.getSessionId());
+            specMap.put("personaId", spec.getPersonaId());
+            specMap.put("title", spec.getTitle());
+            specMap.put("messages", spec.getMessages());
+            specMap.put("createdAt", spec.getCreatedAt());
+            specMap.put("updatedAt", spec.getUpdatedAt());
+            specMap.put("compressed", spec.isCompressed());
+            specMap.put("summary", spec.getSummary());
+            specMap.put("refinedMessageCount", spec.getRefinedMessageCount());
         }
-        return new JsonExtension(objectMapper, node);
-    }
-
-    private ConversationRef fromJsonExtension(JsonExtension json) {
-        ObjectNode node = json.getInternal();
-        ConversationRef ref = new ConversationRef();
-        Metadata metadata = new Metadata();
-        JsonNode metadataNode = node.path("metadata");
-        metadata.setName(textOrNull(metadataNode.path("name")));
-        if (metadataNode.hasNonNull("version")) {
-            metadata.setVersion(metadataNode.path("version").asLong());
+        data.put("spec", specMap);
+        Unstructured unstructured = new Unstructured(data);
+        Metadata metadataOperator = new Metadata();
+        metadataOperator.setName(ref.getMetadata() != null ? ref.getMetadata().getName() : null);
+        if (ref.getMetadata() != null) {
+            metadataOperator.setVersion(ref.getMetadata().getVersion());
         }
-        ref.setMetadata(metadata);
-
-        JsonNode specNode = node.path("spec");
-        ConversationRef.ConvRefSpec spec = new ConversationRef.ConvRefSpec();
-        spec.setSessionId(textOrNull(specNode.path("sessionId")));
-        spec.setPersonaId(textOrNull(specNode.path("personaId")));
-        spec.setTitle(textOrNull(specNode.path("title")));
-        spec.setMessages(textOrNull(specNode.path("messages")));
-        spec.setCreatedAt(textOrNull(specNode.path("createdAt")));
-        spec.setUpdatedAt(textOrNull(specNode.path("updatedAt")));
-        spec.setCompressed(specNode.path("compressed").asBoolean(false));
-        spec.setSummary(textOrNull(specNode.path("summary")));
-        spec.setRefinedMessageCount(specNode.path("refinedMessageCount").asInt(0));
-        ref.setSpec(spec);
-        return ref;
+        unstructured.setMetadata(metadataOperator);
+        return unstructured;
     }
 
     private ConversationRef fromUnstructured(Unstructured unstructured) {

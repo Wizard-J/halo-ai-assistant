@@ -20,7 +20,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import run.halo.app.extension.GroupVersionKind;
-import run.halo.app.extension.JsonExtension;
 import reactor.test.StepVerifier;
 import run.halo.app.extension.Metadata;
 import run.halo.app.extension.ReactiveExtensionClient;
@@ -65,7 +64,7 @@ class PersonaServiceTest {
         spec.setRefinedMessageCount(0);
         serverRef.setSpec(spec);
 
-        when(client.create(any(ConversationRef.class))).thenReturn(Mono.just(serverRef));
+        when(client.create(any(Unstructured.class))).thenReturn(Mono.just(unstructuredFromRef(serverRef)));
 
         Mono<ConversationRef> result = personaService.getOrCreateConversation("session1", "default");
 
@@ -82,7 +81,7 @@ class PersonaServiceTest {
                 })
                 .verifyComplete();
 
-        verify(client, times(1)).create(any(ConversationRef.class));
+        verify(client, times(1)).create(any(Unstructured.class));
         verify(client, never()).listAll(eq(ConversationRef.class), any(), any());
     }
 
@@ -101,7 +100,7 @@ class PersonaServiceTest {
         userMsg.put("role", "user");
         userMsg.put("content", "今天天气怎么样");
 
-        when(client.update(any(ConversationRef.class)))
+        when(client.update(any(Unstructured.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         // Act
@@ -120,7 +119,7 @@ class PersonaServiceTest {
                 })
                 .verifyComplete();
 
-        verify(client, times(1)).update(any(ConversationRef.class));
+        verify(client, times(1)).update(any(Unstructured.class));
     }
 
     @Test
@@ -136,7 +135,7 @@ class PersonaServiceTest {
         userMsg.put("role", "user");
         userMsg.put("content", "新消息内容");
 
-        when(client.update(any(ConversationRef.class)))
+        when(client.update(any(Unstructured.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         // Act
@@ -172,8 +171,8 @@ class PersonaServiceTest {
         createdRef.getMetadata().setName("created-conv");
         createdRef.getMetadata().setVersion(1L);
 
-        when(client.create(any(ConversationRef.class))).thenReturn(Mono.just(createdRef));
-        when(client.update(any(ConversationRef.class)))
+        when(client.create(any(Unstructured.class))).thenReturn(Mono.just(unstructuredFromRef(createdRef)));
+        when(client.update(any(Unstructured.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         ArrayNode newMessages = objectMapper.createArrayNode();
@@ -186,8 +185,8 @@ class PersonaServiceTest {
                 })
                 .verifyComplete();
 
-        verify(client, times(1)).create(any(ConversationRef.class));
-        verify(client, times(1)).update(any(ConversationRef.class));
+        verify(client, times(1)).create(any(Unstructured.class));
+        verify(client, times(1)).update(any(Unstructured.class));
         verify(client, never()).listAll(eq(ConversationRef.class), any(), any());
     }
 
@@ -264,18 +263,14 @@ class PersonaServiceTest {
     @DisplayName("deleteConversation → 删除指定 ConvRef")
     void deleteConversationById() {
         Unstructured ref = unstructuredConvRef("to-delete");
-        ConversationRef deleted = createRefWithMessages("s1", "default", "[]");
-        deleted.getMetadata().setName("to-delete");
-        deleted.getMetadata().setVersion(1L);
-
         when(client.fetch(any(GroupVersionKind.class), eq("to-delete")))
                 .thenReturn(Mono.just(ref));
-        when(client.delete(any(ConversationRef.class))).thenReturn(Mono.just(deleted));
+        when(client.delete(any(Unstructured.class))).thenReturn(Mono.just(ref));
 
         StepVerifier.create(personaService.deleteConversation("to-delete"))
                 .verifyComplete();
 
-        verify(client, times(1)).delete(any(ConversationRef.class));
+        verify(client, times(1)).delete(any(Unstructured.class));
     }
 
     @Test
@@ -287,7 +282,7 @@ class PersonaServiceTest {
         StepVerifier.create(personaService.deleteConversation("not-exist"))
                 .verifyComplete(); // 不应抛异常
 
-        verify(client, never()).delete(any(ConversationRef.class));
+        verify(client, never()).delete(any(Unstructured.class));
     }
 
     // ========== 辅助方法 ==========
@@ -309,16 +304,6 @@ class PersonaServiceTest {
         spec.setRefinedMessageCount(0);
         ref.setSpec(spec);
         return ref;
-    }
-
-    private JsonExtension jsonConvRef(String name) {
-        ObjectNode node = objectMapper.createObjectNode();
-        node.put("apiVersion", "ai-assistant.plugin.halo.run/v1alpha1");
-        node.put("kind", "ConvRef");
-        ObjectNode metadata = node.putObject("metadata");
-        metadata.put("name", name);
-        metadata.put("version", 1L);
-        return new JsonExtension(objectMapper, node);
     }
 
     private Unstructured unstructuredConvRef(String name) {
@@ -344,29 +329,30 @@ class PersonaServiceTest {
         return unstructured;
     }
 
-    private JsonExtension jsonFromRef(ConversationRef ref) {
-        ObjectNode node = objectMapper.createObjectNode();
-        node.put("apiVersion", "ai-assistant.plugin.halo.run/v1alpha1");
-        node.put("kind", "ConvRef");
-        ObjectNode metadata = node.putObject("metadata");
-        metadata.put("name", ref.getMetadata().getName());
-        if (ref.getMetadata().getVersion() != null) {
-            metadata.put("version", ref.getMetadata().getVersion());
-        }
-        ObjectNode specNode = node.putObject("spec");
-        specNode.put("sessionId", ref.getSpec().getSessionId());
-        specNode.put("personaId", ref.getSpec().getPersonaId());
-        specNode.put("title", ref.getSpec().getTitle());
-        specNode.put("messages", ref.getSpec().getMessages());
-        if (ref.getSpec().getCreatedAt() != null) {
-            specNode.put("createdAt", ref.getSpec().getCreatedAt().toString());
-        }
-        if (ref.getSpec().getUpdatedAt() != null) {
-            specNode.put("updatedAt", ref.getSpec().getUpdatedAt().toString());
-        }
-        specNode.put("compressed", ref.getSpec().isCompressed());
-        specNode.put("refinedMessageCount", ref.getSpec().getRefinedMessageCount());
-        return new JsonExtension(objectMapper, node);
+    private Unstructured unstructuredFromRef(ConversationRef ref) {
+        Metadata metadata = new Metadata();
+        metadata.setName(ref.getMetadata().getName());
+        metadata.setVersion(ref.getMetadata().getVersion());
+        Map<String, Object> data = new HashMap<>();
+        data.put("apiVersion", "ai-assistant.plugin.halo.run/v1alpha1");
+        data.put("kind", "ConvRef");
+        data.put("metadata", new HashMap<>(Map.of(
+                "name", ref.getMetadata().getName(),
+                "version", ref.getMetadata().getVersion()
+        )));
+        data.put("spec", new HashMap<>(Map.of(
+                "sessionId", ref.getSpec().getSessionId(),
+                "personaId", ref.getSpec().getPersonaId(),
+                "title", ref.getSpec().getTitle(),
+                "messages", ref.getSpec().getMessages(),
+                "createdAt", ref.getSpec().getCreatedAt(),
+                "updatedAt", ref.getSpec().getUpdatedAt(),
+                "compressed", ref.getSpec().isCompressed(),
+                "refinedMessageCount", ref.getSpec().getRefinedMessageCount()
+        )));
+        Unstructured unstructured = new Unstructured(data);
+        unstructured.setMetadata(metadata);
+        return unstructured;
     }
 
     private int parseMsgCount(ConversationRef ref) {
