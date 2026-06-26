@@ -77,7 +77,8 @@ public class AiChatEndpoint {
     private Mono<ServerResponse> handleChat(ServerRequest request) {
         // 先异步加载 AI 配置，再处理请求
         return loadAiSetting()
-                .then(request.bodyToMono(JsonNode.class))
+                .then(request.bodyToMono(String.class))
+                .flatMap(this::parseRequestBody)
                 .flatMap(body -> {
                     String message = body.has("message") ? body.get("message").asText() : "";
                     if (message == null || message.isBlank()) {
@@ -119,6 +120,17 @@ public class AiChatEndpoint {
                     return ServerResponse.status(500)
                             .bodyValue(java.util.Map.of("error", "服务器内部错误: " + e.getMessage()));
                 });
+    }
+
+    private Mono<JsonNode> parseRequestBody(String rawBody) {
+        if (rawBody == null || rawBody.isBlank()) {
+            return Mono.error(new IllegalArgumentException("请求体不能为空"));
+        }
+        try {
+            return Mono.just(objectMapper.readTree(rawBody));
+        } catch (Exception e) {
+            return Mono.error(new IllegalArgumentException("请求体 JSON 格式错误"));
+        }
     }
 
     /**
