@@ -64,10 +64,6 @@ class PersonaServiceTest {
 
         when(client.create(any(JsonExtension.class))).thenReturn(Mono.just(jsonFromRef(serverRef)));
 
-        // Act: 通过服务方法间接测试（getOrCreateConversation 内部调用 createConversation）
-        when(client.listAll(eq(ConversationRef.class), isNull(), isNull()))
-                .thenReturn(Flux.empty()); // 无已有对话，触发创建
-
         Mono<ConversationRef> result = personaService.getOrCreateConversation("session1", "default");
 
         // Assert: 返回的 ref 有 version
@@ -84,6 +80,7 @@ class PersonaServiceTest {
                 .verifyComplete();
 
         verify(client, times(1)).create(any(JsonExtension.class));
+        verify(client, never()).listAll(eq(ConversationRef.class), any(), any());
     }
 
     // ========== appendMessages(ConversationRef, ArrayNode) ==========
@@ -166,15 +163,13 @@ class PersonaServiceTest {
     // ========== appendMessages(String, String, ArrayNode) ==========
 
     @Test
-    @DisplayName("appendMessages(sessionId, personaId) → 查找已有对话并追加")
+    @DisplayName("appendMessages(sessionId, personaId) → 创建新对话并追加")
     void appendMessagesBySessionAndPersona() {
-        // Arrange: 已有对话
-        ConversationRef existingRef = createRefWithMessages("session1", "default", "[]");
-        existingRef.getMetadata().setName("existing-conv");
-        existingRef.getMetadata().setVersion(1L);
+        ConversationRef createdRef = createRefWithMessages("session1", "default", "[]");
+        createdRef.getMetadata().setName("created-conv");
+        createdRef.getMetadata().setVersion(1L);
 
-        when(client.listAll(eq(ConversationRef.class), isNull(), isNull()))
-                .thenReturn(Flux.just(existingRef));
+        when(client.create(any(JsonExtension.class))).thenReturn(Mono.just(jsonFromRef(createdRef)));
         when(client.update(any(JsonExtension.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
@@ -188,7 +183,9 @@ class PersonaServiceTest {
                 })
                 .verifyComplete();
 
+        verify(client, times(1)).create(any(JsonExtension.class));
         verify(client, times(1)).update(any(JsonExtension.class));
+        verify(client, never()).listAll(eq(ConversationRef.class), any(), any());
     }
 
     // ========== compressConversation ==========

@@ -394,17 +394,7 @@ public class PersonaService {
      * 获取某个 session + persona 的当前对话
      */
     public Mono<ConversationRef> getOrCreateConversation(String sessionId, String personaId) {
-        return listConversations(sessionId, personaId)
-                .flatMap(list -> {
-                    if (list.isEmpty()) {
-                        return createConversation(sessionId, personaId);
-                    }
-                    return Mono.just(list.get(0));
-                })
-                .onErrorResume(e -> {
-                    log.warn("getOrCreateConversation 失败: {}", e.getMessage());
-                    return createFallbackConversation(sessionId, personaId);
-                });
+        return createConversation(sessionId, personaId);
     }
 
     /**

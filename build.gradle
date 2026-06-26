@@ -24,6 +24,7 @@ dependencies {
     testImplementation "org.junit.jupiter:junit-jupiter:5.11.0"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
     implementation platform("run.halo.tools.platform:plugin:${haloVersion}")
+    implementation "com.fasterxml.jackson.datatype:jackson-datatype-jsr310"
     compileOnly "run.halo.app:api"
     testImplementation "run.halo.app:api"
     testImplementation "org.mockito:mockito-junit-jupiter:5.12.0"
