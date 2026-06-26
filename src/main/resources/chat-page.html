@@ -754,6 +754,222 @@
         .history-item:hover {
             background: transparent;
         }
+
+        .persona-manager-drawer {
+            width: min(640px, 94vw);
+            max-width: 640px;
+        }
+
+        .persona-manager-body {
+            overflow-y: auto;
+            padding: 16px;
+            max-height: calc(100vh - 58px);
+            background: var(--surface-subtle);
+        }
+
+        .persona-upload-panel,
+        .persona-card {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface-raised);
+            box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 4%, transparent);
+        }
+
+        .persona-upload-panel {
+            padding: 14px;
+            margin-bottom: 14px;
+        }
+
+        .persona-upload-panel input[type="file"] {
+            width: 100%;
+            min-width: 0;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        .persona-upload-title,
+        .persona-card-title {
+            margin: 0;
+            color: var(--text);
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0;
+        }
+
+        .persona-upload-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(180px, 0.6fr);
+            gap: 10px;
+            margin-top: 12px;
+        }
+
+        .persona-card {
+            overflow: hidden;
+            margin-bottom: 12px;
+        }
+
+        .persona-card-header {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            padding: 14px 14px 12px;
+            border-bottom: 1px solid var(--border);
+            background: color-mix(in srgb, var(--surface-raised) 88%, var(--surface-subtle));
+        }
+
+        .persona-card-icon {
+            display: grid;
+            width: 38px;
+            height: 38px;
+            place-items: center;
+            overflow: hidden;
+            border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
+            border-radius: 50%;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 21px;
+        }
+
+        .persona-card-icon img,
+        .persona-card-icon .avatar-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 50%;
+        }
+
+        .persona-card-meta {
+            min-width: 0;
+        }
+
+        .persona-card-id {
+            overflow: hidden;
+            margin-top: 3px;
+            color: var(--text-muted);
+            font-size: 12px;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .persona-badge {
+            display: inline-flex;
+            align-items: center;
+            min-height: 22px;
+            padding: 0 8px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--surface);
+            color: var(--text-muted);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .persona-card-body {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            padding: 14px;
+        }
+
+        .persona-field {
+            display: grid;
+            gap: 6px;
+            min-width: 0;
+            color: var(--text-muted);
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .persona-field-wide {
+            grid-column: 1 / -1;
+        }
+
+        .persona-field input,
+        .persona-field textarea,
+        .persona-upload-panel input[type="text"] {
+            width: 100%;
+            min-height: 36px;
+            padding: 7px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface);
+            color: var(--text);
+            font: inherit;
+            font-size: 13px;
+        }
+
+        .persona-field textarea {
+            resize: vertical;
+            line-height: 1.5;
+        }
+
+        .persona-color-row {
+            display: grid;
+            grid-template-columns: 38px minmax(0, 1fr);
+            gap: 8px;
+            align-items: center;
+        }
+
+        .persona-color-swatch {
+            width: 38px;
+            height: 36px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--persona-color, var(--accent));
+        }
+
+        .persona-card-footer,
+        .persona-upload-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .persona-upload-actions {
+            grid-column: 1 / -1;
+        }
+
+        .persona-card-footer {
+            justify-content: space-between;
+            padding: 12px 14px 14px;
+            border-top: 1px solid var(--border);
+        }
+
+        .persona-status {
+            min-height: 18px;
+            color: var(--success);
+            font-size: 12px;
+            text-align: right;
+        }
+
+        .persona-danger-button {
+            color: var(--danger);
+        }
+
+        .persona-danger-button i,
+        .persona-card-footer i,
+        .persona-upload-actions i {
+            font-size: 16px;
+        }
+
+        @media (max-width: 720px) {
+            .persona-upload-grid,
+            .persona-card-body {
+                grid-template-columns: 1fr;
+            }
+
+            .persona-card-header {
+                grid-template-columns: auto minmax(0, 1fr);
+            }
+
+            .persona-card-header .persona-danger-button,
+            .persona-card-header .persona-badge {
+                grid-column: 1 / -1;
+                justify-self: start;
+            }
+        }
+
         .history-action-btn {
             flex: 0 0 auto;
             width: 34px;
@@ -1122,6 +1338,7 @@
     const SESSION_KEY = 'halo-ai-session-v1';
     function storageKey() { return 'halo-ai-conv-' + activePersona.id + '-v1'; }
     const PERSONA_LIST_KEY = 'halo-ai-personas-v1';
+    const ACTIVE_PERSONA_KEY = 'halo-ai-active-persona';
     const scrollArea = document.getElementById('scrollArea');
     const messagesElement = document.getElementById('messages');
     const welcomeElement = document.getElementById('welcome');
@@ -1153,6 +1370,21 @@
 
     let sessionId = getOrCreateSessionId();
     let isStreaming = false;
+
+    function persistPersonaCache() {
+        try { localStorage.setItem(PERSONA_LIST_KEY, JSON.stringify(personas)); } catch (e) {}
+    }
+
+    function upsertPersona(persona) {
+        if (!persona || !persona.id) return;
+        const idx = personas.findIndex(p => p.id === persona.id);
+        if (idx >= 0) personas[idx] = persona;
+        else personas.push(persona);
+        if (activePersona.id === persona.id) activePersona = persona;
+        persistPersonaCache();
+        renderPersonaMenu();
+        updatePersonaUI();
+    }
     let abortController = null;
 
     async function fetchServerSession() {
@@ -1842,20 +2074,15 @@
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const data = await resp.json();
             personas = data.personas || [];
-            // 缓存
-            try { localStorage.setItem(PERSONA_LIST_KEY, JSON.stringify(personas)); } catch (e) {}
+            persistPersonaCache();
             // 用 API 数据刷新当前 activePersona
             const match = personas.find(p => p.id === activePersona.id);
             if (match) {
-                activePersona.displayName = match.displayName || activePersona.id;
-                if (match.iconUrl !== undefined) activePersona.iconUrl = match.iconUrl;
-                if (match.brandColor) activePersona.brandColor = match.brandColor;
-                if (match.greeting) activePersona.greeting = match.greeting;
-                if (match.thinkingPhrases) activePersona.thinkingPhrases = match.thinkingPhrases;
+                activePersona = match;
             }
             // 尝试恢复之前选中的 persona
             try {
-                const savedId = localStorage.getItem('halo-ai-active-persona');
+                const savedId = localStorage.getItem(ACTIVE_PERSONA_KEY);
                 if (savedId && savedId !== activePersona.id) {
                     const saved = personas.find(p => p.id === savedId);
                     if (saved) { switchPersona(saved); return; }
@@ -1909,7 +2136,7 @@
         // 切换 persona
         activePersona = persona;
         // 持久化选中的 persona
-        try { localStorage.setItem('halo-ai-active-persona', persona.id); } catch(e) {}
+        try { localStorage.setItem(ACTIVE_PERSONA_KEY, persona.id); } catch(e) {}
         // 重置对话
         history = [];
         conversationId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
@@ -1951,7 +2178,7 @@
                 'default': '我可以帮你管理博客文章、分类、标签和评论。',
                 'munger': '倒过来想，总是倒过来想。用跨学科智慧拆解世界的复杂性。'
             };
-            welcomeSubtitle.textContent = descs[activePersona.id] || '';
+            welcomeSubtitle.textContent = activePersona.description || descs[activePersona.id] || '';
         }
         // 设置 brand color CSS 变量
         if (activePersona.brandColor) {
@@ -2166,8 +2393,10 @@
     document.addEventListener('DOMContentLoaded', () => {
         const closeBtn = document.getElementById('personaManagerClose');
         const backdrop = document.getElementById('personaManagerBackdrop');
+        const uploadBtn = document.getElementById('personaUploadButton');
         if (closeBtn) closeBtn.addEventListener('click', closePersonaManager);
         if (backdrop) backdrop.addEventListener('click', closePersonaManager);
+        if (uploadBtn) uploadBtn.addEventListener('click', uploadPersonaFromManager);
     });
 
     function renderPersonaManagerList() {
@@ -2175,7 +2404,7 @@
         container.innerHTML = '';
         personas.forEach(p => {
             const card = document.createElement('div');
-            card.style.cssText = 'background:var(--surface-subtle);border:1px solid var(--border);border-radius:8px;padding:16px;margin-bottom:12px';
+            card.className = 'persona-card';
             card.innerHTML = renderPersonaEditForm(p);
             container.appendChild(card);
             // 绑定事件
@@ -2189,25 +2418,36 @@
         const thinkingRaw = p.thinkingPhrases || '[]';
         let thinkingStr = '';
         try { thinkingStr = JSON.parse(thinkingRaw).join('\n'); } catch(e) { thinkingStr = thinkingRaw; }
+        const safeId = escapeHtml(p.id);
+        const color = escapeHtml(p.brandColor || '#2563eb');
 
-        return '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">'
-            + '<span style="font-size:24px">' + icon + '</span>'
-            + '<div><strong>' + escapeHtml(p.displayName || p.id) + '</strong>'
-            + (builtin ? '<span style="font-size:11px;color:var(--text-muted);margin-left:6px">内置</span>' : '')
-            + '<br><span style="font-size:12px;color:var(--text-muted)">' + escapeHtml(p.id) + '</span></div></div>'
-            + '<div style="display:grid;gap:10px">'
-            + '<label style="font-size:12px;color:var(--text-muted)">显示名称<input class="pe-field" data-field="displayName" data-pid="' + escapeHtml(p.id) + '" value="' + escapeHtml(p.displayName || '') + '" style="display:block;width:100%;margin-top:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px"></label>'
-            + '<label style="font-size:12px;color:var(--text-muted)">头像 URL / Remix 图标<input class="pe-field" data-field="iconUrl" data-pid="' + escapeHtml(p.id) + '" value="' + escapeHtml(p.iconUrl || '') + '" placeholder="ri-team-fill 或 https://..." style="display:block;width:100%;margin-top:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px"></label>'
-            + '<label style="font-size:12px;color:var(--text-muted)">欢迎语<input class="pe-field" data-field="greeting" data-pid="' + escapeHtml(p.id) + '" value="' + escapeHtml(p.greeting || '') + '" style="display:block;width:100%;margin-top:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px"></label>'
-            + '<label style="font-size:12px;color:var(--text-muted)">品牌色<input class="pe-field" data-field="brandColor" data-pid="' + escapeHtml(p.id) + '" value="' + escapeHtml(p.brandColor || '#2563eb') + '" style="display:block;width:100%;margin-top:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px"></label>'
-            + '<label style="font-size:12px;color:var(--text-muted)">思考短语（每行一个）<textarea class="pe-field" data-field="thinkingPhrases" data-pid="' + escapeHtml(p.id) + '" rows="3" style="display:block;width:100%;margin-top:4px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:13px;resize:vertical">' + escapeHtml(thinkingStr) + '</textarea></label>'
-            + '<button class="pe-save-btn button button-primary" data-pid="' + escapeHtml(p.id) + '" style="align-self:flex-start;font-size:13px">保存</button>'
-            + '<span class="pe-status" style="font-size:12px;color:var(--success);margin-left:8px;display:none">已保存 ✓</span>'
+        return '<div class="persona-card-header">'
+            + '<span class="persona-card-icon" aria-hidden="true">' + icon + '</span>'
+            + '<div class="persona-card-meta">'
+            + '<h4 class="persona-card-title">' + escapeHtml(p.displayName || p.id) + '</h4>'
+            + '<div class="persona-card-id">' + safeId + '</div>'
+            + '</div>'
+            + (builtin
+                ? '<span class="persona-badge">内置，不可删除</span>'
+                : '<button class="pe-delete-btn button persona-danger-button" data-pid="' + safeId + '" type="button"><i class="ri-delete-bin-6-line"></i><span>删除</span></button>')
+            + '</div>'
+            + '<div class="persona-card-body">'
+            + '<label class="persona-field">显示名称<input class="pe-field" data-field="displayName" data-pid="' + safeId + '" value="' + escapeHtml(p.displayName || '') + '"></label>'
+            + '<label class="persona-field">欢迎语<input class="pe-field" data-field="greeting" data-pid="' + safeId + '" value="' + escapeHtml(p.greeting || '') + '"></label>'
+            + '<label class="persona-field persona-field-wide">简介<textarea class="pe-field" data-field="description" data-pid="' + safeId + '" rows="2">' + escapeHtml(p.description || '') + '</textarea></label>'
+            + '<label class="persona-field">头像 / Remix 图标<input class="pe-field" data-field="iconUrl" data-pid="' + safeId + '" value="' + escapeHtml(p.iconUrl || '') + '" placeholder="ri-team-fill 或 https://..."></label>'
+            + '<label class="persona-field">品牌色<div class="persona-color-row"><span class="persona-color-swatch" style="--persona-color:' + color + '"></span><input class="pe-field" data-field="brandColor" data-pid="' + safeId + '" value="' + color + '"></div></label>'
+            + '<label class="persona-field persona-field-wide">思考短语（每行一个）<textarea class="pe-field" data-field="thinkingPhrases" data-pid="' + safeId + '" rows="3">' + escapeHtml(thinkingStr) + '</textarea></label>'
+            + '</div>'
+            + '<div class="persona-card-footer">'
+            + '<button class="pe-save-btn button button-primary" data-pid="' + safeId + '" type="button"><i class="ri-save-3-line"></i><span>保存更改</span></button>'
+            + '<span class="pe-status persona-status" style="display:none">已保存 ✓</span>'
             + '</div>';
     }
 
     function bindPersonaEditEvents(card, p) {
         const saveBtn = card.querySelector('.pe-save-btn');
+        const deleteBtn = card.querySelector('.pe-delete-btn');
         const statusEl = card.querySelector('.pe-status');
         if (saveBtn) {
             saveBtn.addEventListener('click', async () => {
@@ -2218,10 +2458,11 @@
                         const lines = field.value.split('\n').map(l => l.trim()).filter(Boolean);
                         fields[fname] = JSON.stringify(lines);
                     } else {
-                        fields[fname] = field.value;
+                        fields[fname] = field.value.trim();
                     }
                 });
                 try {
+                    saveBtn.disabled = true;
                     statusEl.style.display = 'inline';
                     statusEl.textContent = '保存中…';
                     statusEl.style.color = 'var(--text-muted)';
@@ -2231,18 +2472,12 @@
                         body: JSON.stringify(fields)
                     });
                     if (resp.ok) {
-                        const updated = await resp.json();
+                        const data = await resp.json();
+                        const updated = data.persona || data;
+                        if (!updated || !updated.id) throw new Error('保存响应缺少 persona');
                         statusEl.textContent = '已保存 ✓';
                         statusEl.style.color = 'var(--success)';
-                        // 更新本地缓存
-                        const idx = personas.findIndex(pp => pp.id === p.id);
-                        if (idx >= 0) {
-                            personas[idx] = updated;
-                            if (activePersona.id === p.id) activePersona = updated;
-                        }
-                        // 更新 UI
-                        updatePersonaUI();
-                        renderPersonaMenu();
+                        upsertPersona(updated);
                         // 1.5s 后隐藏
                         setTimeout(() => { statusEl.style.display = 'none'; }, 1500);
                     } else {
@@ -2251,10 +2486,117 @@
                         statusEl.style.color = 'var(--danger)';
                     }
                 } catch (e) {
-                    statusEl.textContent = '网络错误';
+                    statusEl.textContent = e.message || '网络错误';
                     statusEl.style.color = 'var(--danger)';
+                } finally {
+                    saveBtn.disabled = false;
                 }
             });
+        }
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => deletePersonaFromManager(p, deleteBtn, statusEl));
+        }
+    }
+
+    async function uploadPersonaFromManager() {
+        const fileInput = document.getElementById('personaUploadFile');
+        const iconInput = document.getElementById('personaUploadIcon');
+        const uploadBtn = document.getElementById('personaUploadButton');
+        const statusEl = document.getElementById('personaUploadStatus');
+        const file = fileInput?.files?.[0];
+        if (!file) {
+            statusEl.textContent = '请选择 SKILL.md 文件';
+            statusEl.style.color = 'var(--danger)';
+            return;
+        }
+        const originalHtml = uploadBtn.innerHTML;
+        uploadBtn.disabled = true;
+        statusEl.textContent = '上传中…';
+        statusEl.style.color = 'var(--text-muted)';
+        try {
+            const form = new FormData();
+            form.append('file', file);
+            const uploadResp = await fetch('/api/ai-assistant/persona/upload', {
+                method: 'POST',
+                body: form
+            });
+            const uploadData = await uploadResp.json().catch(() => ({}));
+            if (!uploadResp.ok) throw new Error(uploadData.error || '上传失败');
+            let uploaded = uploadData.persona || uploadData;
+            if (!uploaded || !uploaded.id) throw new Error('上传响应缺少 persona');
+
+            const iconValue = (iconInput?.value || '').trim();
+            if (iconValue) {
+                const updateResp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(uploaded.id), {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ iconUrl: iconValue })
+                });
+                const updateData = await updateResp.json().catch(() => ({}));
+                if (!updateResp.ok) throw new Error(updateData.error || '头像更新失败');
+                uploaded = updateData.persona || updateData;
+            }
+
+            upsertPersona(uploaded);
+            renderPersonaManagerList();
+            if (fileInput) fileInput.value = '';
+            if (iconInput) iconInput.value = '';
+            statusEl.textContent = '已新增角色 ✓';
+            statusEl.style.color = 'var(--success)';
+        } catch (e) {
+            statusEl.textContent = e.message || '上传失败';
+            statusEl.style.color = 'var(--danger)';
+        } finally {
+            uploadBtn.disabled = false;
+            uploadBtn.innerHTML = originalHtml;
+        }
+    }
+
+    async function deletePersonaFromManager(persona, button, statusEl) {
+        if (!persona || persona.builtin) return;
+        if (!confirm('确认删除该角色？此操作不会删除已有历史对话。')) return;
+        button.disabled = true;
+        if (statusEl) {
+            statusEl.style.display = 'inline';
+            statusEl.textContent = '删除中…';
+            statusEl.style.color = 'var(--text-muted)';
+        }
+        try {
+            const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(persona.id), {
+                method: 'DELETE'
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                throw new Error(err.error || '删除失败');
+            }
+            personas = personas.filter(p => p.id !== persona.id);
+            if (activePersona.id === persona.id) {
+                const fallback = personas.find(p => p.id === 'default') || personas[0] || {
+                    id: 'default',
+                    displayName: 'AI 智能助手',
+                    iconUrl: null,
+                    brandColor: '#2563eb',
+                    greeting: '你好，我是 Halo AI 智能助手',
+                    thinkingPhrases: '[]'
+                };
+                activePersona = fallback;
+                try { localStorage.setItem(ACTIVE_PERSONA_KEY, activePersona.id); } catch(e) {}
+                history = [];
+                conversationId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
+                messagesElement.replaceChildren();
+                welcomeElement.hidden = false;
+                loadPersonaConversations();
+            }
+            persistPersonaCache();
+            renderPersonaMenu();
+            updatePersonaUI();
+            renderPersonaManagerList();
+        } catch (e) {
+            if (statusEl) {
+                statusEl.textContent = e.message || '删除失败';
+                statusEl.style.color = 'var(--danger)';
+            }
+            button.disabled = false;
         }
     }
 
@@ -2262,12 +2604,25 @@
 
     <!-- Persona 管理面板 -->
     <div class="drawer-backdrop" id="personaManagerBackdrop" hidden></div>
-    <div class="history-drawer" id="personaManagerDrawer" style="max-width:640px">
-        <div class="history-drawer-header">
-            <h3 class="history-drawer-title">管理角色</h3>
-            <button class="history-drawer-close" id="personaManagerClose">&times;</button>
+    <div class="history-drawer persona-manager-drawer" id="personaManagerDrawer">
+        <div class="drawer-header">
+            <h2>管理角色</h2>
+            <button class="history-drawer-close" id="personaManagerClose" type="button" aria-label="关闭">&times;</button>
         </div>
-        <div id="personaManagerList" style="padding:16px;overflow-y:auto;max-height:calc(100vh - 140px)"></div>
+        <div class="persona-manager-body">
+            <section class="persona-upload-panel">
+                <h4 class="persona-upload-title">上传 SKILL.md 新增角色</h4>
+                <div class="persona-upload-grid">
+                    <input id="personaUploadFile" type="file" accept=".md,.txt">
+                    <input id="personaUploadIcon" type="text" placeholder="可选头像：ri-team-fill 或 https://...">
+                    <div class="persona-upload-actions">
+                        <button class="button button-primary" id="personaUploadButton" type="button"><i class="ri-upload-cloud-2-line"></i><span>上传角色</span></button>
+                        <span id="personaUploadStatus" class="persona-status"></span>
+                    </div>
+                </div>
+            </section>
+            <div id="personaManagerList"></div>
+        </div>
     </div>
 </body>
 </html>

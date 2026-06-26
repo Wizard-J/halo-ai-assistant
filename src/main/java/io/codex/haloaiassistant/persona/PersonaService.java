@@ -124,7 +124,8 @@ public class PersonaService {
             Pattern frontmatterPattern = Pattern.compile("^---\\s*\n(.*?)\n---\\s*\n",
                     Pattern.DOTALL);
             Matcher fmMatcher = frontmatterPattern.matcher(content);
-            if (fmMatcher.find()) {
+            boolean hasFrontmatter = fmMatcher.find();
+            if (hasFrontmatter) {
                 String frontmatter = fmMatcher.group(1);
                 // 简单提取 name: 和 description: 字段
                 Pattern namePattern = Pattern.compile("^name\\s*:\\s*\"(.*?)\"\\s*$", Pattern.MULTILINE);
@@ -161,12 +162,7 @@ public class PersonaService {
             String id = name.isEmpty() ? "persona-" + Instant.now().toEpochMilli() : name;
 
             // 提取正文作为 system prompt
-            String body = content;
-            if (fmMatcher.find()) {
-                body = content.substring(fmMatcher.end()).trim();
-            } else {
-                body = content.trim();
-            }
+            String body = hasFrontmatter ? content.substring(fmMatcher.end()).trim() : content.trim();
 
             // 提取 greeting（从 ## 角色定义 后的内容中提取第一段有意义的文字）
             String greeting = extractGreeting(body);
