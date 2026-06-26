@@ -411,7 +411,8 @@ public class PersonaService {
      * 使用 GVK 获取 ConversationRef，绕过索引问题
      */
     public Mono<ConversationRef> getConversationByGVK(String conversationName) {
-        return client.get(ConversationRef.class, conversationName);
+        return client.getJsonExtension(CONV_REF_GVK, conversationName)
+                .map(this::fromJsonExtension);
     }
 
     /**
@@ -440,12 +441,8 @@ public class PersonaService {
         spec.setSummary(null);
         spec.setRefinedMessageCount(0);
         ref.setSpec(spec);
-        return client.create(ref)
-                .map(created -> created)
-                .onErrorResume(e -> {
-                    log.warn("回退创建对话也失败了: {}", e.getMessage());
-                    return Mono.just(ref);
-                });
+        return client.create(toJsonExtension(ref))
+                .map(this::fromJsonExtension);
     }
 
     /**
@@ -506,25 +503,26 @@ public class PersonaService {
             }
         }
 
-        return client.update(ref);
+        return client.update(toJsonExtension(ref))
+                .map(this::fromJsonExtension);
     }
 
     /**
      * 获取单条对话
      */
     public Mono<ConversationRef> getConversation(String conversationId) {
-        return client.get(ConversationRef.class, conversationId);
+        return getConversationByGVK(conversationId);
     }
 
     /**
      * 更新对话标题
      */
     public Mono<Void> updateConversationTitle(String conversationId, String newTitle) {
-        return client.get(ConversationRef.class, conversationId)
+        return getConversationByGVK(conversationId)
                 .flatMap(ref -> {
                     ref.getSpec().setTitle(newTitle);
                     ref.getSpec().setUpdatedAt(java.time.Instant.now());
-                    return client.update(ref);
+                    return client.update(toJsonExtension(ref));
                 })
                 .then()
                 .onErrorResume(e -> {
@@ -569,6 +567,75 @@ public Mono<Void> deleteConversation(String conversationId) {
 
     public ArrayNode parseConvRefMessages(ConversationRef ref) {
         return parseMessages(ref);
+    }
+
+    private JsonExtension toJsonExtension(ConversationRef ref) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("apiVersion", "ai-assistant.plugin.halo.run/v1alpha1");
+        node.put("kind", "ConvRef");
+        ObjectNode metadata = node.putObject("metadata");
+        if (ref.getMetadata() != null) {
+            metadata.put("name", ref.getMetadata().getName());
+            if (ref.getMetadata().getVersion() != null) {
+                metadata.put("version", ref.getMetadata().getVersion());
+            }
+        }
+        ObjectNode specNode = node.putObject("spec");
+        if (ref.getSpec() != null) {
+            var spec = ref.getSpec();
+            specNode.put("sessionId", spec.getSessionId());
+            specNode.put("personaId", spec.getPersonaId());
+            specNode.put("title", spec.getTitle());
+            specNode.put("messages", spec.getMessages());
+            if (spec.getCreatedAt() != null) {
+                specNode.put("createdAt", spec.getCreatedAt().toString());
+            }
+            if (spec.getUpdatedAt() != null) {
+                specNode.put("updatedAt", spec.getUpdatedAt().toString());
+            }
+            specNode.put("compressed", spec.isCompressed());
+            if (spec.getSummary() != null) {
+                specNode.put("summary", spec.getSummary());
+            }
+            specNode.put("refinedMessageCount", spec.getRefinedMessageCount());
+        }
+        return new JsonExtension(objectMapper, node);
+    }
+
+    private ConversationRef fromJsonExtension(JsonExtension json) {
+        ObjectNode node = json.getInternal();
+        ConversationRef ref = new ConversationRef();
+        Metadata metadata = new Metadata();
+        JsonNode metadataNode = node.path("metadata");
+        metadata.setName(textOrNull(metadataNode.path("name")));
+        if (metadataNode.hasNonNull("version")) {
+            metadata.setVersion(metadataNode.path("version").asLong());
+        }
+        ref.setMetadata(metadata);
+
+        JsonNode specNode = node.path("spec");
+        ConversationRef.ConvRefSpec spec = new ConversationRef.ConvRefSpec();
+        spec.setSessionId(textOrNull(specNode.path("sessionId")));
+        spec.setPersonaId(textOrNull(specNode.path("personaId")));
+        spec.setTitle(textOrNull(specNode.path("title")));
+        spec.setMessages(textOrNull(specNode.path("messages")));
+        spec.setCreatedAt(instantOrNull(specNode.path("createdAt")));
+        spec.setUpdatedAt(instantOrNull(specNode.path("updatedAt")));
+        spec.setCompressed(specNode.path("compressed").asBoolean(false));
+        spec.setSummary(textOrNull(specNode.path("summary")));
+        spec.setRefinedMessageCount(specNode.path("refinedMessageCount").asInt(0));
+        ref.setSpec(spec);
+        return ref;
+    }
+
+    private String textOrNull(JsonNode node) {
+        return node == null || node.isMissingNode() || node.isNull() ? null : node.asText();
+    }
+
+    private Instant instantOrNull(JsonNode node) {
+        String value = textOrNull(node);
+        if (value == null || value.isBlank()) return null;
+        return Instant.parse(value);
     }
 
     private String serializeMessages(ArrayNode messages) {

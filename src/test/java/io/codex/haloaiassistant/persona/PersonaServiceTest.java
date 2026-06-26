@@ -62,7 +62,7 @@ class PersonaServiceTest {
         spec.setRefinedMessageCount(0);
         serverRef.setSpec(spec);
 
-        when(client.create(any(ConversationRef.class))).thenReturn(Mono.just(serverRef));
+        when(client.create(any(JsonExtension.class))).thenReturn(Mono.just(jsonFromRef(serverRef)));
 
         // Act: 通过服务方法间接测试（getOrCreateConversation 内部调用 createConversation）
         when(client.listAll(eq(ConversationRef.class), isNull(), isNull()))
@@ -83,7 +83,7 @@ class PersonaServiceTest {
                 })
                 .verifyComplete();
 
-        verify(client, times(1)).create(any(ConversationRef.class));
+        verify(client, times(1)).create(any(JsonExtension.class));
     }
 
     // ========== appendMessages(ConversationRef, ArrayNode) ==========
@@ -101,7 +101,7 @@ class PersonaServiceTest {
         userMsg.put("role", "user");
         userMsg.put("content", "今天天气怎么样");
 
-        when(client.update(any(ConversationRef.class)))
+        when(client.update(any(JsonExtension.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         // Act
@@ -120,7 +120,7 @@ class PersonaServiceTest {
                 })
                 .verifyComplete();
 
-        verify(client, times(1)).update(ref);
+        verify(client, times(1)).update(any(JsonExtension.class));
     }
 
     @Test
@@ -136,7 +136,7 @@ class PersonaServiceTest {
         userMsg.put("role", "user");
         userMsg.put("content", "新消息内容");
 
-        when(client.update(any(ConversationRef.class)))
+        when(client.update(any(JsonExtension.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         // Act
@@ -175,7 +175,7 @@ class PersonaServiceTest {
 
         when(client.listAll(eq(ConversationRef.class), isNull(), isNull()))
                 .thenReturn(Flux.just(existingRef));
-        when(client.update(any(ConversationRef.class)))
+        when(client.update(any(JsonExtension.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         ArrayNode newMessages = objectMapper.createArrayNode();
@@ -188,7 +188,7 @@ class PersonaServiceTest {
                 })
                 .verifyComplete();
 
-        verify(client, times(1)).update(any(ConversationRef.class));
+        verify(client, times(1)).update(any(JsonExtension.class));
     }
 
     // ========== compressConversation ==========
@@ -315,6 +315,31 @@ class PersonaServiceTest {
         ObjectNode metadata = node.putObject("metadata");
         metadata.put("name", name);
         metadata.put("version", 1L);
+        return new JsonExtension(objectMapper, node);
+    }
+
+    private JsonExtension jsonFromRef(ConversationRef ref) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("apiVersion", "ai-assistant.plugin.halo.run/v1alpha1");
+        node.put("kind", "ConvRef");
+        ObjectNode metadata = node.putObject("metadata");
+        metadata.put("name", ref.getMetadata().getName());
+        if (ref.getMetadata().getVersion() != null) {
+            metadata.put("version", ref.getMetadata().getVersion());
+        }
+        ObjectNode specNode = node.putObject("spec");
+        specNode.put("sessionId", ref.getSpec().getSessionId());
+        specNode.put("personaId", ref.getSpec().getPersonaId());
+        specNode.put("title", ref.getSpec().getTitle());
+        specNode.put("messages", ref.getSpec().getMessages());
+        if (ref.getSpec().getCreatedAt() != null) {
+            specNode.put("createdAt", ref.getSpec().getCreatedAt().toString());
+        }
+        if (ref.getSpec().getUpdatedAt() != null) {
+            specNode.put("updatedAt", ref.getSpec().getUpdatedAt().toString());
+        }
+        specNode.put("compressed", ref.getSpec().isCompressed());
+        specNode.put("refinedMessageCount", ref.getSpec().getRefinedMessageCount());
         return new JsonExtension(objectMapper, node);
     }
 
