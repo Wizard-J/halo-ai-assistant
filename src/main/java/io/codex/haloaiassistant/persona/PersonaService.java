@@ -463,11 +463,7 @@ public class PersonaService {
                     Instant tb = b.getSpec() != null ? b.getSpec().getUpdatedAt() : Instant.EPOCH;
                     return tb.compareTo(ta);
                 })
-                .collectList()
-                .onErrorResume(e -> {
-                    log.warn("listConversations 失败: {}", e.getMessage());
-                    return Mono.just(new java.util.ArrayList<ConversationRef>());
-                });
+                .collectList();
     }
 
     public Mono<ConversationRef> createConversation(String sessionId, String personaId) {

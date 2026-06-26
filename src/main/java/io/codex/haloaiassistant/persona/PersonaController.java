@@ -166,12 +166,14 @@ public class PersonaController {
         }
         return personaService.listConversations(sessionId, personaId)
                 .onErrorResume(e -> {
-                    log.warn("listConversations 失败，返回空列表: {}", e.getMessage());
-                    return Mono.just(java.util.Collections.emptyList());
+                    log.warn("listConversations 失败: {}", e.getMessage());
+                    return Mono.error(e);
                 })
                 .map(list -> list.stream().map(this::toConversationSummary).toList())
                 .flatMap(list -> ServerResponse.ok()
-                        .bodyValue(Map.of("conversations", list)));
+                        .bodyValue(Map.of("conversations", list)))
+                .onErrorResume(e -> ServerResponse.status(500)
+                        .bodyValue(Map.of("error", e.getMessage())));
     }
 
     /**
