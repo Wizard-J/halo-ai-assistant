@@ -193,6 +193,7 @@ public class AiChatEndpoint {
                         ? convId
                         : "conv-" + sessionId + "-" + personaId + "-" + convId;
                 convMono = personaService.getConversationByGVK(convName)
+                        .switchIfEmpty(personaService.createConversation(sessionId, personaId, convName))
                         .onErrorResume(e ->
                                 personaService.createConversation(sessionId, personaId, convName));
             } else {
