@@ -673,6 +673,51 @@ git reset --hard HEAD~1
 3. 改动完成后提交并推送
 4. 如改坏，`git revert HEAD` 回滚到改动前
 
+### `.ai-bridge/` 协作规范
+
+`.ai-bridge/` 是 Codex / Claude 等 AI 代理之间的临时协作目录，用于跨 session 传递工作上下文，**不应提交到主仓库的功能 commit 中**。
+
+#### 目录结构
+
+```
+.ai-bridge/
+├── current-plan.md        # 当前待执行的计划（由派发 agent 写入）
+├── agent-status.md         # 完成后的状态报告（由执行 agent 写入）
+├── execution-log.jsonl     # 可选的执行事件日志
+├── implementation-diff.patch  # 可选的最终 diff 快照
+├── README.md               # 固定说明
+├── codex-status.md         # 仅 Codex CLI 使用的元信息
+├── decisions.md            # 重大决策记录
+└── open-questions.md       # 待解决问题的记录
+```
+
+#### 文件职责
+
+| 文件 | 谁写 | 何时写 | 内容 |
+|------|------|--------|------|
+| `current-plan.md` | 派发 agent | 开始任务前 | 只保留真正还要做的**下一步待办**，含验收标准 |
+| `agent-status.md` | 执行 agent | 任务完成后 | 已完成的修复、验证结果、blocker、review notes |
+| `implementation-diff.patch` | 执行 agent | 任务完成后 | `git diff` 快照，便于审查 |
+
+#### 待办与状态同步流程
+
+每次修复或审查结束后，必须同步执行以下步骤：
+
+1. **对照源码**确认 `current-plan.md` 中每一项是否仍是待办。
+2. **已修复项**从 `current-plan.md` 删除，或移到 `agent-status.md` 的"已完成"部分。
+3. **新发现未修项**才追加到 `current-plan.md`。
+4. **标记状态**：只需人工验证的标记"待验证"，不要继续写成"待实现"。
+5. **用户确认提交**：`.ai-bridge/` 默认不混入功能 commit，是否提交由用户决定。
+
+> 示例：`current-plan.md` 只写"优化管理角色关闭按钮"这类仍未完成的任务；`agent-status.md` 写"保存成功提示已修复、关闭按钮已优化"等已完成记录。
+
+#### Git 策略
+
+1. `.ai-bridge/` 已加入 `.gitignore`，作为本地临时协作目录；**默认不提交**。
+2. `.gitignore` 已排除 `.ai-bridge/`，`git add -A` 不会误将其加入 stage
+3. 如想手动强制提交 `.ai-bridge/`，用 `git add -f .ai-bridge/`
+4. 这些文件只在本地协作，随 session 生命周期自然生灭
+
 ---
 
 ## 插件发布注意事项
