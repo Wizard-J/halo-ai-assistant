@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -26,6 +27,7 @@ import run.halo.app.extension.JsonExtension;
 import run.halo.app.extension.Metadata;
 import run.halo.app.extension.GroupVersionKind;
 import run.halo.app.extension.ReactiveExtensionClient;
+import run.halo.app.extension.Unstructured;
 
 import run.halo.app.plugin.ReactiveSettingFetcher;
 import io.codex.haloaiassistant.config.AiAssistantSetting;
@@ -401,8 +403,8 @@ public class PersonaService {
      * 使用 GVK 获取 ConversationRef，绕过索引问题
      */
     public Mono<ConversationRef> getConversationByGVK(String conversationName) {
-        return client.getJsonExtension(CONV_REF_GVK, conversationName)
-                .map(this::fromJsonExtension);
+        return client.fetch(CONV_REF_GVK, conversationName)
+                .map(this::fromUnstructured);
     }
 
     /**
@@ -425,14 +427,13 @@ public class PersonaService {
         spec.setPersonaId(personaId);
         spec.setTitle("新对话");
         spec.setMessages("[]");
-        spec.setCreatedAt(Instant.now());
-        spec.setUpdatedAt(Instant.now());
+        spec.setCreatedAt(nowIso());
+        spec.setUpdatedAt(nowIso());
         spec.setCompressed(false);
         spec.setSummary(null);
         spec.setRefinedMessageCount(0);
         ref.setSpec(spec);
-        return client.create(toJsonExtension(ref))
-                .map(this::fromJsonExtension);
+        return client.create(ref);
     }
 
     /**
@@ -446,8 +447,8 @@ public class PersonaService {
                         && personaId.equals(ref.getSpec().getPersonaId())
                         && (ref.getMetadata() == null || ref.getMetadata().getDeletionTimestamp() == null))
                 .sort((a, b) -> {
-                    Instant ta = a.getSpec() != null ? a.getSpec().getUpdatedAt() : Instant.EPOCH;
-                    Instant tb = b.getSpec() != null ? b.getSpec().getUpdatedAt() : Instant.EPOCH;
+                    Instant ta = a.getSpec() != null ? parseIsoInstant(a.getSpec().getUpdatedAt()) : Instant.EPOCH;
+                    Instant tb = b.getSpec() != null ? parseIsoInstant(b.getSpec().getUpdatedAt()) : Instant.EPOCH;
                     return tb.compareTo(ta);
                 })
                 .collectList();
@@ -479,7 +480,7 @@ public class PersonaService {
             existing.add(msg);
         }
         spec.setMessages(serializeMessages(existing));
-        spec.setUpdatedAt(Instant.now());
+        spec.setUpdatedAt(nowIso());
 
         // 更新标题（取首条 user 消息）
         if ("新对话".equals(spec.getTitle()) || spec.getTitle() == null) {
@@ -493,8 +494,7 @@ public class PersonaService {
             }
         }
 
-        return client.update(toJsonExtension(ref))
-                .map(this::fromJsonExtension);
+        return client.update(ref);
     }
 
     /**
@@ -511,8 +511,8 @@ public class PersonaService {
         return getConversationByGVK(conversationId)
                 .flatMap(ref -> {
                     ref.getSpec().setTitle(newTitle);
-                    ref.getSpec().setUpdatedAt(java.time.Instant.now());
-                    return client.update(toJsonExtension(ref));
+                    ref.getSpec().setUpdatedAt(nowIso());
+                    return client.update(ref);
                 })
                 .then()
                 .onErrorResume(e -> {
@@ -525,9 +525,10 @@ public class PersonaService {
      * 删除单条对话
      */
     
-public Mono<Void> deleteConversation(String conversationId) {
-        return client.getJsonExtension(CONV_REF_GVK, conversationId)
-                .flatMap((JsonExtension conv) -> client.delete(conv))
+    public Mono<Void> deleteConversation(String conversationId) {
+        return client.fetch(CONV_REF_GVK, conversationId)
+                .map(this::fromUnstructured)
+                .flatMap(client::delete)
                 .then();
     }
 
@@ -609,11 +610,39 @@ public Mono<Void> deleteConversation(String conversationId) {
         spec.setPersonaId(textOrNull(specNode.path("personaId")));
         spec.setTitle(textOrNull(specNode.path("title")));
         spec.setMessages(textOrNull(specNode.path("messages")));
-        spec.setCreatedAt(instantOrNull(specNode.path("createdAt")));
-        spec.setUpdatedAt(instantOrNull(specNode.path("updatedAt")));
+        spec.setCreatedAt(textOrNull(specNode.path("createdAt")));
+        spec.setUpdatedAt(textOrNull(specNode.path("updatedAt")));
         spec.setCompressed(specNode.path("compressed").asBoolean(false));
         spec.setSummary(textOrNull(specNode.path("summary")));
         spec.setRefinedMessageCount(specNode.path("refinedMessageCount").asInt(0));
+        ref.setSpec(spec);
+        return ref;
+    }
+
+    private ConversationRef fromUnstructured(Unstructured unstructured) {
+        ConversationRef ref = new ConversationRef();
+        Metadata metadata = new Metadata();
+        if (unstructured.getMetadata() != null) {
+            metadata.setName(unstructured.getMetadata().getName());
+            metadata.setVersion(unstructured.getMetadata().getVersion());
+        }
+        ref.setMetadata(metadata);
+
+        Map<String, Object> specMap = Unstructured.getNestedMap(unstructured.getData(), "spec")
+                .orElse(Map.of());
+        ConversationRef.ConvRefSpec spec = new ConversationRef.ConvRefSpec();
+        spec.setSessionId(stringValue(specMap.get("sessionId")));
+        spec.setPersonaId(stringValue(specMap.get("personaId")));
+        spec.setTitle(stringValue(specMap.get("title")));
+        spec.setMessages(stringValue(specMap.get("messages")));
+        spec.setCreatedAt(stringValue(specMap.get("createdAt")));
+        spec.setUpdatedAt(stringValue(specMap.get("updatedAt")));
+        spec.setCompressed(Boolean.TRUE.equals(specMap.get("compressed")));
+        spec.setSummary(stringValue(specMap.get("summary")));
+        Object refinedMessageCount = specMap.get("refinedMessageCount");
+        if (refinedMessageCount instanceof Number number) {
+            spec.setRefinedMessageCount(number.intValue());
+        }
         ref.setSpec(spec);
         return ref;
     }
@@ -622,10 +651,23 @@ public Mono<Void> deleteConversation(String conversationId) {
         return node == null || node.isMissingNode() || node.isNull() ? null : node.asText();
     }
 
-    private Instant instantOrNull(JsonNode node) {
-        String value = textOrNull(node);
-        if (value == null || value.isBlank()) return null;
-        return Instant.parse(value);
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private String nowIso() {
+        return Instant.now().toString();
+    }
+
+    private Instant parseIsoInstant(String value) {
+        if (value == null || value.isBlank()) {
+            return Instant.EPOCH;
+        }
+        try {
+            return Instant.parse(value);
+        } catch (Exception e) {
+            return Instant.EPOCH;
+        }
     }
 
     private String serializeMessages(ArrayNode messages) {
@@ -725,7 +767,7 @@ public Mono<Void> deleteConversation(String conversationId) {
             spec.setMessages(serializeMessages(retained));
             spec.setCompressed(true);
             spec.setSummary("已压缩早期 " + (pruned / 2) + " 轮对话");
-            spec.setUpdatedAt(Instant.now());
+            spec.setUpdatedAt(nowIso());
         }
         return ref;
     }
@@ -813,7 +855,7 @@ public Mono<Void> deleteConversation(String conversationId) {
                                             // 7. 更新 ConversationRef 的 refinedMessageCount
                                             int newCountValue = data.refinedCount + data.newCount;
                                             data.conversation.getSpec().setRefinedMessageCount(newCountValue);
-                                            data.conversation.getSpec().setUpdatedAt(Instant.now());
+                                            data.conversation.getSpec().setUpdatedAt(nowIso());
                                             return client.update(data.conversation);
                                         }))
                                         .thenReturn(mergedContent);

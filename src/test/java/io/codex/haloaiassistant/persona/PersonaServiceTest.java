@@ -8,7 +8,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,7 @@ import run.halo.app.extension.JsonExtension;
 import reactor.test.StepVerifier;
 import run.halo.app.extension.Metadata;
 import run.halo.app.extension.ReactiveExtensionClient;
+import run.halo.app.extension.Unstructured;
 
 @ExtendWith(MockitoExtension.class)
 class PersonaServiceTest {
@@ -57,12 +60,12 @@ class PersonaServiceTest {
         spec.setPersonaId("default");
         spec.setTitle("新对话");
         spec.setMessages("[]");
-        spec.setCreatedAt(Instant.now());
-        spec.setUpdatedAt(Instant.now());
+        spec.setCreatedAt(Instant.now().toString());
+        spec.setUpdatedAt(Instant.now().toString());
         spec.setRefinedMessageCount(0);
         serverRef.setSpec(spec);
 
-        when(client.create(any(JsonExtension.class))).thenReturn(Mono.just(jsonFromRef(serverRef)));
+        when(client.create(any(ConversationRef.class))).thenReturn(Mono.just(serverRef));
 
         Mono<ConversationRef> result = personaService.getOrCreateConversation("session1", "default");
 
@@ -79,7 +82,7 @@ class PersonaServiceTest {
                 })
                 .verifyComplete();
 
-        verify(client, times(1)).create(any(JsonExtension.class));
+        verify(client, times(1)).create(any(ConversationRef.class));
         verify(client, never()).listAll(eq(ConversationRef.class), any(), any());
     }
 
@@ -98,7 +101,7 @@ class PersonaServiceTest {
         userMsg.put("role", "user");
         userMsg.put("content", "今天天气怎么样");
 
-        when(client.update(any(JsonExtension.class)))
+        when(client.update(any(ConversationRef.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         // Act
@@ -117,7 +120,7 @@ class PersonaServiceTest {
                 })
                 .verifyComplete();
 
-        verify(client, times(1)).update(any(JsonExtension.class));
+        verify(client, times(1)).update(any(ConversationRef.class));
     }
 
     @Test
@@ -133,7 +136,7 @@ class PersonaServiceTest {
         userMsg.put("role", "user");
         userMsg.put("content", "新消息内容");
 
-        when(client.update(any(JsonExtension.class)))
+        when(client.update(any(ConversationRef.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         // Act
@@ -169,8 +172,8 @@ class PersonaServiceTest {
         createdRef.getMetadata().setName("created-conv");
         createdRef.getMetadata().setVersion(1L);
 
-        when(client.create(any(JsonExtension.class))).thenReturn(Mono.just(jsonFromRef(createdRef)));
-        when(client.update(any(JsonExtension.class)))
+        when(client.create(any(ConversationRef.class))).thenReturn(Mono.just(createdRef));
+        when(client.update(any(ConversationRef.class)))
                 .thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
         ArrayNode newMessages = objectMapper.createArrayNode();
@@ -183,8 +186,8 @@ class PersonaServiceTest {
                 })
                 .verifyComplete();
 
-        verify(client, times(1)).create(any(JsonExtension.class));
-        verify(client, times(1)).update(any(JsonExtension.class));
+        verify(client, times(1)).create(any(ConversationRef.class));
+        verify(client, times(1)).update(any(ConversationRef.class));
         verify(client, never()).listAll(eq(ConversationRef.class), any(), any());
     }
 
@@ -236,7 +239,7 @@ class PersonaServiceTest {
     void listConversationsFilterBySessionAndPersona() {
         ConversationRef ref1 = createRefWithMessages("s1", "default", "[]");
         ref1.getMetadata().setName("conv-1");
-        ref1.getSpec().setUpdatedAt(Instant.now());
+        ref1.getSpec().setUpdatedAt(Instant.now().toString());
 
         ConversationRef ref2 = createRefWithMessages("s2", "default", "[]"); // 不同 session
         ref2.getMetadata().setName("conv-2");
@@ -260,28 +263,31 @@ class PersonaServiceTest {
     @Test
     @DisplayName("deleteConversation → 删除指定 ConvRef")
     void deleteConversationById() {
-        JsonExtension ref = jsonConvRef("to-delete");
+        Unstructured ref = unstructuredConvRef("to-delete");
+        ConversationRef deleted = createRefWithMessages("s1", "default", "[]");
+        deleted.getMetadata().setName("to-delete");
+        deleted.getMetadata().setVersion(1L);
 
-        when(client.getJsonExtension(any(GroupVersionKind.class), eq("to-delete")))
+        when(client.fetch(any(GroupVersionKind.class), eq("to-delete")))
                 .thenReturn(Mono.just(ref));
-        when(client.delete(ref)).thenReturn(Mono.just(ref));
+        when(client.delete(any(ConversationRef.class))).thenReturn(Mono.just(deleted));
 
         StepVerifier.create(personaService.deleteConversation("to-delete"))
                 .verifyComplete();
 
-        verify(client, times(1)).delete(ref);
+        verify(client, times(1)).delete(any(ConversationRef.class));
     }
 
     @Test
     @DisplayName("deleteConversation → 不存在的对话静默处理")
     void deleteConversationNotFound() {
-        when(client.getJsonExtension(any(GroupVersionKind.class), eq("not-exist")))
+        when(client.fetch(any(GroupVersionKind.class), eq("not-exist")))
                 .thenReturn(Mono.empty());
 
         StepVerifier.create(personaService.deleteConversation("not-exist"))
                 .verifyComplete(); // 不应抛异常
 
-        verify(client, never()).delete(any(JsonExtension.class));
+        verify(client, never()).delete(any(ConversationRef.class));
     }
 
     // ========== 辅助方法 ==========
@@ -297,8 +303,8 @@ class PersonaServiceTest {
         spec.setPersonaId(personaId);
         spec.setTitle("新对话");
         spec.setMessages(messagesJson);
-        spec.setCreatedAt(Instant.now());
-        spec.setUpdatedAt(Instant.now());
+        spec.setCreatedAt(Instant.now().toString());
+        spec.setUpdatedAt(Instant.now().toString());
         spec.setCompressed(false);
         spec.setRefinedMessageCount(0);
         ref.setSpec(spec);
@@ -313,6 +319,29 @@ class PersonaServiceTest {
         metadata.put("name", name);
         metadata.put("version", 1L);
         return new JsonExtension(objectMapper, node);
+    }
+
+    private Unstructured unstructuredConvRef(String name) {
+        Metadata metadata = new Metadata();
+        metadata.setName(name);
+        metadata.setVersion(1L);
+        Map<String, Object> data = new HashMap<>();
+        data.put("apiVersion", "ai-assistant.plugin.halo.run/v1alpha1");
+        data.put("kind", "ConvRef");
+        data.put("metadata", new HashMap<>(Map.of("name", name, "version", 1L)));
+        data.put("spec", new HashMap<>(Map.of(
+                "sessionId", "s1",
+                "personaId", "default",
+                "title", "新对话",
+                "messages", "[]",
+                "createdAt", Instant.now().toString(),
+                "updatedAt", Instant.now().toString(),
+                "compressed", false,
+                "refinedMessageCount", 0
+        )));
+        Unstructured unstructured = new Unstructured(data);
+        unstructured.setMetadata(metadata);
+        return unstructured;
     }
 
     private JsonExtension jsonFromRef(ConversationRef ref) {

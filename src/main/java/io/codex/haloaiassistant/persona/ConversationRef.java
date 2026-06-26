@@ -1,6 +1,5 @@
 package io.codex.haloaiassistant.persona;
 
-import java.time.Instant;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -37,11 +36,11 @@ public class ConversationRef extends AbstractExtension {
         /** 消息列表 JSON */
         private String messages;
 
-        /** 创建时间 */
-        private Instant createdAt;
+        /** 创建时间（ISO-8601 字符串，避免插件运行时 Jackson JavaTime 绑定问题） */
+        private String createdAt;
 
-        /** 更新时间 */
-        private Instant updatedAt;
+        /** 更新时间（ISO-8601 字符串，避免插件运行时 Jackson JavaTime 绑定问题） */
+        private String updatedAt;
 
         /** 是否已压缩 */
         private boolean compressed;
