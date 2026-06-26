@@ -39,6 +39,8 @@ public class PersonaService {
 
     private static final GroupVersionKind CONV_REF_GVK =
             new GroupVersionKind("ai-assistant.plugin.halo.run", "v1alpha1", "ConvRef");
+    private static final GroupVersionKind PERSONA_GVK =
+            new GroupVersionKind("ai-assistant.plugin.halo.run", "v1alpha1", "PersonaDefinition");
 
     private final ReactiveExtensionClient client;
     private final ReactiveSettingFetcher settingFetcher;
@@ -51,30 +53,41 @@ public class PersonaService {
     // ========== Persona CRUD ==========
 
     /**
-     * 获取所有 Persona
+     * 获取所有 Persona（使用 listAll 避免索引依赖）
      */
     public Mono<List<PersonaDefinition>> listPersonas() {
-        return client.list(PersonaDefinition.class, null, null)
+        return client.listAll(PersonaDefinition.class, null, null)
                 .collectList();
+    }
+
+    /**
+     * 通过 id 查找 Persona。使用 GVK + Unstructured，避免 typed extension 索引缺失。
+     */
+    public Mono<PersonaDefinition> findPersonaById(String id) {
+        return client.fetch(PERSONA_GVK, id)
+                .map(this::fromPersonaUnstructured)
+                .switchIfEmpty(Mono.error(
+                        new IllegalArgumentException("Persona " + id + " 不存在")));
     }
 
     /**
      * 获取单个 Persona
      */
     public Mono<PersonaDefinition> getPersona(String id) {
-        return client.get(PersonaDefinition.class, id);
+        return findPersonaById(id);
     }
 
     /**
      * 删除 Persona（不允许删除内置）
      */
     public Mono<Void> deletePersona(String id) {
-        return client.get(PersonaDefinition.class, id)
+        return findPersonaById(id)
                 .flatMap(persona -> {
                     if (persona.getSpec() != null && persona.getSpec().isBuiltin()) {
                         return Mono.error(new IllegalArgumentException("内置 Persona 不可删除"));
                     }
-                    return client.delete(persona);
+                    return client.fetch(PERSONA_GVK, id)
+                            .flatMap(client::delete);
                 })
                 .then();
     }
@@ -175,7 +188,8 @@ public class PersonaService {
             spec.setUpdatedAt(Instant.now());
             persona.setSpec(spec);
 
-            return client.create(persona);
+            return client.create(toPersonaUnstructured(persona))
+                    .map(this::fromPersonaUnstructured);
         } catch (Exception e) {
             log.error("解析 SKILL.md 失败", e);
             return Mono.error(new IllegalArgumentException("解析 SKILL.md 失败: " + e.getMessage()));
@@ -231,7 +245,8 @@ public class PersonaService {
                                                           String description, String iconUrl,
                                                           String brandColor, String systemPrompt,
                                                           String greeting, String thinkingPhrases) {
-        return client.fetch(PersonaDefinition.class, id)
+        return client.fetch(PERSONA_GVK, id)
+                .map(this::fromPersonaUnstructured)
                 .flatMap(existing -> {
                     // 保存已有配置（initBuiltinPersonas 时不覆盖用户自定义的）
                     String savedContext = existing.getSpec() != null ? existing.getSpec().getContextContent() : null;
@@ -255,7 +270,8 @@ public class PersonaService {
                     } else {
                         existing.getSpec().setIconUrl(iconUrl);
                     }
-                    return client.update(existing);
+                    return client.update(toPersonaUnstructured(existing))
+                            .map(this::fromPersonaUnstructured);
                 })
                 .switchIfEmpty(Mono.defer(() -> {
                     PersonaDefinition persona = new PersonaDefinition();
@@ -275,7 +291,8 @@ public class PersonaService {
                     spec.setCreatedAt(Instant.now());
                     spec.setUpdatedAt(Instant.now());
                     persona.setSpec(spec);
-                    return client.create(persona);
+                    return client.create(toPersonaUnstructured(persona))
+                            .map(this::fromPersonaUnstructured);
                 }))
                 .onErrorResume(e -> {
                     log.warn("createBuiltinPersona({}) fetch失败，尝试直接创建: {}", id, e.getMessage());
@@ -295,7 +312,8 @@ public class PersonaService {
                     spec.setCreatedAt(Instant.now());
                     spec.setUpdatedAt(Instant.now());
                     persona.setSpec(spec);
-                    return client.create(persona);
+                    return client.create(toPersonaUnstructured(persona))
+                            .map(this::fromPersonaUnstructured);
                 });
     }
 
@@ -341,21 +359,20 @@ public class PersonaService {
                     DataBufferUtils.release(dataBuffer);
                     return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
                 })
-                .flatMap(content -> client.fetch(PersonaDefinition.class, personaId)
+                .flatMap(content -> findPersonaById(personaId)
                         .flatMap(existing -> {
                             existing.getSpec().setContextContent(content);
                             existing.getSpec().setUpdatedAt(java.time.Instant.now());
-                            return client.update(existing);
-                        })
-                        .switchIfEmpty(Mono.error(
-                                new IllegalArgumentException("Persona " + personaId + " 不存在"))));
+                            return client.update(toPersonaUnstructured(existing))
+                                    .map(this::fromPersonaUnstructured);
+                        }));
     }
 
     /**
      * 更新 Persona 可配置字段
      */
     public Mono<PersonaDefinition> updatePersona(String personaId, java.util.Map<String, Object> fields) {
-        return client.fetch(PersonaDefinition.class, personaId)
+        return findPersonaById(personaId)
                 .flatMap(existing -> {
                     var spec = existing.getSpec();
                     if (spec == null) {
@@ -384,10 +401,9 @@ public class PersonaService {
                         spec.setDescription((String) fields.get("description"));
                     }
                     spec.setUpdatedAt(java.time.Instant.now());
-                    return client.update(existing);
-                })
-                .switchIfEmpty(Mono.error(
-                        new IllegalArgumentException("Persona " + personaId + " 不存在")));
+                    return client.update(toPersonaUnstructured(existing))
+                            .map(this::fromPersonaUnstructured);
+                });
     }
 
     // ========== Conversation CRUD ==========
@@ -559,6 +575,75 @@ public class PersonaService {
         return parseMessages(ref);
     }
 
+    private Unstructured toPersonaUnstructured(PersonaDefinition persona) {
+        Map<String, Object> data = new HashMap<>();
+        data.put("apiVersion", "ai-assistant.plugin.halo.run/v1alpha1");
+        data.put("kind", "PersonaDefinition");
+        Map<String, Object> metadata = new HashMap<>();
+        if (persona.getMetadata() != null) {
+            metadata.put("name", persona.getMetadata().getName());
+            if (persona.getMetadata().getVersion() != null) {
+                metadata.put("version", persona.getMetadata().getVersion());
+            }
+        }
+        data.put("metadata", metadata);
+
+        Map<String, Object> specMap = new HashMap<>();
+        if (persona.getSpec() != null) {
+            var spec = persona.getSpec();
+            specMap.put("displayName", spec.getDisplayName());
+            specMap.put("description", spec.getDescription());
+            specMap.put("iconUrl", spec.getIconUrl());
+            specMap.put("brandColor", spec.getBrandColor());
+            specMap.put("systemPrompt", spec.getSystemPrompt());
+            specMap.put("greeting", spec.getGreeting());
+            specMap.put("contextContent", spec.getContextContent());
+            specMap.put("thinkingPhrases", spec.getThinkingPhrases());
+            specMap.put("conversationNames", spec.getConversationNames());
+            specMap.put("builtin", spec.isBuiltin());
+            specMap.put("createdAt", instantToString(spec.getCreatedAt()));
+            specMap.put("updatedAt", instantToString(spec.getUpdatedAt()));
+        }
+        data.put("spec", specMap);
+
+        Unstructured unstructured = new Unstructured(data);
+        Metadata metadataOperator = new Metadata();
+        metadataOperator.setName(persona.getMetadata() != null ? persona.getMetadata().getName() : null);
+        if (persona.getMetadata() != null) {
+            metadataOperator.setVersion(persona.getMetadata().getVersion());
+        }
+        unstructured.setMetadata(metadataOperator);
+        return unstructured;
+    }
+
+    private PersonaDefinition fromPersonaUnstructured(Unstructured unstructured) {
+        PersonaDefinition persona = new PersonaDefinition();
+        Metadata metadata = new Metadata();
+        if (unstructured.getMetadata() != null) {
+            metadata.setName(unstructured.getMetadata().getName());
+            metadata.setVersion(unstructured.getMetadata().getVersion());
+        }
+        persona.setMetadata(metadata);
+
+        Map<String, Object> specMap = Unstructured.getNestedMap(unstructured.getData(), "spec")
+                .orElse(Map.of());
+        PersonaDefinition.PersonaSpec spec = new PersonaDefinition.PersonaSpec();
+        spec.setDisplayName(stringValue(specMap.get("displayName")));
+        spec.setDescription(stringValue(specMap.get("description")));
+        spec.setIconUrl(stringValue(specMap.get("iconUrl")));
+        spec.setBrandColor(stringValue(specMap.get("brandColor")));
+        spec.setSystemPrompt(stringValue(specMap.get("systemPrompt")));
+        spec.setGreeting(stringValue(specMap.get("greeting")));
+        spec.setContextContent(stringValue(specMap.get("contextContent")));
+        spec.setThinkingPhrases(stringValue(specMap.get("thinkingPhrases")));
+        spec.setConversationNames(stringValue(specMap.get("conversationNames")));
+        spec.setBuiltin(Boolean.TRUE.equals(specMap.get("builtin")));
+        spec.setCreatedAt(parseNullableInstant(stringValue(specMap.get("createdAt"))));
+        spec.setUpdatedAt(parseNullableInstant(stringValue(specMap.get("updatedAt"))));
+        persona.setSpec(spec);
+        return persona;
+    }
+
     private Unstructured toUnstructured(ConversationRef ref) {
         Map<String, Object> data = new HashMap<>();
         data.put("apiVersion", "ai-assistant.plugin.halo.run/v1alpha1");
@@ -633,6 +718,21 @@ public class PersonaService {
 
     private String nowIso() {
         return Instant.now().toString();
+    }
+
+    private String instantToString(Instant value) {
+        return value == null ? null : value.toString();
+    }
+
+    private Instant parseNullableInstant(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(value);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private Instant parseIsoInstant(String value) {
@@ -764,7 +864,7 @@ public class PersonaService {
                 });
 
         // 2. 获取当前 AGENTS.md
-        Mono<String> contextMono = client.fetch(PersonaDefinition.class, personaId)
+        Mono<String> contextMono = findPersonaById(personaId)
                 .flatMap(p -> {
                     if (p.getSpec() == null) {
                         return Mono.<String>error(new IllegalArgumentException("Persona 数据异常"));
@@ -821,18 +921,19 @@ public class PersonaService {
                     return callAiToRefine(setting, currentAgentsMd, prompt)
                             .flatMap(mergedContent -> {
                                 // 6. 保存合并后的 AGENTS.md 到 PersonaDefinition
-                                return client.fetch(PersonaDefinition.class, personaId)
+                                return findPersonaById(personaId)
                                         .flatMap(p -> {
                                             p.getSpec().setContextContent(mergedContent);
                                             p.getSpec().setUpdatedAt(Instant.now());
-                                            return client.update(p);
+                                            return client.update(toPersonaUnstructured(p))
+                                                    .map(this::fromPersonaUnstructured);
                                         })
                                         .then(Mono.defer(() -> {
                                             // 7. 更新 ConversationRef 的 refinedMessageCount
                                             int newCountValue = data.refinedCount + data.newCount;
                                             data.conversation.getSpec().setRefinedMessageCount(newCountValue);
                                             data.conversation.getSpec().setUpdatedAt(nowIso());
-                                            return client.update(data.conversation);
+                                            return client.update(toUnstructured(data.conversation));
                                         }))
                                         .thenReturn(mergedContent);
                             });
