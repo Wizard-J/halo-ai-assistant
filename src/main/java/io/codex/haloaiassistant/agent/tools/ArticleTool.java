@@ -110,31 +110,19 @@ public class ArticleTool implements Tool {
             StringBuilder sb = new StringBuilder();
             sb.append(String.format("共 %d 篇%s文章（当前第 %d/%d 页）\n\n",
                     total, statusLabel(status), page, totalPages));
-            // 数据量大时用精简格式，帮助 AI 高效处理
-            boolean compact = pageItems.size() > 15;
-            if (compact) {
-                sb.append("文章列表（精简格式）：\n");
-                for (Post post : pageItems) {
-                    var meta = post.getMetadata();
-                    var spec = post.getSpec();
-                    String title = spec != null && spec.getTitle() != null ? spec.getTitle() : "无标题";
-                    sb.append(meta.getName()).append(" - ").append(title).append("\n");
-                }
-            } else {
-                sb.append("| ID | 标题 | 状态 | 发布时间 |\n");
-                sb.append("|---|---|---|---|\n");
-                for (Post post : pageItems) {
-                    var meta = post.getMetadata();
-                    var spec = post.getSpec();
-                    String title = spec != null && spec.getTitle() != null ? spec.getTitle() : "无标题";
-                    String postStatus = isPublished(post)
-                            ? "已发布" : isDeleted(post)
-                            ? "回收站" : "草稿";
-                    String publishTime = spec != null && spec.getPublishTime() != null
-                            ? spec.getPublishTime().toString() : "未设置";
-                    sb.append(String.format("| %s | %s | %s | %s |\n",
-                            meta.getName(), title, postStatus, publishTime));
-                }
+            sb.append("文章列表（请在最终答复中保留编号列表，不要改写成 Markdown 表格）：\n");
+            int rowNumber = from + 1;
+            for (Post post : pageItems) {
+                var meta = post.getMetadata();
+                var spec = post.getSpec();
+                String title = spec != null && spec.getTitle() != null ? spec.getTitle() : "无标题";
+                String postStatus = isPublished(post)
+                        ? "已发布" : isDeleted(post)
+                        ? "回收站" : "草稿";
+                String publishTime = spec != null && spec.getPublishTime() != null
+                        ? spec.getPublishTime().toString() : "未设置";
+                sb.append(String.format("%d. %s（%s，时间：%s，ID：%s）\n",
+                        rowNumber++, title, postStatus, publishTime, meta.getName()));
             }
             return sb.toString();
         } catch (Exception e) {

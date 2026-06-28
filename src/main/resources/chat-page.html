@@ -502,6 +502,19 @@
             border-bottom: 0;
         }
 
+        .assistant-content .table-fallback-list {
+            margin: 12px 0;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface-subtle);
+        }
+
+        .assistant-content .table-fallback-list ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+
         .message-error {
             padding: 12px 14px;
             border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border));
@@ -1482,6 +1495,12 @@
 
     function renderTable(headers, rows) {
         const columnCount = Math.max(headers.length, ...rows.map(row => row.length));
+        if (columnCount > 6) {
+            const cells = rows.flat().map(cell => cell.trim()).filter(Boolean);
+            return '<div class="table-fallback-list"><ul>'
+                + cells.map(cell => `<li>${renderInline(cell)}</li>`).join('')
+                + '</ul></div>';
+        }
         const normalizedHeaders = Array.from({ length: columnCount }, (_, i) => cleanTableHeader(headers[i] || ''));
         const normalizedRows = rows.map(row => Array.from({ length: columnCount }, (_, i) => row[i] || ''));
         return '<div class="table-scroll"><table><thead><tr>'

@@ -219,6 +219,16 @@ function renderMarkdown(content: string) {
   };
   const renderTable = (headers: string[], rows: string[][]) => {
     const columnCount = Math.max(headers.length, ...rows.map(row => row.length));
+    if (columnCount > 6) {
+      const cells = rows
+        .flat()
+        .map(cell => cell.trim())
+        .filter(Boolean);
+      html.push("<div class=\"table-fallback-list\"><ul>");
+      cells.forEach(cell => html.push("<li>" + renderInline(cell) + "</li>"));
+      html.push("</ul></div>");
+      return;
+    }
     const normalizedHeaders = Array.from({ length: columnCount }, (_, i) => cleanHeader(headers[i] || ""));
     const normalizedRows = rows.map(row => Array.from({ length: columnCount }, (_, i) => row[i] || ""));
     html.push("<div class=\"table-scroll\"><table><thead><tr>"
@@ -731,6 +741,19 @@ function goToImmersive() {
 
 .message-bubble.markdown :deep(tr:last-child td) {
   border-bottom: 0;
+}
+
+.message-bubble.markdown :deep(.table-fallback-list) {
+  margin: 8px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.message-bubble.markdown :deep(.table-fallback-list ul) {
+  margin: 0;
+  padding-left: 18px;
 }
 
 .message-bubble.markdown :deep(ul) {

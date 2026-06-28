@@ -522,6 +522,7 @@ public class AgentService {
                     + "- 分类/打标签：你的第一句回复必须包含 autoTagArticles 工具调用。不许先说废话，直接调！\n"
                     + "- 查询未发布/草稿文章：必须调用 listArticles，并传 status=draft；不要用发布时间是否为空来猜。\n"
                     + "- 查询已发布文章：必须调用 listArticles，并传 status=published。\n"
+                    + "- 展示文章列表时必须使用编号列表，不要使用 Markdown 表格。\n"
                     + "- 创建文章：直接调 createArticle。不反问、不确认、不商量。\n"
                     + "- 永远不说「我先看看」「让我检查」「我发现了一个工具」等废话。直接行动。\n"
                     + "- 回复上限 3 句话。超过就是违规。\n"
