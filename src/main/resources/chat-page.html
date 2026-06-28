@@ -605,6 +605,129 @@
             line-height: 1.55;
         }
 
+        .confirmation-card {
+            display: grid;
+            gap: 12px;
+            width: min(560px, 100%);
+            margin: 8px 0;
+            padding: 14px;
+            border: 1px solid color-mix(in srgb, #d97706 30%, var(--border));
+            border-radius: 8px;
+            background: color-mix(in srgb, #f59e0b 7%, var(--surface));
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+        }
+
+        .confirmation-card.confirmed {
+            border-color: color-mix(in srgb, var(--success) 28%, var(--border));
+            background: color-mix(in srgb, var(--success) 7%, var(--surface));
+        }
+
+        .confirmation-card.cancelled,
+        .confirmation-card.archived {
+            border-color: var(--border);
+            background: var(--surface-subtle);
+        }
+
+        .confirmation-card.failed {
+            border-color: color-mix(in srgb, var(--danger) 28%, var(--border));
+            background: var(--danger-soft);
+        }
+
+        .confirmation-card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text);
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .confirmation-card-icon {
+            display: grid;
+            place-items: center;
+            width: 24px;
+            height: 24px;
+            border-radius: 999px;
+            background: color-mix(in srgb, #f59e0b 18%, var(--surface));
+            color: #b45309;
+            font-size: 14px;
+        }
+
+        .confirmation-card.confirmed .confirmation-card-icon {
+            background: color-mix(in srgb, var(--success) 15%, var(--surface));
+            color: var(--success);
+        }
+
+        .confirmation-card.failed .confirmation-card-icon {
+            background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+            color: var(--danger);
+        }
+
+        .confirmation-card-title {
+            min-width: 0;
+            flex: 1;
+        }
+
+        .confirmation-card-risk {
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: color-mix(in srgb, #f59e0b 14%, var(--surface));
+            color: #92400e;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .confirmation-card-body {
+            color: var(--text-muted);
+            font-size: 13px;
+            line-height: 1.55;
+        }
+
+        .confirmation-card-actions,
+        .confirmation-card-result {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+        }
+
+        .confirmation-card-result {
+            justify-content: flex-start;
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 650;
+        }
+
+        .confirmation-card-result.success {
+            color: #15803d;
+        }
+
+        .confirmation-card-result.muted {
+            color: var(--text-muted);
+        }
+
+        .confirmation-card-result.danger {
+            color: var(--danger);
+        }
+
+        .confirmation-card-button {
+            min-height: 34px;
+            padding: 0 13px;
+            border-radius: 7px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 650;
+            cursor: pointer;
+        }
+
+        .confirmation-card-button.primary {
+            border-color: #b45309;
+            background: #b45309;
+            color: #ffffff;
+        }
+
         .activity {
             display: flex;
             align-items: center;
@@ -1863,7 +1986,7 @@
             contentElement.textContent = content;
         } else if (hasConfirmation(content)) {
             contentElement.className = 'assistant-content';
-            renderConfirmationCard(contentElement, content);
+            renderConfirmationCard(contentElement, content, { archived: Boolean(options.historical) });
         } else {
             contentElement.className = 'assistant-content';
             contentElement.innerHTML = renderMarkdown(content);
@@ -1890,7 +2013,13 @@
         return '<i class="ri-sparkling-2-fill"></i>';
     }
 
-    function renderConfirmationCard(container, content) {
+    function confirmationResultMessage(content) {
+        const text = String(content || '');
+        const successMatch = text.match(/(?:文章更新成功|操作已确认|操作已执行|创建成功|删除成功|审核通过)[^。\n]*/);
+        return successMatch ? successMatch[0] : '';
+    }
+
+    function renderConfirmationCard(container, content, options = {}) {
         // 从 Markdown 中提取确认信息
         const idMatch =
             content.match(/确认\s*ID\s*[：:]?\s*(?:\*\*)?\s*`?(confirm_[a-z0-9]+)`?/i)
@@ -1902,70 +2031,81 @@
         const title = titleMatch ? titleMatch[1].trim() : '待确认操作';
         const summary = summaryMatch ? summaryMatch[1].trim() : '';
         const riskLevel = riskMatch ? riskMatch[1] : 'HIGH';
+        const archived = Boolean(options.archived);
+        const resultMessage = confirmationResultMessage(content);
 
         container.innerHTML = '';
         const card = document.createElement('div');
-        card.className = 'confirmation-card';
+        card.className = 'confirmation-card' + (archived ? ' archived' : '');
         card.dataset.confirmationId = confirmationId;
-        card.dataset.confirmationStatus = 'pending';
-        card.style.cssText = 'border:1px solid var(--danger);border-radius:8px;padding:16px;margin:8px 0;background:color-mix(in srgb, var(--danger) 6%, transparent);';
+        card.dataset.confirmationStatus = archived ? 'archived' : 'pending';
 
         const header = document.createElement('div');
-        header.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:12px;font-weight:700;font-size:14px;';
-        header.innerHTML = '<span style="font-size:18px;">⚠️</span> 待确认操作 <span style="margin-left:auto;font-size:12px;color:var(--danger);font-weight:600;">' + riskLevel + '</span>';
+        header.className = 'confirmation-card-header';
+        header.innerHTML = '<span class="confirmation-card-icon"><i class="' + (archived ? 'ri-time-line' : 'ri-error-warning-line') + '"></i></span>'
+            + '<span class="confirmation-card-title">' + (archived ? '历史确认记录' : '待确认操作') + '</span>'
+            + '<span class="confirmation-card-risk">' + riskLevel + '</span>';
         card.appendChild(header);
 
-        if (title) {
-            const titleEl = document.createElement('div');
-            titleEl.style.cssText = 'font-weight:600;margin-bottom:4px;';
-            titleEl.textContent = title;
-            card.appendChild(titleEl);
-        }
-        if (summary) {
-            const summaryEl = document.createElement('div');
-            summaryEl.style.cssText = 'font-size:13px;color:var(--text-muted);margin-bottom:12px;';
-            summaryEl.textContent = summary;
-            card.appendChild(summaryEl);
+        const body = document.createElement('div');
+        body.className = 'confirmation-card-body';
+        body.textContent = archived
+            ? (resultMessage || summary || title || '这是一条来自历史对话的确认记录，不能重复执行。')
+            : (summary || title || '请确认是否执行该高风险操作。');
+        card.appendChild(body);
+
+        if (archived) {
+            const result = document.createElement('div');
+            result.className = 'confirmation-card-result muted';
+            result.innerHTML = '<i class="ri-archive-line"></i><span>历史记录仅供查看，请发起新的操作后再确认执行。</span>';
+            card.appendChild(result);
+            container.appendChild(card);
+            return;
         }
 
         const actions = document.createElement('div');
-        actions.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+        actions.className = 'confirmation-card-actions';
 
         const cancelBtn = document.createElement('button');
-        cancelBtn.className = 'button';
+        cancelBtn.className = 'confirmation-card-button';
         cancelBtn.textContent = '取消';
-        cancelBtn.style.cssText = 'padding:6px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;';
         cancelBtn.onclick = async () => {
             try {
                 const resp = await fetch('/api/ai-assistant/pending-actions/' + confirmationId + '/cancel', { method: 'POST' });
-                const data = await resp.json();
+                const data = await readJsonSafely(resp);
                 if (data.success) {
                     card.dataset.confirmationStatus = 'cancelled';
-                    card.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">✅ 操作已取消</div>';
+                    card.className = 'confirmation-card cancelled';
+                    card.innerHTML = '<div class="confirmation-card-result muted"><i class="ri-close-circle-line"></i><span>操作已取消</span></div>';
+                    replaceConfirmationInHistory(confirmationId, '操作已取消');
+                    saveConversation();
                 } else {
-                    card.innerHTML = '<div style="color:var(--danger);font-size:13px;">取消失败：' + (data.error || '未知错误') + '</div>';
+                    showConfirmationFailure(card, '取消失败：' + (data.error || data.message || '未知错误'));
                 }
             } catch (e) {
-                card.innerHTML = '<div style="color:var(--danger);font-size:13px;">取消失败：' + e.message + '</div>';
+                showConfirmationFailure(card, '取消失败：' + e.message);
             }
         };
 
         const confirmBtn = document.createElement('button');
-        confirmBtn.className = 'button button-primary';
+        confirmBtn.className = 'confirmation-card-button primary';
         confirmBtn.textContent = '确认执行';
-        confirmBtn.style.cssText = 'padding:6px 16px;border-radius:8px;border:none;background:var(--danger);color:#fff;cursor:pointer;font-weight:600;';
         confirmBtn.onclick = async () => {
             try {
                 const resp = await fetch('/api/ai-assistant/pending-actions/' + confirmationId + '/confirm', { method: 'POST' });
-                const data = await resp.json();
+                const data = await readJsonSafely(resp);
                 if (data.success) {
                     card.dataset.confirmationStatus = 'confirmed';
-                    card.innerHTML = '<div style="color:var(--success);font-size:13px;">✅ ' + (data.message || '操作已确认') + '</div>';
+                    card.className = 'confirmation-card confirmed';
+                    const message = data.message || '操作已确认';
+                    card.innerHTML = '<div class="confirmation-card-result success"><i class="ri-check-line"></i><span>' + escapeHtml(message) + '</span></div>';
+                    replaceConfirmationInHistory(confirmationId, message);
+                    saveConversation();
                 } else {
-                    card.innerHTML = '<div style="color:var(--danger);font-size:13px;">确认失败：' + (data.error || '未知错误') + '</div>';
+                    showConfirmationFailure(card, '确认失败：' + (data.error || data.message || '未知错误'));
                 }
             } catch (e) {
-                card.innerHTML = '<div style="color:var(--danger);font-size:13px;">确认失败：' + e.message + '</div>';
+                showConfirmationFailure(card, '确认失败：' + e.message);
             }
         };
 
@@ -1973,6 +2113,34 @@
         actions.appendChild(confirmBtn);
         card.appendChild(actions);
         container.appendChild(card);
+    }
+
+    async function readJsonSafely(response) {
+        const text = await response.text();
+        if (!text) {
+            return { success: false, error: response.ok ? '服务器返回为空' : 'HTTP ' + response.status };
+        }
+        try {
+            return JSON.parse(text);
+        } catch (e) {
+            return { success: false, error: text || e.message };
+        }
+    }
+
+    function showConfirmationFailure(card, message) {
+        card.dataset.confirmationStatus = 'failed';
+        card.className = 'confirmation-card failed';
+        card.innerHTML = '<div class="confirmation-card-result danger"><i class="ri-error-warning-line"></i><span>' + escapeHtml(message) + '</span></div>';
+    }
+
+    function replaceConfirmationInHistory(confirmationId, message) {
+        if (!confirmationId) return;
+        const index = history.findIndex(item => item.role === 'assistant' && item.content && item.content.includes(confirmationId));
+        if (index >= 0) {
+            history[index] = { role: 'assistant', content: '确认结果：' + message };
+        } else {
+            history.push({ role: 'assistant', content: '确认结果：' + message });
+        }
     }
 
     function hasConfirmation(content) {
@@ -2286,7 +2454,7 @@
             conversationId = conversation.id;
             messagesElement.replaceChildren();
             welcomeElement.hidden = history.length > 0;
-            history.forEach(message => createMessage(message.role, message.content, { instant: true }));
+            history.forEach(message => createMessage(message.role, message.content, { instant: true, historical: true }));
             closeHistory();
             input.focus();
             return;
@@ -2300,7 +2468,7 @@
                 conversationId = data.id || conversation.id;
                 messagesElement.replaceChildren();
                 welcomeElement.hidden = history.length > 0;
-                history.forEach(message => createMessage(message.role, message.content, { instant: true }));
+                history.forEach(message => createMessage(message.role, message.content, { instant: true, historical: true }));
                 closeHistory();
                 input.focus();
             })
@@ -2661,7 +2829,7 @@
             conversationId = data.id;
             messagesElement.replaceChildren();
             welcomeElement.hidden = false;
-            msgs.forEach(msg => createMessage(msg.role, msg.content, { instant: true }));
+            msgs.forEach(msg => createMessage(msg.role, msg.content, { instant: true, historical: true }));
             welcomeElement.hidden = true;
         } catch (e) {
             console.warn('加载对话历史失败', e);
@@ -2739,7 +2907,7 @@
             conversationId = data.id;
             messagesElement.replaceChildren();
             welcomeElement.hidden = false;
-            msgs.forEach(msg => createMessage(msg.role, msg.content, { instant: true }));
+            msgs.forEach(msg => createMessage(msg.role, msg.content, { instant: true, historical: true }));
             welcomeElement.hidden = true;
             return true;
         } catch (e) {

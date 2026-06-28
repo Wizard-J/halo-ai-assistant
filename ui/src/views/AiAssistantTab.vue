@@ -6,7 +6,7 @@ interface ConfirmationInfo {
   title: string;
   summary: string;
   riskLevel: string;
-  status: "pending" | "confirmed" | "cancelled";
+  status: "pending" | "confirmed" | "cancelled" | "failed";
   result?: string;
 }
 
@@ -417,11 +417,11 @@ async function cancelConfirmation(msg: ChatMessage) {
   if (!msg.confirmation) return;
   try {
     const resp = await fetch("/api/ai-assistant/pending-actions/" + msg.confirmation.id + "/cancel", { method: "POST" });
-    const data = await resp.json();
-    msg.confirmation.status = "cancelled";
-    msg.confirmation.result = data.success ? "操作已取消" : "取消失败";
+    const data = await readJsonSafely(resp);
+    msg.confirmation.status = data.success ? "cancelled" : "failed";
+    msg.confirmation.result = data.success ? "操作已取消" : "取消失败：" + (data.error || data.message || "未知错误");
   } catch (e: any) {
-    msg.confirmation.status = "cancelled";
+    msg.confirmation.status = "failed";
     msg.confirmation.result = "取消失败: " + e.message;
   }
 }
@@ -430,12 +430,24 @@ async function confirmAction(msg: ChatMessage) {
   if (!msg.confirmation) return;
   try {
     const resp = await fetch("/api/ai-assistant/pending-actions/" + msg.confirmation.id + "/confirm", { method: "POST" });
-    const data = await resp.json();
-    msg.confirmation.status = "confirmed";
-    msg.confirmation.result = data.message || (data.success ? "操作已执行" : "执行失败");
+    const data = await readJsonSafely(resp);
+    msg.confirmation.status = data.success ? "confirmed" : "failed";
+    msg.confirmation.result = data.success
+      ? (data.message || "操作已执行")
+      : "确认失败：" + (data.error || data.message || "未知错误");
   } catch (e: any) {
-    msg.confirmation.status = "confirmed";
+    msg.confirmation.status = "failed";
     msg.confirmation.result = "执行失败: " + e.message;
+  }
+}
+
+async function readJsonSafely(response: Response) {
+  const text = await response.text();
+  if (!text) return { success: false, error: response.ok ? "服务器返回为空" : "HTTP " + response.status };
+  try {
+    return JSON.parse(text);
+  } catch (e: any) {
+    return { success: false, error: text || e.message };
   }
 }
 
@@ -574,9 +586,11 @@ function goToImmersive() {
           <span v-else v-html="renderMarkdown(msg.content)"></span>
         </div>
 
-        <div v-else class="confirmation-card">
+        <div v-else class="confirmation-card" :class="msg.confirmation.status">
           <div class="confirmation-header">
-            <span class="confirmation-icon" aria-hidden="true">!</span>
+            <span class="confirmation-icon" aria-hidden="true">
+              {{ msg.confirmation.status === "confirmed" ? "✓" : msg.confirmation.status === "failed" ? "!" : "!" }}
+            </span>
             <span class="confirmation-title">{{ msg.confirmation.title }}</span>
             <span class="confirmation-risk" :class="msg.confirmation.riskLevel.toLowerCase()">
               {{ msg.confirmation.riskLevel }}
@@ -960,10 +974,25 @@ function goToImmersive() {
 .confirmation-card {
   width: min(720px, 78%);
   padding: 14px;
-  border: 1px solid #fecaca;
+  border: 1px solid #fcd34d;
   border-radius: 8px;
-  background: #fff7f7;
+  background: #fffbeb;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.confirmation-card.confirmed {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.confirmation-card.cancelled {
+  border-color: #e5e7eb;
+  background: #f8fafc;
+}
+
+.confirmation-card.failed {
+  border-color: #fecaca;
+  background: #fef2f2;
 }
 
 .confirmation-header {
@@ -982,9 +1011,20 @@ function goToImmersive() {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #dc2626;
-  color: #ffffff;
+  background: #fef3c7;
+  color: #b45309;
   font-size: 12px;
+  font-weight: 800;
+}
+
+.confirmation-card.confirmed .confirmation-icon {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.confirmation-card.failed .confirmation-icon {
+  background: #fee2e2;
+  color: #b91c1c;
 }
 
 .confirmation-title {
@@ -999,8 +1039,8 @@ function goToImmersive() {
 }
 
 .confirmation-risk.high {
-  background: #fee2e2;
-  color: #b91c1c;
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .confirmation-risk.medium {
@@ -1030,15 +1070,23 @@ function goToImmersive() {
 
 .btn-confirm {
   padding: 0 13px;
-  border: 1px solid #dc2626;
-  background: #dc2626;
+  border: 1px solid #b45309;
+  background: #b45309;
   color: #ffffff;
 }
 
 .confirmation-result {
-  color: #15803d;
+  color: #374151;
   font-size: 13px;
   font-weight: 600;
+}
+
+.confirmation-card.confirmed .confirmation-result {
+  color: #15803d;
+}
+
+.confirmation-card.failed .confirmation-result {
+  color: #b91c1c;
 }
 
 .composer {
