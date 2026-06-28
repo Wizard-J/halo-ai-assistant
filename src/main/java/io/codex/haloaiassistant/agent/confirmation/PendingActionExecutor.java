@@ -42,7 +42,7 @@ public class PendingActionExecutor {
     private static String executeDeleteArticle(JsonNode args) {
         String id = args.get("id").asText();
         boolean permanent = args.has("permanent") && args.get("permanent").asBoolean();
-        return ConfirmedExecutors.deleteArticle(id, permanent);
+        return io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.deleteArticle(id, permanent);
     }
 
     private static String executeUpdateArticle(JsonNode args) {
@@ -67,28 +67,28 @@ public class PendingActionExecutor {
 
     private static String executeDeleteComment(JsonNode args) {
         String id = args.get("id").asText();
-        return ConfirmedExecutors.deleteComment(id);
+        return io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.deleteComment(id);
     }
 
     private static String executeApproveComment(JsonNode args) {
         String id = args.get("id").asText();
-        return ConfirmedExecutors.approveComment(id);
+        return io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.approveComment(id);
     }
 
     private static String executeDeleteCategory(JsonNode args) {
         String id = args.get("id").asText();
-        return ConfirmedExecutors.deleteCategory(id);
+        return io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.deleteCategory(id);
     }
 
     private static String executeCreateCategory(JsonNode args) {
         String name = args.get("name").asText();
         String slug = args.has("slug") ? args.get("slug").asText() : name.toLowerCase().replace(" ", "-");
-        return ConfirmedExecutors.createCategory(name, slug);
+        return io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.createCategory(name, slug);
     }
 
     private static String executeCreateTag(JsonNode args) {
         String name = args.get("name").asText();
         String slug = name.toLowerCase().replace(" ", "-");
-        return ConfirmedExecutors.createTag(name, slug);
+        return io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.createTag(name, slug);
     }
 }
