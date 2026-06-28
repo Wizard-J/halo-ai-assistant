@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.codex.haloaiassistant.agent.tools.ArticleTool;
+import io.codex.haloaiassistant.agent.tools.ArticleTool.BatchTagArticlesTool;
 import io.codex.haloaiassistant.agent.tools.ArticleTool.CreateArticleTool;
 import io.codex.haloaiassistant.agent.tools.ArticleTool.DeleteArticleTool;
 import io.codex.haloaiassistant.agent.tools.ArticleTool.UpdateArticleTool;
@@ -34,11 +35,13 @@ public class PendingActionExecutor {
             return switch (type) {
                 case "deleteArticle" -> executeDeleteArticle(payload);
                 case "updateArticle" -> executeUpdateArticle(payload);
+                case "createArticle" -> executeCreateArticle(payload);
                 case "deleteComment" -> executeDeleteComment(payload);
                 case "approveComment" -> executeApproveComment(payload);
                 case "deleteCategory" -> executeDeleteCategory(payload);
                 case "createCategory" -> executeCreateCategory(payload);
                 case "createTag" -> executeCreateTag(payload);
+                case "batchTagArticles" -> executeBatchTagArticles(payload);
                 default -> throw new IllegalArgumentException("未知操作类型: " + type);
             };
         } catch (Exception e) {
@@ -54,14 +57,18 @@ public class PendingActionExecutor {
     }
 
     private static String executeUpdateArticle(JsonNode args) {
-        // 低风险更新（仅 title/content）不走确认，已执行完。
-        // 高风险（publish/categories/tags）在确认后通过原 UpdateArticleTool 的 execute 执行，
-        // 此时不会再走确认路径（因为是从 PendingActionService 直接调用的）。
-        // 目前通过重新调用 execute 但无需确认——需要在 UpdateArticleTool 增加区分。
-        // 临时方案：再次调用 UpdateArticleTool.execute，由于确认后 payload 已不包含高风险标记外的其他标记，
-        // 但仍然会走确认路径。需要后续优化。
         UpdateArticleTool tool = SpringContextBridge.getBean(UpdateArticleTool.class);
-        return tool.execute(args);
+        return tool.executeInternal(args);
+    }
+
+    private static String executeCreateArticle(JsonNode args) {
+        CreateArticleTool tool = SpringContextBridge.getBean(CreateArticleTool.class);
+        return tool.executeInternal(args);
+    }
+
+    private static String executeBatchTagArticles(JsonNode args) {
+        BatchTagArticlesTool tool = SpringContextBridge.getBean(BatchTagArticlesTool.class);
+        return tool.executeInternal(args);
     }
 
     private static String executeDeleteComment(JsonNode args) {
