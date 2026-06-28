@@ -51,8 +51,11 @@ public class AgentService {
     public Mono<String> generateText(AiAssistantSetting setting, String systemPrompt,
                                       String userPrompt, int maxTokens) {
         String endpoint = normalizeEndpoint(setting.getApiEndpoint());
+        String model = setting.getModel();
+        int promptChars = (systemPrompt == null ? 0 : systemPrompt.length())
+                + (userPrompt == null ? 0 : userPrompt.length());
         ObjectNode body = objectMapper.createObjectNode();
-        body.put("model", setting.getModel());
+        body.put("model", model);
         body.put("max_tokens", maxTokens);
         ArrayNode messages = body.putArray("messages");
         messages.addObject().put("role", "system").put("content", systemPrompt);
@@ -65,16 +68,26 @@ public class AgentService {
                 .bodyValue(body)
                 .exchangeToMono(response -> response.bodyToMono(String.class)
                         .defaultIfEmpty("")
-                        .flatMap(raw -> response.statusCode().isError()
-                                ? Mono.error(new AiApiException(response.statusCode().value(), raw))
-                                : Mono.just(raw)))
+                        .flatMap(raw -> {
+                            if (response.statusCode().isError()) {
+                                log.warn("自动运维 AI API 请求失败，状态码: {}, model: {}, promptChars: {}, 响应: {}",
+                                        response.statusCode().value(), model, promptChars, abbreviate(raw, 1000));
+                                return Mono.error(new AiApiException(response.statusCode().value(), raw));
+                            }
+                            return Mono.just(raw);
+                        }))
                 .map(raw -> {
+                    String content;
                     try {
-                        return objectMapper.readTree(raw).path("choices").path(0)
+                        content = objectMapper.readTree(raw).path("choices").path(0)
                                 .path("message").path("content").asText("");
                     } catch (Exception e) {
                         throw new IllegalStateException("解析自动文章响应失败", e);
                     }
+                    if (content.isBlank()) {
+                        throw new IllegalStateException("自动文章响应内容为空: " + abbreviate(raw, 500));
+                    }
+                    return content;
                 });
     }
 
@@ -575,6 +588,10 @@ public class AgentService {
     }
 
     private String abbreviate(String value, int maxLength) {
+        return abbreviateValue(value, maxLength);
+    }
+
+    private static String abbreviateValue(String value, int maxLength) {
         if (value == null || value.length() <= maxLength) return value == null ? "" : value;
         return value.substring(0, maxLength) + "...";
     }
@@ -634,9 +651,14 @@ public class AgentService {
         private final String responseBody;
 
         private AiApiException(int statusCode, String responseBody) {
-            super("AI API returned HTTP " + statusCode);
+            super("AI API returned HTTP " + statusCode + detail(responseBody));
             this.statusCode = statusCode;
             this.responseBody = responseBody;
+        }
+
+        private static String detail(String responseBody) {
+            if (responseBody == null || responseBody.isBlank()) return "";
+            return ": " + abbreviateValue(responseBody, 500);
         }
     }
 }

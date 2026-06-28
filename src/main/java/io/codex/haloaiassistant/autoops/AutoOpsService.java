@@ -82,14 +82,34 @@ public class AutoOpsService {
         ConfigMap state = getOrCreateState();
         String today = now.toLocalDate().toString();
         if (today.equals(state.getData().get(LAST_RUN_KEY)) || now.toLocalTime().isBefore(runTime)) return;
-        state.getData().put(LAST_RUN_KEY, today);
-        saveState(state);
 
-        try { runPrimaryPipeline(auto, basic, state, now, false); } catch (Exception e) { log.error("巫师前沿站失败", e); }
+        boolean anySucceeded = false;
+        try {
+            runPrimaryPipeline(auto, basic, state, now, false);
+            anySucceeded = true;
+        } catch (Exception e) {
+            log.error("巫师前沿站失败", e);
+        }
         if (Boolean.TRUE.equals(auto.getSecondaryEnabled()))
-            try { runSecondaryPipeline(auto, basic, state, now, false); } catch (Exception e) { log.error("书虫漫步失败", e); }
+            try {
+                runSecondaryPipeline(auto, basic, state, now, false);
+                anySucceeded = true;
+            } catch (Exception e) {
+                log.error("书虫漫步失败", e);
+            }
         if (Boolean.TRUE.equals(auto.getTertiaryEnabled()))
-            try { runTertiaryPipeline(auto, basic, state, now, false); } catch (Exception e) { log.error("技术猎手失败", e); }
+            try {
+                runTertiaryPipeline(auto, basic, state, now, false);
+                anySucceeded = true;
+            } catch (Exception e) {
+                log.error("技术猎手失败", e);
+            }
+        if (anySucceeded) {
+            state.getData().put(LAST_RUN_KEY, today);
+            saveState(state);
+        } else {
+            log.warn("自动运维今日所有管线均失败，未写入 {}", LAST_RUN_KEY);
+        }
     }
 
     public Mono<Map<String, Object>> testNow() {
