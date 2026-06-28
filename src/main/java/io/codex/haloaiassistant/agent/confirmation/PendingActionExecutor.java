@@ -5,6 +5,7 @@ import io.codex.haloaiassistant.agent.tools.ArticleTool;
 import io.codex.haloaiassistant.agent.tools.ArticleTool.BatchTagArticlesTool;
 import io.codex.haloaiassistant.agent.tools.ArticleTool.CreateArticleTool;
 import io.codex.haloaiassistant.agent.tools.ArticleTool.UpdateArticleTool;
+import static io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.*;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -42,7 +43,7 @@ public class PendingActionExecutor {
     private static String executeDeleteArticle(JsonNode args) {
         String id = args.get("id").asText();
         boolean permanent = args.has("permanent") && args.get("permanent").asBoolean();
-        return io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.deleteArticle(id, permanent);
+        return ConfirmedExecutors.deleteArticle(id, permanent);
     }
 
     private static String executeUpdateArticle(JsonNode args) {
