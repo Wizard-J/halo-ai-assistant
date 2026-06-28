@@ -68,28 +68,28 @@ public class PendingActionExecutor {
 
     private static String executeDeleteComment(JsonNode args) {
         String id = args.get("id").asText();
-        return io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.deleteComment(id);
+        return ConfirmedExecutors.deleteComment(id);
     }
 
     private static String executeApproveComment(JsonNode args) {
         String id = args.get("id").asText();
-        return io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.approveComment(id);
+        return ConfirmedExecutors.approveComment(id);
     }
 
     private static String executeDeleteCategory(JsonNode args) {
         String id = args.get("id").asText();
-        return io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.deleteCategory(id);
+        return ConfirmedExecutors.deleteCategory(id);
     }
 
     private static String executeCreateCategory(JsonNode args) {
         String name = args.get("name").asText();
         String slug = args.has("slug") ? args.get("slug").asText() : name.toLowerCase().replace(" ", "-");
-        return io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.createCategory(name, slug);
+        return ConfirmedExecutors.createCategory(name, slug);
     }
 
     private static String executeCreateTag(JsonNode args) {
         String name = args.get("name").asText();
         String slug = name.toLowerCase().replace(" ", "-");
-        return io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.createTag(name, slug);
+        return ConfirmedExecutors.createTag(name, slug);
     }
 }
