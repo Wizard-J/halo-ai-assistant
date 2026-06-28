@@ -95,7 +95,7 @@ function normalizeAssistantContent(content: string) {
     .replace(/\r\n/g, "\n")
     .replace(/(^|[\n|])data:\s*/g, "$1")
     .replace(/([^\n])(\s*#{1,3}\s+)/g, "$1\n\n$2")
-    .replace(/([^\n])(\s*---+\s*)/g, "$1\n\n---\n")
+    .replace(/([^\n|])(\s+---+\s*)(?=\n|$)/g, "$1\n\n---\n")
     .replace(/([^\n])(\s*[-*]\s+(?:\*\*|[\u{1F300}-\u{1FAFF}]))/gu, "$1\n$2")
     .replace(/\n{3,}/g, "\n\n")
     .trimStart();
@@ -570,6 +570,7 @@ function goToImmersive() {
 }
 
 .message-bubble {
+  min-width: 0;
   max-width: min(880px, 78%);
   padding: 10px 13px;
   border: 1px solid #e5e7eb;
@@ -613,6 +614,7 @@ function goToImmersive() {
 .message-bubble.markdown :deep(table) {
   min-width: 560px;
   width: 100%;
+  table-layout: auto;
   border-collapse: collapse;
   font-size: 12px;
 }
