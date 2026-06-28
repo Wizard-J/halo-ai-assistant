@@ -101,6 +101,13 @@ public class PendingActionService {
 
         try {
             String result = PendingActionExecutor.execute(action);
+            if (isExecutionFailure(result)) {
+                ObjectNode error = objectMapper.createObjectNode();
+                error.put("success", false);
+                error.put("error", result);
+                error.put("type", action.getType());
+                return error;
+            }
             ObjectNode success = objectMapper.createObjectNode();
             success.put("success", true);
             success.put("result", result);
@@ -113,6 +120,16 @@ public class PendingActionService {
             error.put("error", "操作执行失败: " + e.getMessage());
             return error;
         }
+    }
+
+    private boolean isExecutionFailure(String result) {
+        if (result == null || result.isBlank()) {
+            return true;
+        }
+        String normalized = result.trim();
+        return normalized.startsWith("[错误]")
+                || normalized.startsWith("操作执行失败")
+                || normalized.contains("失败:");
     }
 
     /**

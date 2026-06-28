@@ -656,17 +656,24 @@ public class AiChatEndpoint {
 
     private Mono<ServerResponse> handleConfirmAction(ServerRequest request) {
         String id = request.pathVariable("id");
-        JsonNode result = pendingActionService.confirmAndExecute(id);
-        if (result == null) {
-            return ServerResponse.ok().bodyValue(Map.of(
-                    "success", false, "error", "操作不存在或已过期"));
-        }
-        return ServerResponse.ok().bodyValue(Map.of(
-                "success", result.path("success").asBoolean(),
-                "message", result.path("result").asText("操作已执行"),
-                "type", result.path("type").asText(""),
-                "result", result
-        ));
+        return Mono.fromCallable(() -> pendingActionService.confirmAndExecute(id))
+                .subscribeOn(Schedulers.boundedElastic())
+                .flatMap(result -> {
+                    if (result == null) {
+                        return ServerResponse.ok().bodyValue(Map.of(
+                                "success", false, "error", "操作不存在或已过期"));
+                    }
+                    boolean success = result.path("success").asBoolean();
+                    String message = success
+                            ? result.path("result").asText("操作已执行")
+                            : result.path("error").asText(result.path("result").asText("操作执行失败"));
+                    return ServerResponse.ok().bodyValue(Map.of(
+                            "success", success,
+                            "message", message,
+                            "type", result.path("type").asText(""),
+                            "result", result
+                    ));
+                });
     }
 
     private Mono<ServerResponse> handleCancelAction(ServerRequest request) {
