@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.codex.haloaiassistant.agent.Tool;
+import io.codex.haloaiassistant.agent.confirmation.PendingActionService;
+import io.codex.haloaiassistant.agent.confirmation.RiskLevel;
+import io.codex.haloaiassistant.agent.confirmation.SpringContextBridge;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -103,21 +106,19 @@ public class TagTool implements Tool {
             String slug = name.toLowerCase().replace(" ", "-");
 
             try {
-                Tag tag = new Tag();
-                var metadata = new run.halo.app.extension.Metadata();
-                metadata.setName("tag-" + Instant.now().toEpochMilli());
-                metadata.setGenerateName("tag-");
-                tag.setMetadata(metadata);
-                var spec = new Tag.TagSpec();
-                spec.setDisplayName(name);
-                spec.setSlug(slug);
-                tag.setSpec(spec);
-
-                client.create(tag).block();
-                return "标签创建成功：\n- 名称：" + name + "\n- 别名：" + slug;
+                PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
+                String summary = "将创建标签「" + name + "」。";
+                var result = pas.create("createTag", "创建标签确认", summary, RiskLevel.MEDIUM, args);
+                return "⚠️ 需要确认操作\n\n"
+                        + "**待确认操作**\n\n"
+                        + "**操作：** 创建标签确认\n"
+                        + "**摘要：** " + summary + "\n"
+                        + "**风险等级：** MEDIUM\n\n"
+                        + "**确认ID：** `" + result.getConfirmationId() + "`\n\n"
+                        + "请管理员点击确认后执行操作。";
             } catch (Exception e) {
-                log.error("创建标签失败", e);
-                return "创建标签失败: " + e.getMessage();
+                log.error("创建待确认操作失败，已取消执行", e);
+                return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
             }
         }
     }

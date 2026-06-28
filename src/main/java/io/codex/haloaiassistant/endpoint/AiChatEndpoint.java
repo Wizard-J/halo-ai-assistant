@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.codex.haloaiassistant.agent.AgentService;
 import io.codex.haloaiassistant.agent.ToolRegistry;
+import io.codex.haloaiassistant.agent.confirmation.PendingActionService;
 import io.codex.haloaiassistant.autoops.AutoOpsService;
 import io.codex.haloaiassistant.config.AiAssistantSetting;
 import io.codex.haloaiassistant.persona.ConversationRef;
@@ -57,6 +58,7 @@ public class AiChatEndpoint {
     private final AutoOpsService autoOpsService;
     private final ReactiveExtensionClient client;
     private final PersonaService personaService;
+    private final PendingActionService pendingActionService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public RouterFunction<ServerResponse> endpoint() {
@@ -69,6 +71,9 @@ public class AiChatEndpoint {
                 .GET("/api/ai-assistant/", this::handleChatPageRedirect)
                 .GET("/api/ai-assistant/config-check", this::handleConfigCheck)
                 .GET("/api/ai-assistant/daily-push", this::handleDailyPush)
+                .POST("/api/ai-assistant/pending-actions/{id}/confirm", this::handleConfirmAction)
+                .POST("/api/ai-assistant/pending-actions/{id}/cancel", this::handleCancelAction)
+                .GET("/api/ai-assistant/pending-actions/{id}", this::handleGetPendingAction)
                 .build();
     }
 
@@ -625,5 +630,52 @@ public class AiChatEndpoint {
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to load chat-page.html", e);
         }
+    }
+
+    // ========== 待确认操作端点 ==========
+
+    private Mono<ServerResponse> handleGetPendingAction(ServerRequest request) {
+        String id = request.pathVariable("id");
+        PendingAction action = pendingActionService.get(id);
+        if (action == null) {
+            return ServerResponse.ok().bodyValue(Map.of(
+                    "found", false, "error", "操作不存在或已过期"));
+        }
+        return ServerResponse.ok().bodyValue(Map.of(
+                "found", true,
+                "id", action.getId(),
+                "type", action.getType(),
+                "title", action.getTitle(),
+                "summary", action.getSummary(),
+                "riskLevel", action.getRiskLevel().name().toLowerCase(),
+                "createdAt", action.getCreatedAt().toString(),
+                "expiresAt", action.getExpiresAt().toString()
+        ));
+    }
+
+    private Mono<ServerResponse> handleConfirmAction(ServerRequest request) {
+        String id = request.pathVariable("id");
+        JsonNode result = pendingActionService.confirmAndExecute(id);
+        if (result == null) {
+            return ServerResponse.ok().bodyValue(Map.of(
+                    "success", false, "error", "操作不存在或已过期"));
+        }
+        return ServerResponse.ok().bodyValue(Map.of(
+                "success", result.path("success").asBoolean(),
+                "message", result.path("result").asText("操作已执行"),
+                "type", result.path("type").asText(""),
+                "result", result
+        ));
+    }
+
+    private Mono<ServerResponse> handleCancelAction(ServerRequest request) {
+        String id = request.pathVariable("id");
+        boolean cancelled = pendingActionService.cancel(id);
+        if (!cancelled) {
+            return ServerResponse.ok().bodyValue(Map.of(
+                    "success", false, "error", "操作不存在或已过期"));
+        }
+        return ServerResponse.ok().bodyValue(Map.of(
+                "success", true, "message", "操作已取消"));
     }
 }

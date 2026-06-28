@@ -1567,6 +1567,9 @@
         } else if (options.error) {
             contentElement.className = 'message-error';
             contentElement.textContent = content;
+        } else if (content.includes('⚠️ 需要确认操作') && content.includes('确认ID')) {
+            contentElement.className = 'assistant-content';
+            renderConfirmationCard(contentElement, content);
         } else {
             contentElement.className = 'assistant-content';
             contentElement.innerHTML = renderMarkdown(content);
@@ -1591,6 +1594,85 @@
             return '<span class="avatar-emoji">' + escapeHtml(persona.iconUrl) + '</span>';
         }
         return '<i class="ri-sparkling-2-fill"></i>';
+    }
+
+    function renderConfirmationCard(container, content) {
+        // 从 Markdown 中提取确认信息
+        const idMatch = content.match(/确认ID[：:]\s*`(confirm_[a-z0-9]+)`/);
+        const titleMatch = content.match(/\*\*操作[：:]\*\*\s*(.+)/);
+        const summaryMatch = content.match(/\*\*摘要[：:]\*\*\s*(.+)/);
+        const riskMatch = content.match(/\*\*风险等级[：:]\*\*\s*(MEDIUM|HIGH)/);
+        const confirmationId = idMatch ? idMatch[1] : '';
+        const title = titleMatch ? titleMatch[1].trim() : '待确认操作';
+        const summary = summaryMatch ? summaryMatch[1].trim() : '';
+        const riskLevel = riskMatch ? riskMatch[1] : 'HIGH';
+
+        container.innerHTML = '';
+        const card = document.createElement('div');
+        card.className = 'confirmation-card';
+        card.style.cssText = 'border:1px solid var(--danger);border-radius:8px;padding:16px;margin:8px 0;background:color-mix(in srgb, var(--danger) 6%, transparent);';
+
+        const header = document.createElement('div');
+        header.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:12px;font-weight:700;font-size:14px;';
+        header.innerHTML = '<span style="font-size:18px;">⚠️</span> 待确认操作 <span style="margin-left:auto;font-size:12px;color:var(--danger);font-weight:600;">' + riskLevel + '</span>';
+        card.appendChild(header);
+
+        if (title) {
+            const titleEl = document.createElement('div');
+            titleEl.style.cssText = 'font-weight:600;margin-bottom:4px;';
+            titleEl.textContent = title;
+            card.appendChild(titleEl);
+        }
+        if (summary) {
+            const summaryEl = document.createElement('div');
+            summaryEl.style.cssText = 'font-size:13px;color:var(--text-muted);margin-bottom:12px;';
+            summaryEl.textContent = summary;
+            card.appendChild(summaryEl);
+        }
+
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;';
+
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'button';
+        cancelBtn.textContent = '取消';
+        cancelBtn.style.cssText = 'padding:6px 16px;border-radius:8px;border:1px solid var(--border);background:var(--surface);cursor:pointer;';
+        cancelBtn.onclick = async () => {
+            try {
+                const resp = await fetch('/api/ai-assistant/pending-actions/' + confirmationId + '/cancel', { method: 'POST' });
+                const data = await resp.json();
+                if (data.success) {
+                    card.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">✅ 操作已取消</div>';
+                } else {
+                    card.innerHTML = '<div style="color:var(--danger);font-size:13px;">取消失败：' + (data.error || '未知错误') + '</div>';
+                }
+            } catch (e) {
+                card.innerHTML = '<div style="color:var(--danger);font-size:13px;">取消失败：' + e.message + '</div>';
+            }
+        };
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.className = 'button button-primary';
+        confirmBtn.textContent = '确认执行';
+        confirmBtn.style.cssText = 'padding:6px 16px;border-radius:8px;border:none;background:var(--danger);color:#fff;cursor:pointer;font-weight:600;';
+        confirmBtn.onclick = async () => {
+            try {
+                const resp = await fetch('/api/ai-assistant/pending-actions/' + confirmationId + '/confirm', { method: 'POST' });
+                const data = await resp.json();
+                if (data.success) {
+                    card.innerHTML = '<div style="color:var(--success);font-size:13px;">✅ ' + (data.message || '操作已确认') + '</div>';
+                } else {
+                    card.innerHTML = '<div style="color:var(--danger);font-size:13px;">确认失败：' + (data.error || '未知错误') + '</div>';
+                }
+            } catch (e) {
+                card.innerHTML = '<div style="color:var(--danger);font-size:13px;">确认失败：' + e.message + '</div>';
+            }
+        };
+
+        actions.appendChild(cancelBtn);
+        actions.appendChild(confirmBtn);
+        card.appendChild(actions);
+        container.appendChild(card);
     }
 
     function parseSseEvent(eventText) {

@@ -9,14 +9,17 @@ const inputText = ref("");
 const isStreaming = ref(false);
 const history = ref<{ role: string; content: string }[]>([]);
 let abortController: AbortController | null = null;
-const sessionId = ref("console-" + Date.now());
+const sessionId = ref(localStorage.getItem("ai-assistant-session") || "console-" + Date.now());
+const currentUserText = ref("");
 
+// 页面加载时获取服务端 sessionId，保持跨页面一致性
 onMounted(async () => {
   try {
     const resp = await fetch("/api/ai-assistant/me");
     const data = await resp.json();
     if (data.sessionId) {
       sessionId.value = data.sessionId;
+      localStorage.setItem("ai-assistant-session", data.sessionId);
     }
   } catch (e) {
     // fallback: keep generated sessionId
@@ -27,6 +30,7 @@ async function sendMessage() {
   const text = inputText.value.trim();
   if (!text || isStreaming.value) return;
 
+  currentUserText.value = text;
   messages.value.push("用户: " + text);
   history.value.push({ role: "user", content: text });
   inputText.value = "";
@@ -47,7 +51,8 @@ async function sendMessage() {
     });
 
     if (!resp.ok) {
-      messages.value.push("助手: [请求失败] HTTP " + resp.status);
+      const errorText = await resp.text();
+      messages.value.push("助手: [请求失败] " + (errorText || "HTTP " + resp.status));
       return;
     }
 

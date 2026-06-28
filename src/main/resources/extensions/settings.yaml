@@ -106,8 +106,8 @@ spec:
         - $formkit: switch
           name: autoPublish
           label: 巫师前沿站 - 自动发布
-          value: true
-          help: "关闭时仅生成草稿"
+          value: false
+          help: "⚠️ 默认创建草稿，开启后创作完成时直接发布。建议先预览确认后再启用"
         - $formkit: text
           name: authorName
           label: 巫师前沿站 - 作者昵称

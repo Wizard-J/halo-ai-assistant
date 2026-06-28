@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.codex.haloaiassistant.agent.Tool;
+import io.codex.haloaiassistant.agent.confirmation.PendingActionService;
+import io.codex.haloaiassistant.agent.confirmation.RiskLevel;
+import io.codex.haloaiassistant.agent.confirmation.SpringContextBridge;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -110,22 +113,21 @@ public class CategoryTool implements Tool {
             String name = args.get("name").asText();
             String slug = args.has("slug") ? args.get("slug").asText() : name.toLowerCase().replace(" ", "-");
 
+            // 创建分类需要确认
             try {
-                Category category = new Category();
-                var metadata = new run.halo.app.extension.Metadata();
-                metadata.setName("category-" + Instant.now().toEpochMilli());
-                metadata.setGenerateName("category-");
-                category.setMetadata(metadata);
-                var spec = new Category.CategorySpec();
-                spec.setDisplayName(name);
-                spec.setSlug(slug);
-                category.setSpec(spec);
-
-                client.create(category).block();
-                return "分类创建成功：\n- 名称：" + name + "\n- 别名：" + slug;
+                PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
+                String summary = "将创建分类「" + name + "」。";
+                var result = pas.create("createCategory", "创建分类确认", summary, RiskLevel.MEDIUM, args);
+                return "⚠️ 需要确认操作\n\n"
+                        + "**待确认操作**\n\n"
+                        + "**操作：** 创建分类确认\n"
+                        + "**摘要：** " + summary + "\n"
+                        + "**风险等级：** MEDIUM\n\n"
+                        + "**确认ID：** `" + result.getConfirmationId() + "`\n\n"
+                        + "请管理员点击确认后执行操作。";
             } catch (Exception e) {
-                log.error("创建分类失败", e);
-                return "创建分类失败: " + e.getMessage();
+                log.error("创建待确认操作失败，已取消执行", e);
+                return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
             }
         }
     }
@@ -165,16 +167,21 @@ public class CategoryTool implements Tool {
         @Override
         public String execute(JsonNode args) {
             String id = args.get("id").asText();
+
             try {
-                Category category = client.get(Category.class, id).block();
-                if (category == null) {
-                    return "分类不存在: " + id;
-                }
-                client.delete(category).block();
-                return "分类已删除（ID: " + id + "）";
+                PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
+                String summary = "将删除分类（ID: " + id + "）。";
+                var result = pas.create("deleteCategory", "删除分类确认", summary, RiskLevel.MEDIUM, args);
+                return "⚠️ 需要确认操作\n\n"
+                        + "**待确认操作**\n\n"
+                        + "**操作：** 删除分类确认\n"
+                        + "**摘要：** " + summary + "\n"
+                        + "**风险等级：** MEDIUM\n\n"
+                        + "**确认ID：** `" + result.getConfirmationId() + "`\n\n"
+                        + "请管理员点击确认后执行操作。";
             } catch (Exception e) {
-                log.error("删除分类失败", e);
-                return "删除分类失败: " + e.getMessage();
+                log.error("创建待确认操作失败，已取消执行", e);
+                return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
             }
         }
     }

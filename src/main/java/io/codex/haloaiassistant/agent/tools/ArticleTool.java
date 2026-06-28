@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.codex.haloaiassistant.agent.Tool;
+import io.codex.haloaiassistant.agent.confirmation.PendingActionService;
+import io.codex.haloaiassistant.agent.confirmation.RiskLevel;
+import io.codex.haloaiassistant.agent.confirmation.SpringContextBridge;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -212,6 +215,25 @@ public class ArticleTool implements Tool {
             String tags = args.has("tags") ? args.get("tags").asText("") : "";
             Instant publishTime = args.hasNonNull("publishTime")
                     ? parsePublishTime(args.get("publishTime").asText()) : null;
+
+            // 仅当发布操作时才走确认
+            if (published) {
+                try {
+                    PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
+                    String summary = "将创建文章「" + (title.length() > 40 ? title.substring(0, 40) + "…" : title) + "」并立即发布。";
+                    var result = pas.create("createArticle", "发布文章确认", summary, RiskLevel.MEDIUM, args);
+                    return "⚠️ 需要确认操作\n\n"
+                            + "**待确认操作**\n\n"
+                            + "**操作：** 发布文章确认\n"
+                            + "**摘要：** " + summary + "\n"
+                            + "**风险等级：** MEDIUM\n\n"
+                            + "**确认ID：** `" + result.getConfirmationId() + "`\n\n"
+                            + "请管理员点击确认后执行操作。";
+                } catch (Exception e) {
+                    log.error("创建待确认操作失败，已取消执行", e);
+                    return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
+                }
+            }
 
             if (title.isBlank()) {
                 return "创建文章失败：标题不能为空";
@@ -719,6 +741,36 @@ public class ArticleTool implements Tool {
         @Override
         public String execute(JsonNode args) {
             String id = args.get("id").asText();
+
+            // 高风险操作（发布/批量改标签分类）需要确认
+            boolean hasHighRisk = args.has("publish") || args.has("categories") || args.has("tags");
+            if (hasHighRisk) {
+                try {
+                    PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
+                    String summary = "将更新文章（ID: " + id + "）";
+                    if (args.has("publish") && args.get("publish").asBoolean()) {
+                        summary += "，发布文章";
+                    }
+                    if (args.has("categories")) {
+                        summary += "，更新分类";
+                    }
+                    if (args.has("tags")) {
+                        summary += "，更新标签";
+                    }
+                    var result = pas.create("updateArticle", "更新文章确认", summary, RiskLevel.HIGH, args);
+                    return "⚠️ 需要确认操作\n\n"
+                            + "**待确认操作**\n\n"
+                            + "**操作：** 更新文章确认\n"
+                            + "**摘要：** " + summary + "\n"
+                            + "**风险等级：** HIGH\n\n"
+                            + "**确认ID：** `" + result.getConfirmationId() + "`\n\n"
+                            + "请管理员点击确认后执行操作。";
+                } catch (Exception e) {
+                    log.error("创建待确认操作失败，已取消执行", e);
+                    return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
+                }
+            }
+
             Snapshot createdSnapshot = null;
 
             try {
@@ -867,27 +919,25 @@ public class ArticleTool implements Tool {
             String id = args.get("id").asText();
             boolean permanent = args.has("permanent") && args.get("permanent").asBoolean();
 
+            // 删除必须确认
             try {
-                if (permanent) {
-                            Post post = client.get(Post.class, id).block();
-                    if (post == null) {
-                        return "文章不存在: " + id;
-                    }
-                    client.delete(post).block();
-                    return "文章已永久删除（ID: " + id + "）";
-                } else {
-                            Post post = client.get(Post.class, id).block();
-                    if (post == null) {
-                        return "文章不存在: " + id;
-                    }
-                    var spec = post.getSpec();
-                    spec.setDeleted(true);
-                    client.update(post).block();
-                    return "文章已移入回收站（ID: " + id + "）";
-                }
+                PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
+                String type = "deleteArticle";
+                String title = permanent ? "永久删除文章确认" : "删除文章确认";
+                String summary = String.format("将%s文章（ID: %s）。此操作不可撤销。",
+                        permanent ? "永久删除" : "移入回收站", id);
+                var result = pas.create(type, title, summary, RiskLevel.HIGH, args);
+
+                return "⚠️ 需要确认操作\n\n"
+                        + "**待确认操作**\n\n"
+                        + "**操作：** " + title + "\n"
+                        + "**摘要：** " + summary + "\n"
+                        + "**风险等级：** HIGH\n\n"
+                        + "**确认ID：** `" + result.getConfirmationId() + "`\n\n"
+                        + "请管理员点击确认后执行操作。";
             } catch (Exception e) {
-                log.error("删除文章失败", e);
-                return "删除文章失败: " + e.getMessage();
+                log.error("创建待确认操作失败，已取消执行", e);
+                return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
             }
         }
     }

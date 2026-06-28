@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.codex.haloaiassistant.agent.Tool;
+import io.codex.haloaiassistant.agent.confirmation.PendingActionService;
+import io.codex.haloaiassistant.agent.confirmation.RiskLevel;
+import io.codex.haloaiassistant.agent.confirmation.SpringContextBridge;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -109,17 +112,21 @@ public class CommentTool implements Tool {
         @Override
         public String execute(JsonNode args) {
             String id = args.get("id").asText();
+
             try {
-                Comment comment = client.get(Comment.class, id).block();
-                if (comment == null) {
-                    return "评论不存在: " + id;
-                }
-                comment.getSpec().setApproved(true);
-                client.update(comment).block();
-                return "评论已审核通过（ID: " + id + "）";
+                PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
+                String summary = "将审核通过评论（ID: " + id + "）。";
+                var result = pas.create("approveComment", "审核评论确认", summary, RiskLevel.MEDIUM, args);
+                return "⚠️ 需要确认操作\n\n"
+                        + "**待确认操作**\n\n"
+                        + "**操作：** 审核评论确认\n"
+                        + "**摘要：** " + summary + "\n"
+                        + "**风险等级：** MEDIUM\n\n"
+                        + "**确认ID：** `" + result.getConfirmationId() + "`\n\n"
+                        + "请管理员点击确认后执行操作。";
             } catch (Exception e) {
-                log.error("审核评论失败", e);
-                return "审核评论失败: " + e.getMessage();
+                log.error("创建待确认操作失败，已取消执行", e);
+                return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
             }
         }
     }
@@ -159,16 +166,21 @@ public class CommentTool implements Tool {
         @Override
         public String execute(JsonNode args) {
             String id = args.get("id").asText();
+
             try {
-                Comment comment = client.get(Comment.class, id).block();
-                if (comment == null) {
-                    return "评论不存在: " + id;
-                }
-                client.delete(comment).block();
-                return "评论已删除（ID: " + id + "）";
+                PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
+                String summary = "将删除评论（ID: " + id + "）。";
+                var result = pas.create("deleteComment", "删除评论确认", summary, RiskLevel.MEDIUM, args);
+                return "⚠️ 需要确认操作\n\n"
+                        + "**待确认操作**\n\n"
+                        + "**操作：** 删除评论确认\n"
+                        + "**摘要：** " + summary + "\n"
+                        + "**风险等级：** MEDIUM\n\n"
+                        + "**确认ID：** `" + result.getConfirmationId() + "`\n\n"
+                        + "请管理员点击确认后执行操作。";
             } catch (Exception e) {
-                log.error("删除评论失败", e);
-                return "删除评论失败: " + e.getMessage();
+                log.error("创建待确认操作失败，已取消执行", e);
+                return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
             }
         }
     }
