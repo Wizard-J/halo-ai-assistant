@@ -30,6 +30,7 @@ public class PendingActionExecutor {
                 case "createCategory" -> executeCreateCategory(payload);
                 case "createTag" -> executeCreateTag(payload);
                 case "batchTagArticles" -> executeBatchTagArticles(payload);
+                case "syncArticlePublishTimes" -> executeSyncArticlePublishTimes(payload);
                 default -> throw new IllegalArgumentException("未知操作类型: " + type);
             };
         } catch (Exception e) {
@@ -57,6 +58,11 @@ public class PendingActionExecutor {
     private static String executeBatchTagArticles(JsonNode args) {
         BatchTagArticlesTool tool = SpringContextBridge.getBean(BatchTagArticlesTool.class);
         return tool.executeInternal(args);
+    }
+
+    private static String executeSyncArticlePublishTimes(JsonNode args) {
+        ArticleTool.SyncArticlePublishTimesTool tool = SpringContextBridge.getBean(ArticleTool.SyncArticlePublishTimesTool.class);
+        return tool.execute(args);
     }
 
     private static String executeDeleteComment(JsonNode args) {
