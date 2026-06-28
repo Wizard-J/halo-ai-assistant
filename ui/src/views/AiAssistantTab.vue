@@ -91,7 +91,7 @@ function parseSseEvents(chunk: string, done = false) {
 }
 
 function normalizeAssistantContent(content: string) {
-  return content
+  const normalized = content
     .replace(/\r\n/g, "\n")
     .replace(/(^|[\n|])data:\s*/g, "$1")
     .replace(/([^\n])(\s*#{1,3}\s+)/g, "$1\n\n$2")
@@ -99,6 +99,79 @@ function normalizeAssistantContent(content: string) {
     .replace(/([^\n])(\s*[-*]\s+(?:\*\*|[\u{1F300}-\u{1FAFF}]))/gu, "$1\n$2")
     .replace(/\n{3,}/g, "\n\n")
     .trimStart();
+
+  return normalizeBrokenTableSeparators(normalized);
+}
+
+function normalizeBrokenTableSeparators(content: string) {
+  const lines = content.split(/\n/);
+  const out: string[] = [];
+
+  const isSeparatorFragment = (line: string) => {
+    const text = line.trim();
+    return text.length > 0 && /^[|:\-\s]+$/.test(text);
+  };
+  const isPipeRow = (line: string) => {
+    if (isSeparatorFragment(line)) return false;
+    const cells = line.trim().replace(/^\||\|$/g, "").split("|");
+    return cells.length >= 2 && cells.some(cell => cell.trim());
+  };
+  const columnCount = (line: string) => line.trim().replace(/^\||\|$/g, "").split("|").length;
+  const isTableJunk = (line: string) => {
+    const text = line.trim();
+    if (!text) return false;
+    if (isSeparatorFragment(text)) return true;
+    if (!text.includes("|")) return false;
+    return !isPipeRow(text);
+  };
+  const inferredHeaders = (cols: number) => {
+    const defaults = ["序号", "文章标题", "状态", "最后更新时间"];
+    return Array.from({ length: cols }, (_, index) => defaults[index] || ("列 " + (index + 1)));
+  };
+  const separatorFor = (cols: number) => "|" + Array.from({ length: cols }, () => "---").join("|") + "|";
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+
+    if (isTableJunk(line)) {
+      let cursor = i + 1;
+      while (cursor < lines.length && lines[cursor].trim() && isTableJunk(lines[cursor])) {
+        cursor += 1;
+      }
+      if (cursor < lines.length && isPipeRow(lines[cursor])) {
+        const cols = Math.max(1, columnCount(lines[cursor]));
+        out.push("|" + inferredHeaders(cols).join("|") + "|");
+        out.push(separatorFor(cols));
+        i = cursor - 1;
+        continue;
+      }
+      continue;
+    }
+
+    if (!isPipeRow(line)) {
+      out.push(line);
+      continue;
+    }
+
+    let cursor = i + 1;
+    const fragments: string[] = [];
+    while (cursor < lines.length && lines[cursor].trim() && isSeparatorFragment(lines[cursor])) {
+      fragments.push(lines[cursor]);
+      cursor += 1;
+    }
+
+    if (fragments.length > 0 && cursor < lines.length && isPipeRow(lines[cursor])) {
+      const cols = Math.max(1, columnCount(line));
+      out.push(line);
+      out.push(separatorFor(cols));
+      i = cursor - 1;
+      continue;
+    }
+
+    out.push(line);
+  }
+
+  return out.join("\n");
 }
 
 function escapeHtml(value: string) {
@@ -125,8 +198,15 @@ function renderMarkdown(content: string) {
   };
 
   const splitTableRow = (line: string) => line.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim());
-  const isSeparatorFragment = (line: string) => /^[\s|:-]+$/.test(line.trim()) && /[:|-]/.test(line);
-  const isPipeRow = (line: string) => (line.match(/\|/g) || []).length >= 2 && !isSeparatorFragment(line);
+  const isSeparatorFragment = (line: string) => {
+    const text = line.trim();
+    return text.length > 0 && /^[|:\-\s]+$/.test(text);
+  };
+  const isPipeRow = (line: string) => {
+    if (isSeparatorFragment(line)) return false;
+    const cells = line.trim().replace(/^\||\|$/g, "").split("|");
+    return cells.length >= 2 && cells.some(cell => cell.trim());
+  };
   const cleanHeader = (cell: string) => cell.replace(/^[^\p{L}\p{N}]+/u, "").trim() || cell.trim();
   const findNextTableLine = (from: number) => {
     let cursor = from;
@@ -152,6 +232,12 @@ function renderMarkdown(content: string) {
     const rawLine = lines[index];
     const line = rawLine.trimEnd();
     if (!line.trim()) {
+      closeList();
+      index += 1;
+      continue;
+    }
+
+    if (isSeparatorFragment(line)) {
       closeList();
       index += 1;
       continue;
