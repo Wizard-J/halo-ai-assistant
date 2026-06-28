@@ -24,6 +24,8 @@ const messagePane = ref<HTMLElement | null>(null);
 let abortController: AbortController | null = null;
 let streamBuffer = "";
 const sessionId = ref(localStorage.getItem("ai-assistant-session") || "console-" + Date.now());
+const assistantName = "老巫师";
+const assistantAvatar = "/plugins/ai-assistant/assets/logo.png";
 
 onMounted(async () => {
   try {
@@ -123,11 +125,21 @@ function renderMarkdown(content: string) {
   };
 
   const splitTableRow = (line: string) => line.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim());
-  const isTableSeparator = (line: string) => /^[\s|:-]+$/.test(line) && line.includes("-");
-  const isPipeRow = (line: string) => (line.match(/\|/g) || []).length >= 2 && !isTableSeparator(line);
+  const isSeparatorFragment = (line: string) => /^[\s|:-]+$/.test(line.trim()) && /[:|-]/.test(line);
+  const isPipeRow = (line: string) => (line.match(/\|/g) || []).length >= 2 && !isSeparatorFragment(line);
+  const cleanHeader = (cell: string) => cell.replace(/^[^\p{L}\p{N}]+/u, "").trim() || cell.trim();
+  const findNextTableLine = (from: number) => {
+    let cursor = from;
+    let skippedSeparator = false;
+    while (cursor < lines.length && lines[cursor].trim() && isSeparatorFragment(lines[cursor])) {
+      skippedSeparator = true;
+      cursor += 1;
+    }
+    return { cursor, skippedSeparator };
+  };
   const renderTable = (headers: string[], rows: string[][]) => {
     const columnCount = Math.max(headers.length, ...rows.map(row => row.length));
-    const normalizedHeaders = Array.from({ length: columnCount }, (_, i) => headers[i] || "");
+    const normalizedHeaders = Array.from({ length: columnCount }, (_, i) => cleanHeader(headers[i] || ""));
     const normalizedRows = rows.map(row => Array.from({ length: columnCount }, (_, i) => row[i] || ""));
     html.push("<div class=\"table-scroll\"><table><thead><tr>"
       + normalizedHeaders.map(cell => "<th>" + renderInline(cell) + "</th>").join("")
@@ -145,15 +157,15 @@ function renderMarkdown(content: string) {
       continue;
     }
 
-    const nextLine = lines[index + 1] || "";
-    if (isPipeRow(line) && (isTableSeparator(nextLine) || isPipeRow(nextLine))) {
+    const next = findNextTableLine(index + 1);
+    if (isPipeRow(line) && (next.skippedSeparator || isPipeRow(lines[next.cursor] || ""))) {
       closeList();
       const headers = splitTableRow(line);
       const rows: string[][] = [];
       index += 1;
       while (index < lines.length && lines[index].trim()) {
         const current = lines[index].trim();
-        if (isTableSeparator(current)) {
+        if (isSeparatorFragment(current)) {
           index += 1;
           continue;
         }
@@ -330,21 +342,21 @@ function goToImmersive() {
   <section class="ai-assistant-tab">
     <header class="console-chat-header">
       <div class="header-title">
-        <span class="avatar" aria-hidden="true">AI</span>
+        <img class="avatar" :src="assistantAvatar" alt="" aria-hidden="true" />
         <div>
-          <h2>老巫师 AI 助手</h2>
+          <h2>{{ assistantName }}</h2>
           <p>Console 内容工作台</p>
         </div>
       </div>
       <button class="ghost-button" type="button" @click="goToImmersive">
-        沉浸式
+        完整对话
       </button>
     </header>
 
     <div ref="messagePane" class="messages">
       <div v-if="messages.length === 0" class="welcome">
-        <div class="welcome-mark" aria-hidden="true">AI</div>
-        <h3>今天要处理什么？</h3>
+        <img class="welcome-mark" :src="assistantAvatar" alt="" aria-hidden="true" />
+        <h3>今天要让老巫师处理什么？</h3>
         <p>可以查看文章、管理分类标签，或处理待审核评论。</p>
       </div>
 
@@ -355,7 +367,8 @@ function goToImmersive() {
         :class="msg.role"
       >
         <div class="message-avatar" aria-hidden="true">
-          {{ msg.role === "user" ? "你" : "AI" }}
+          <span v-if="msg.role === 'user'">你</span>
+          <img v-else :src="assistantAvatar" alt="" />
         </div>
 
         <div
@@ -434,15 +447,10 @@ function goToImmersive() {
 }
 
 .avatar {
-  display: grid;
-  place-items: center;
   width: 36px;
   height: 36px;
   border-radius: 8px;
-  background: #312e81;
-  color: #ffffff;
-  font-size: 18px;
-  font-weight: 700;
+  object-fit: cover;
 }
 
 .header-title h2 {
@@ -506,15 +514,11 @@ function goToImmersive() {
 }
 
 .welcome-mark {
-  display: grid;
-  place-items: center;
   width: 42px;
   height: 42px;
   margin-bottom: 12px;
   border-radius: 8px;
-  background: #eef2ff;
-  color: #3730a3;
-  font-size: 20px;
+  object-fit: cover;
 }
 
 .welcome h3 {
@@ -551,6 +555,13 @@ function goToImmersive() {
   color: #3730a3;
   font-size: 11px;
   font-weight: 700;
+  overflow: hidden;
+}
+
+.message-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .message-row.user .message-avatar {

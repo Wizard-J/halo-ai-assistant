@@ -8,7 +8,7 @@ export default definePlugin({
       return [
         {
           id: "ai-assistant-chat",
-          label: "老巫师 AI 助手",
+          label: "老巫师",
           component: markRaw(AiAssistantTab),
           permissions: [],
         },

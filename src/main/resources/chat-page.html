@@ -1455,18 +1455,32 @@
         return line.trim().replace(/^\||\|$/g, '').split('|').map(cell => cell.trim());
     }
 
-    function isTableSeparator(line) {
-        return /^[\s|:-]+$/.test(line) && line.includes('-');
+    function isSeparatorFragment(line) {
+        return /^[\s|:-]+$/.test(line.trim()) && /[:|-]/.test(line);
     }
 
     function isPipeTableRow(line) {
         const matches = line.match(/\|/g);
-        return matches && matches.length >= 2 && !isTableSeparator(line);
+        return matches && matches.length >= 2 && !isSeparatorFragment(line);
+    }
+
+    function cleanTableHeader(cell) {
+        return cell.replace(/^[^\p{L}\p{N}]+/u, '').trim() || cell.trim();
+    }
+
+    function findNextTableLine(lines, from) {
+        let cursor = from;
+        let skippedSeparator = false;
+        while (cursor < lines.length && lines[cursor].trim() && isSeparatorFragment(lines[cursor])) {
+            skippedSeparator = true;
+            cursor += 1;
+        }
+        return { cursor, skippedSeparator };
     }
 
     function renderTable(headers, rows) {
         const columnCount = Math.max(headers.length, ...rows.map(row => row.length));
-        const normalizedHeaders = Array.from({ length: columnCount }, (_, i) => headers[i] || '');
+        const normalizedHeaders = Array.from({ length: columnCount }, (_, i) => cleanTableHeader(headers[i] || ''));
         const normalizedRows = rows.map(row => Array.from({ length: columnCount }, (_, i) => row[i] || ''));
         return '<div class="table-scroll"><table><thead><tr>'
             + normalizedHeaders.map(cell => `<th>${renderInline(cell)}</th>`).join('')
@@ -1523,15 +1537,15 @@
                 continue;
             }
 
-            const nextLine = lines[index + 1] || '';
-            if (isPipeTableRow(line) && (isTableSeparator(nextLine) || isPipeTableRow(nextLine))) {
+            const next = findNextTableLine(lines, index + 1);
+            if (isPipeTableRow(line) && (next.skippedSeparator || isPipeTableRow(lines[next.cursor] || ''))) {
                 closeList();
                 const headers = splitTableRow(line);
                 const rows = [];
                 index += 1;
                 while (index < lines.length && lines[index].trim()) {
                     const current = lines[index].trim();
-                    if (isTableSeparator(current)) {
+                    if (isSeparatorFragment(current)) {
                         index += 1;
                         continue;
                     }
