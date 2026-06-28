@@ -2,6 +2,7 @@ package io.codex.haloaiassistant.agent.confirmation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import io.codex.haloaiassistant.agent.tools.ArticleTool;
+import io.codex.haloaiassistant.agent.tools.ArticleTool.BatchTagArticlesTool;
 import io.codex.haloaiassistant.agent.tools.ArticleTool.CreateArticleTool;
 import io.codex.haloaiassistant.agent.tools.ArticleTool.UpdateArticleTool;
 import lombok.extern.slf4j.Slf4j;
@@ -22,11 +23,13 @@ public class PendingActionExecutor {
             return switch (type) {
                 case "deleteArticle" -> executeDeleteArticle(payload);
                 case "updateArticle" -> executeUpdateArticle(payload);
+                case "createArticle" -> executeCreateArticle(payload);
                 case "deleteComment" -> executeDeleteComment(payload);
                 case "approveComment" -> executeApproveComment(payload);
                 case "deleteCategory" -> executeDeleteCategory(payload);
                 case "createCategory" -> executeCreateCategory(payload);
                 case "createTag" -> executeCreateTag(payload);
+                case "batchTagArticles" -> executeBatchTagArticles(payload);
                 default -> throw new IllegalArgumentException("未知操作类型: " + type);
             };
         } catch (Exception e) {
@@ -43,6 +46,16 @@ public class PendingActionExecutor {
 
     private static String executeUpdateArticle(JsonNode args) {
         UpdateArticleTool tool = SpringContextBridge.getBean(UpdateArticleTool.class);
+        return tool.executeInternal(args);
+    }
+
+    private static String executeCreateArticle(JsonNode args) {
+        CreateArticleTool tool = SpringContextBridge.getBean(CreateArticleTool.class);
+        return tool.executeInternal(args);
+    }
+
+    private static String executeBatchTagArticles(JsonNode args) {
+        BatchTagArticlesTool tool = SpringContextBridge.getBean(BatchTagArticlesTool.class);
         return tool.executeInternal(args);
     }
 

@@ -235,6 +235,21 @@ public class ArticleTool implements Tool {
                 }
             }
 
+            return executeInternal(args);
+        }
+
+        /**
+         * 内部执行方法——确认后直接创建文章，不走确认路径。
+         */
+        public String executeInternal(JsonNode args) {
+            String title = args.path("title").asText("").trim();
+            String content = args.path("content").asText("");
+            boolean published = "published".equals(args.has("status") ? args.get("status").asText("draft") : "draft");
+            String categories = args.has("categories") ? args.get("categories").asText("") : "";
+            String tags = args.has("tags") ? args.get("tags").asText("") : "";
+            Instant publishTime = args.hasNonNull("publishTime")
+                    ? parsePublishTime(args.get("publishTime").asText()) : null;
+
             if (title.isBlank()) {
                 return "创建文章失败：标题不能为空";
             }
@@ -1109,6 +1124,81 @@ public class ArticleTool implements Tool {
             } catch (Exception e) {
                 log.error("创建待确认操作失败，已取消执行", e);
                 return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
+            }
+        }
+
+        public String executeInternal(JsonNode args) {
+            try {
+                List<String> tags = args.has("tags")
+                        ? ArticleTool.splitNames(args.get("tags").asText())
+                        : List.of();
+                List<String> categories = args.has("categories")
+                        ? ArticleTool.splitNames(args.get("categories").asText())
+                        : List.of();
+
+                if (tags.isEmpty() && categories.isEmpty()) {
+                    return "请至少指定 tags 或 categories 参数";
+                }
+
+                List<Post> posts;
+                if (args.has("articleIds") && !args.get("articleIds").asText().isBlank()) {
+                    String idsStr = args.get("articleIds").asText();
+                    posts = new java.util.ArrayList<>();
+                    for (String id : idsStr.split("[,，]")) {
+                        id = id.trim();
+                        if (!id.isEmpty()) {
+                            try {
+                                Post post = client.get(Post.class, id).block();
+                                if (post != null) posts.add(post);
+                            } catch (Exception e) {
+                                log.warn("跳过不存在的文章: {}", id);
+                            }
+                        }
+                    }
+                } else {
+                    var result = client.list(Post.class, null, null, 0, 200).block();
+                    if (result == null) {
+                        return "获取文章列表失败";
+                    }
+                    posts = result.getItems();
+                }
+
+                int success = 0;
+                int failed = 0;
+                for (Post post : posts) {
+                    try {
+                        var spec = post.getSpec();
+                        if (spec == null) continue;
+                        if (!tags.isEmpty()) {
+                            spec.setTags(tags);
+                        }
+                        if (!categories.isEmpty()) {
+                            spec.setCategories(categories);
+                        }
+                        client.update(post).block();
+                        success++;
+                    } catch (Exception e) {
+                        log.error("更新文章失败: {}", post.getMetadata().getName(), e);
+                        failed++;
+                    }
+                }
+
+                StringBuilder sb = new StringBuilder();
+                sb.append("批量更新完成！共处理 ").append(posts.size()).append(" 篇文章。\n");
+                sb.append("- 成功：").append(success).append(" 篇\n");
+                if (failed > 0) {
+                    sb.append("- 失败：").append(failed).append(" 篇\n");
+                }
+                if (!tags.isEmpty()) {
+                    sb.append("- 标签：").append(String.join(", ", tags)).append("\n");
+                }
+                if (!categories.isEmpty()) {
+                    sb.append("- 分类：").append(String.join(", ", categories)).append("\n");
+                }
+                return sb.toString();
+            } catch (Exception e) {
+                log.error("批量更新文章标签失败", e);
+                return "批量更新失败: " + CreateArticleTool.rootMessage(e);
             }
         }
     }
