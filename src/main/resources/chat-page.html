@@ -1641,6 +1641,41 @@
         return content;
     }
 
+    function isLoginResponse(response) {
+        const contentType = response.headers.get('content-type') || '';
+        const url = response.url || '';
+        if (response.status === 401 || response.status === 403) return true;
+        if (response.redirected && url.includes('/login')) return true;
+        return contentType.includes('text/html');
+    }
+
+    function looksLikeLoginHtml(text) {
+        if (!text) return false;
+        const sample = text.slice(0, 1000).toLowerCase();
+        return sample.includes('<!doctype html')
+            || sample.includes('<html')
+            || sample.includes('authentication_required')
+            || sample.includes('/login');
+    }
+
+    async function readRequestError(response) {
+        if (isLoginResponse(response)) {
+            return '登录状态已过期，请重新登录后再试。';
+        }
+        const errorText = await response.text();
+        if (looksLikeLoginHtml(errorText)) {
+            return '登录状态已过期，请重新登录后再试。';
+        }
+        return errorText || `HTTP ${response.status}`;
+    }
+
+    function throwIfLoginResponse(response) {
+        if (!isLoginResponse(response)) return;
+        const error = new Error('登录状态已过期，请重新登录后再试。');
+        error.authExpired = true;
+        throw error;
+    }
+
     function getThinkingPhrases() {
         try {
             if (activePersona && activePersona.thinkingPhrases) {
@@ -1920,9 +1955,10 @@
                 signal: abortController.signal
             });
 
+            throwIfLoginResponse(response);
+
             if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(errorText || `HTTP ${response.status}`);
+                throw new Error(await readRequestError(response));
             }
 
             assistantElement = createMessage('assistant', '');
