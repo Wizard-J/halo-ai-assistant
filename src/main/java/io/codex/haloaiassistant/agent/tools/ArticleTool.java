@@ -771,10 +771,15 @@ public class ArticleTool implements Tool {
                 }
             }
 
+            return executeInternal(args);
+        }
+
+        public String executeInternal(JsonNode args) {
+            String id = args.get("id").asText();
             Snapshot createdSnapshot = null;
 
             try {
-                            Post post = client.get(Post.class, id).block();
+                Post post = client.get(Post.class, id).block();
                 if (post == null) {
                     return "文章不存在: " + id;
                 }

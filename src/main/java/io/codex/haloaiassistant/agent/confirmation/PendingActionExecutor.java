@@ -42,14 +42,8 @@ public class PendingActionExecutor {
     }
 
     private static String executeUpdateArticle(JsonNode args) {
-        // 低风险更新（仅 title/content）不走确认，已执行完。
-        // 高风险（publish/categories/tags）在确认后通过原 UpdateArticleTool 的 execute 执行，
-        // 此时不会再走确认路径（因为是从 PendingActionService 直接调用的）。
-        // 目前通过重新调用 execute 但无需确认——需要在 UpdateArticleTool 增加区分。
-        // 临时方案：再次调用 UpdateArticleTool.execute，由于确认后 payload 已不包含高风险标记外的其他标记，
-        // 但仍然会走确认路径。需要后续优化。
         UpdateArticleTool tool = SpringContextBridge.getBean(UpdateArticleTool.class);
-        return tool.execute(args);
+        return tool.executeInternal(args);
     }
 
     private static String executeDeleteComment(JsonNode args) {
