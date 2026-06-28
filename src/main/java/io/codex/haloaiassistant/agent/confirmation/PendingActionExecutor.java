@@ -63,7 +63,7 @@ public class PendingActionExecutor {
 
     private static String executeSyncArticlePublishTimes(JsonNode args) {
         ArticleTool.SyncArticlePublishTimesTool tool = SpringContextBridge.getBean(ArticleTool.SyncArticlePublishTimesTool.class);
-        return tool.execute(args);
+        return tool.executeInternal(args);
     }
 
     private static String executeDeleteComment(JsonNode args) {

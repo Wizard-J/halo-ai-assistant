@@ -130,6 +130,7 @@ public class PendingActionService {
             case "createCategory" -> "createCategory";
             case "createTag" -> "createTag";
             case "batchTagArticles" -> "batchTagArticles";
+            case "syncArticlePublishTimes" -> "syncArticlePublishTimes";
             default -> throw new IllegalArgumentException("未知操作类型: " + type);
         };
     }

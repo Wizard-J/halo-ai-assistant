@@ -563,6 +563,33 @@ public class ArticleTool implements Tool {
         @Override
         public String execute(JsonNode args) {
             boolean dryRun = !args.has("dryRun") || args.get("dryRun").asBoolean(true);
+
+            // 非预览模式需要确认
+            if (!dryRun) {
+                try {
+                    PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
+                    int limit = Math.max(1, Math.min(500, args.path("limit").asInt(100)));
+                    String timezone = args.path("timezone").asText("Asia/Shanghai");
+                    String summary = "将批量同步最多 " + limit + " 篇文章的发布时间，时区：" + timezone;
+                    var result = pas.create("syncArticlePublishTimes", "批量同步发布时间确认", summary, RiskLevel.HIGH, args);
+                    return "⚠️ 需要确认操作\n\n"
+                            + "**待确认操作**\n\n"
+                            + "**操作：** 批量同步发布时间确认\n"
+                            + "**摘要：** " + summary + "\n"
+                            + "**风险等级：** HIGH\n\n"
+                            + "**确认ID：** `" + result.getConfirmationId() + "`\n\n"
+                            + "请管理员点击确认后执行操作。";
+                } catch (Exception e) {
+                    log.error("创建待确认操作失败，已取消执行", e);
+                    return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
+                }
+            }
+
+            return executeInternal(args);
+        }
+
+        public String executeInternal(JsonNode args) {
+            boolean dryRun = !args.has("dryRun") || args.get("dryRun").asBoolean(true);
             int limit = Math.max(1, Math.min(500, args.path("limit").asInt(100)));
             String timezone = args.path("timezone").asText("Asia/Shanghai");
             ZoneId zone;
