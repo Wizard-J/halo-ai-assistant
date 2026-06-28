@@ -123,6 +123,18 @@ function renderMarkdown(content: string) {
   };
 
   const splitTableRow = (line: string) => line.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim());
+  const isTableSeparator = (line: string) => /^[\s|:-]+$/.test(line) && line.includes("-");
+  const isPipeRow = (line: string) => (line.match(/\|/g) || []).length >= 2 && !isTableSeparator(line);
+  const renderTable = (headers: string[], rows: string[][]) => {
+    const columnCount = Math.max(headers.length, ...rows.map(row => row.length));
+    const normalizedHeaders = Array.from({ length: columnCount }, (_, i) => headers[i] || "");
+    const normalizedRows = rows.map(row => Array.from({ length: columnCount }, (_, i) => row[i] || ""));
+    html.push("<div class=\"table-scroll\"><table><thead><tr>"
+      + normalizedHeaders.map(cell => "<th>" + renderInline(cell) + "</th>").join("")
+      + "</tr></thead><tbody>");
+    normalizedRows.forEach(row => html.push("<tr>" + row.map(cell => "<td>" + renderInline(cell) + "</td>").join("") + "</tr>"));
+    html.push("</tbody></table></div>");
+  };
 
   while (index < lines.length) {
     const rawLine = lines[index];
@@ -134,18 +146,26 @@ function renderMarkdown(content: string) {
     }
 
     const nextLine = lines[index + 1] || "";
-    if (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(nextLine)) {
+    if (isPipeRow(line) && (isTableSeparator(nextLine) || isPipeRow(nextLine))) {
       closeList();
       const headers = splitTableRow(line);
       const rows: string[][] = [];
-      index += 2;
-      while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
-        rows.push(splitTableRow(lines[index]));
+      index += 1;
+      while (index < lines.length && lines[index].trim()) {
+        const current = lines[index].trim();
+        if (isTableSeparator(current)) {
+          index += 1;
+          continue;
+        }
+        if (!isPipeRow(current)) break;
+        rows.push(splitTableRow(current));
         index += 1;
       }
-      html.push("<table><thead><tr>" + headers.map(cell => "<th>" + renderInline(cell) + "</th>").join("") + "</tr></thead><tbody>");
-      rows.forEach(row => html.push("<tr>" + row.map(cell => "<td>" + renderInline(cell) + "</td>").join("") + "</tr>"));
-      html.push("</tbody></table>");
+      if (rows.length) {
+        renderTable(headers, rows);
+      } else {
+        html.push("<p>" + renderInline(line) + "</p>");
+      }
       continue;
     }
 
@@ -539,7 +559,7 @@ function goToImmersive() {
 }
 
 .message-bubble {
-  max-width: min(680px, 72%);
+  max-width: min(880px, 78%);
   padding: 10px 13px;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -580,23 +600,38 @@ function goToImmersive() {
 }
 
 .message-bubble.markdown :deep(table) {
+  min-width: 560px;
   width: 100%;
-  margin: 8px 0 10px;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12px;
+}
+
+.message-bubble.markdown :deep(.table-scroll) {
+  max-width: 100%;
+  margin: 8px 0 10px;
+  overflow-x: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
 }
 
 .message-bubble.markdown :deep(th),
 .message-bubble.markdown :deep(td) {
-  padding: 6px 8px;
-  border: 1px solid #e5e7eb;
+  padding: 7px 9px;
+  border-bottom: 1px solid #e5e7eb;
   text-align: left;
   vertical-align: top;
+  white-space: normal;
 }
 
 .message-bubble.markdown :deep(th) {
   background: #f8fafc;
+  color: #475569;
   font-weight: 700;
+}
+
+.message-bubble.markdown :deep(tr:last-child td) {
+  border-bottom: 0;
 }
 
 .message-bubble.markdown :deep(ul) {

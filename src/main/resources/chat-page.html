@@ -468,23 +468,38 @@
         }
 
         .assistant-content table {
+            min-width: 560px;
             width: 100%;
-            margin: 14px 0;
             border-collapse: collapse;
-            font-size: 14px;
+            font-size: 13px;
+        }
+
+        .assistant-content .table-scroll {
+            max-width: 100%;
+            margin: 12px 0;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface);
         }
 
         .assistant-content th,
         .assistant-content td {
-            padding: 10px 12px;
+            padding: 8px 10px;
             border-bottom: 1px solid var(--border);
             text-align: left;
+            vertical-align: top;
         }
 
         .assistant-content th {
+            background: var(--surface-subtle);
             color: var(--text-muted);
             font-size: 12px;
             font-weight: 650;
+        }
+
+        .assistant-content tr:last-child td {
+            border-bottom: 0;
         }
 
         .message-error {
@@ -1440,6 +1455,26 @@
         return line.trim().replace(/^\||\|$/g, '').split('|').map(cell => cell.trim());
     }
 
+    function isTableSeparator(line) {
+        return /^[\s|:-]+$/.test(line) && line.includes('-');
+    }
+
+    function isPipeTableRow(line) {
+        const matches = line.match(/\|/g);
+        return matches && matches.length >= 2 && !isTableSeparator(line);
+    }
+
+    function renderTable(headers, rows) {
+        const columnCount = Math.max(headers.length, ...rows.map(row => row.length));
+        const normalizedHeaders = Array.from({ length: columnCount }, (_, i) => headers[i] || '');
+        const normalizedRows = rows.map(row => Array.from({ length: columnCount }, (_, i) => row[i] || ''));
+        return '<div class="table-scroll"><table><thead><tr>'
+            + normalizedHeaders.map(cell => `<th>${renderInline(cell)}</th>`).join('')
+            + '</tr></thead><tbody>'
+            + normalizedRows.map(row => '<tr>' + row.map(cell => `<td>${renderInline(cell)}</td>`).join('') + '</tr>').join('')
+            + '</tbody></table></div>';
+    }
+
     function normalizeAssistantContent(source) {
         return String(source || '')
             .replace(/\r\n/g, '\n')
@@ -1489,18 +1524,22 @@
             }
 
             const nextLine = lines[index + 1] || '';
-            if (line.includes('|') && /^\s*\|?\s*:?-{3,}/.test(nextLine)) {
+            if (isPipeTableRow(line) && (isTableSeparator(nextLine) || isPipeTableRow(nextLine))) {
                 closeList();
                 const headers = splitTableRow(line);
                 const rows = [];
-                index += 2;
-                while (index < lines.length && lines[index].includes('|') && lines[index].trim()) {
-                    rows.push(splitTableRow(lines[index]));
+                index += 1;
+                while (index < lines.length && lines[index].trim()) {
+                    const current = lines[index].trim();
+                    if (isTableSeparator(current)) {
+                        index += 1;
+                        continue;
+                    }
+                    if (!isPipeTableRow(current)) break;
+                    rows.push(splitTableRow(current));
                     index += 1;
                 }
-                html.push('<table><thead><tr>' + headers.map(cell => `<th>${renderInline(cell)}</th>`).join('') + '</tr></thead><tbody>');
-                rows.forEach(row => html.push('<tr>' + row.map(cell => `<td>${renderInline(cell)}</td>`).join('') + '</tr>'));
-                html.push('</tbody></table>');
+                html.push(rows.length ? renderTable(headers, rows) : `<p>${renderInline(line)}</p>`);
                 continue;
             }
 
