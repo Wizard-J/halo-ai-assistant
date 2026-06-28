@@ -1,8 +1,5 @@
 <script lang="ts" setup>
-import { inject, ref, Ref, onMounted } from "vue";
-import type { Plugin } from "@halo-dev/ui-shared";
-
-const plugin = inject<Ref<Plugin | undefined>>("plugin");
+import { nextTick, onMounted, ref } from "vue";
 
 interface ConfirmationInfo {
   id: string;
@@ -23,7 +20,9 @@ const messages = ref<ChatMessage[]>([]);
 const inputText = ref("");
 const isStreaming = ref(false);
 const history = ref<{ role: string; content: string }[]>([]);
+const messagePane = ref<HTMLElement | null>(null);
 let abortController: AbortController | null = null;
+let streamBuffer = "";
 const sessionId = ref(localStorage.getItem("ai-assistant-session") || "console-" + Date.now());
 
 onMounted(async () => {
@@ -35,9 +34,16 @@ onMounted(async () => {
       localStorage.setItem("ai-assistant-session", data.sessionId);
     }
   } catch (e) {
-    // fallback: keep generated sessionId
+    // Keep the generated session id when Console user info is unavailable.
   }
 });
+
+function scrollToBottom() {
+  nextTick(() => {
+    if (!messagePane.value) return;
+    messagePane.value.scrollTop = messagePane.value.scrollHeight;
+  });
+}
 
 function parseConfirmation(content: string): ConfirmationInfo | undefined {
   const idMatch = content.match(/确认ID[：:]\s*`(confirm_[a-z0-9]+)`/);
@@ -52,6 +58,42 @@ function parseConfirmation(content: string): ConfirmationInfo | undefined {
     riskLevel: riskMatch ? riskMatch[1] : "HIGH",
     status: "pending",
   };
+}
+
+function parseSseEvents(chunk: string, done = false) {
+  streamBuffer += chunk;
+  const parts = streamBuffer.split(/\r?\n\r?\n/);
+  const tail = parts.pop() || "";
+  streamBuffer = done ? "" : tail;
+  const events = done ? parts.concat(tail ? [tail] : []) : parts;
+
+  return events
+    .map((event) => {
+      const data = event
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).replace(/^ /, ""))
+        .join("\n");
+      return data || event;
+    })
+    .filter((data) => data && data !== "[DONE]")
+    .join("");
+}
+
+function isLoginResponse(response: Response) {
+  const contentType = response.headers.get("content-type") || "";
+  const url = response.url || "";
+  return response.status === 401
+    || response.status === 403
+    || (response.redirected && url.includes("/login"))
+    || contentType.includes("text/html");
+}
+
+async function readError(response: Response) {
+  if (isLoginResponse(response)) return "登录状态已过期，请重新登录后再试。";
+  const text = await response.text();
+  if (text.toLowerCase().includes("<html")) return "登录状态已过期，请重新登录后再试。";
+  return text || "HTTP " + response.status;
 }
 
 async function cancelConfirmation(msg: ChatMessage) {
@@ -80,15 +122,25 @@ async function confirmAction(msg: ChatMessage) {
   }
 }
 
+function stopStreaming() {
+  abortController?.abort();
+}
+
 async function sendMessage() {
   const text = inputText.value.trim();
   if (!text || isStreaming.value) return;
 
-  messages.value.push({ role: "user", content: text });
+  const requestHistory = history.value.slice();
+  const userMsg: ChatMessage = { role: "user", content: text };
+  messages.value.push(userMsg);
   history.value.push({ role: "user", content: text });
   inputText.value = "";
   isStreaming.value = true;
+  streamBuffer = "";
   abortController = new AbortController();
+  scrollToBottom();
+
+  const assistantMsg: ChatMessage = { role: "assistant", content: "" };
 
   try {
     const resp = await fetch("/api/ai-assistant/chat", {
@@ -96,48 +148,53 @@ async function sendMessage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message: text,
-        history: history.value.slice(0, -1),
+        history: requestHistory,
         persona: "default",
         sessionId: sessionId.value,
       }),
       signal: abortController.signal,
     });
 
-    if (!resp.ok) {
-      const errorText = await resp.text();
-      messages.value.push({ role: "assistant", content: "[请求失败] " + (errorText || "HTTP " + resp.status) });
+    if (!resp.ok || isLoginResponse(resp)) {
+      messages.value.push({ role: "assistant", content: "[请求失败] " + await readError(resp) });
       return;
     }
 
+    messages.value.push(assistantMsg);
+    scrollToBottom();
+
     const reader = resp.body!.getReader();
     const decoder = new TextDecoder();
-    let buffer = "";
-    let assistantMsg: ChatMessage = { role: "assistant", content: "" };
-
-    messages.value.push(assistantMsg);
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: !done });
-      assistantMsg.content = buffer;
-      // 检测确认信息
-      const conf = parseConfirmation(buffer);
-      if (conf) {
-        assistantMsg.confirmation = conf;
+      const chunk = decoder.decode(value || new Uint8Array(), { stream: !done });
+      const parsed = parseSseEvents(chunk, done);
+      if (parsed) {
+        assistantMsg.content += parsed;
+        const conf = parseConfirmation(assistantMsg.content);
+        if (conf) assistantMsg.confirmation = conf;
+        scrollToBottom();
       }
+      if (done) break;
     }
 
-    if (buffer.trim()) {
-      history.value.push({ role: "assistant", content: buffer });
+    if (!assistantMsg.content.trim()) {
+      assistantMsg.content = "[错误] AI 服务没有返回内容，请稍后重试。";
+    } else {
+      history.value.push({ role: "assistant", content: assistantMsg.content });
     }
   } catch (error: any) {
     if (error.name !== "AbortError") {
       messages.value.push({ role: "assistant", content: "[请求失败] " + error.message });
+    } else if (!assistantMsg.content) {
+      messages.value.push({ role: "assistant", content: "已停止生成。" });
     }
   } finally {
     isStreaming.value = false;
     abortController = null;
+    streamBuffer = "";
+    scrollToBottom();
   }
 }
 
@@ -147,242 +204,406 @@ function goToImmersive() {
 </script>
 
 <template>
-  <div class="ai-assistant-tab">
-    <div class="header">
-      <div class="header-info">
-        <h2>老巫师 AI 助手</h2>
-        <p class="subtitle">
-          在 Halo Console 中使用 AI 助手管理站点内容。高影响操作会先展示摘要并要求确认。
-        </p>
+  <section class="ai-assistant-tab">
+    <header class="console-chat-header">
+      <div class="header-title">
+        <span class="avatar" aria-hidden="true">AI</span>
+        <div>
+          <h2>老巫师 AI 助手</h2>
+          <p>Console 内容工作台</p>
+        </div>
       </div>
-    </div>
+      <button class="ghost-button" type="button" @click="goToImmersive">
+        沉浸式
+      </button>
+    </header>
 
-    <div class="messages">
+    <div ref="messagePane" class="messages">
       <div v-if="messages.length === 0" class="welcome">
-        <h2>你好，我是老巫师</h2>
-        <p>我可以帮你管理文章、分类、标签和评论。</p>
+        <div class="welcome-mark" aria-hidden="true">AI</div>
+        <h3>今天要处理什么？</h3>
+        <p>可以查看文章、管理分类标签，或处理待审核评论。</p>
       </div>
 
-      <template v-for="(msg, i) in messages" :key="i">
-        <!-- 普通消息 -->
-        <div v-if="!msg.confirmation" class="message" :class="msg.role">
-          {{ msg.content }}
+      <article
+        v-for="(msg, i) in messages"
+        :key="i"
+        class="message-row"
+        :class="msg.role"
+      >
+        <div class="message-avatar" aria-hidden="true">
+          {{ msg.role === "user" ? "你" : "AI" }}
         </div>
 
-        <!-- 确认卡片 -->
+        <div v-if="!msg.confirmation" class="message-bubble">
+          <span v-if="msg.role === 'assistant' && !msg.content" class="typing">正在思考...</span>
+          <span v-else>{{ msg.content }}</span>
+        </div>
+
         <div v-else class="confirmation-card">
           <div class="confirmation-header">
-            <span class="confirmation-icon">⚠️</span>
-            <span class="confirmation-title">待确认操作</span>
-            <span class="confirmation-risk" :class="msg.confirmation.riskLevel.toLowerCase()">{{ msg.confirmation.riskLevel }}</span>
+            <span class="confirmation-icon" aria-hidden="true">!</span>
+            <span class="confirmation-title">{{ msg.confirmation.title }}</span>
+            <span class="confirmation-risk" :class="msg.confirmation.riskLevel.toLowerCase()">
+              {{ msg.confirmation.riskLevel }}
+            </span>
           </div>
-          <div class="confirmation-body">
-            <div class="confirmation-summary">{{ msg.confirmation.summary }}</div>
-          </div>
+          <div class="confirmation-summary">{{ msg.confirmation.summary }}</div>
           <div v-if="msg.confirmation.status === 'pending'" class="confirmation-actions">
-            <button class="btn-cancel" @click="cancelConfirmation(msg)">取消</button>
-            <button class="btn-confirm" @click="confirmAction(msg)">确认执行</button>
+            <button class="btn-cancel" type="button" @click="cancelConfirmation(msg)">取消</button>
+            <button class="btn-confirm" type="button" @click="confirmAction(msg)">确认执行</button>
           </div>
-          <div v-else class="confirmation-result">
-            {{ msg.confirmation.result }}
-          </div>
+          <div v-else class="confirmation-result">{{ msg.confirmation.result }}</div>
         </div>
-      </template>
+      </article>
     </div>
 
-    <div class="composer">
-      <input
+    <form class="composer" @submit.prevent="sendMessage">
+      <textarea
         v-model="inputText"
-        placeholder="输入消息…"
+        rows="1"
+        placeholder="输入消息..."
         :disabled="isStreaming"
-        @keydown.enter.prevent="sendMessage"
+        @keydown.enter.exact.prevent="sendMessage"
       />
-      <button :disabled="isStreaming" @click="sendMessage">发送</button>
-    </div>
-
-    <div class="footer-link">
-      <a href="#" @click.prevent="goToImmersive">
-        <i class="ri-external-link-line"></i> 打开沉浸式模式
-      </a>
-    </div>
-  </div>
+      <button v-if="!isStreaming" class="send-button" type="submit" :disabled="!inputText.trim()">
+        发送
+      </button>
+      <button v-else class="stop-button" type="button" @click="stopStreaming">
+        停止
+      </button>
+    </form>
+  </section>
 </template>
 
 <style scoped>
 .ai-assistant-tab {
-  display: flex;
-  flex-direction: column;
-  height: 600px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
+  display: grid;
+  grid-template-rows: auto minmax(360px, 1fr) auto;
+  min-height: 620px;
+  max-height: calc(100vh - 220px);
   overflow: hidden;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
 }
-.header {
+
+.console-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--border-color);
-  flex-shrink: 0;
+  border-bottom: 1px solid #eef0f3;
+  background: #ffffff;
 }
-.header-info h2 {
-  margin: 0 0 4px;
-  font-size: 16px;
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: #312e81;
+  color: #ffffff;
+  font-size: 18px;
   font-weight: 700;
 }
-.subtitle {
+
+.header-title h2 {
   margin: 0;
-  font-size: 13px;
-  color: var(--text-secondary);
+  color: #111827;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.35;
 }
+
+.header-title p {
+  margin: 2px 0 0;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.ghost-button,
+.send-button,
+.stop-button,
+.confirmation-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ghost-button {
+  padding: 0 12px;
+  border: 1px solid #d9dee7;
+  background: #ffffff;
+  color: #374151;
+}
+
+.ghost-button:hover {
+  background: #f9fafb;
+}
+
 .messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 24px;
+  background: #fbfcfe;
 }
+
 .welcome {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  min-height: 260px;
+  color: #6b7280;
   text-align: center;
-  padding: 40px 20px;
-  color: var(--text-secondary);
 }
-.welcome h2 {
-  margin: 0 0 8px;
+
+.welcome-mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 20px;
+}
+
+.welcome h3 {
+  margin: 0 0 6px;
+  color: #111827;
   font-size: 18px;
-  color: var(--text-color);
+  font-weight: 700;
 }
+
 .welcome p {
   margin: 0;
-  font-size: 14px;
+  font-size: 13px;
 }
-.message {
-  padding: 8px 12px;
+
+.message-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+}
+
+.message-row.user {
+  flex-direction: row-reverse;
+}
+
+.message-avatar {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.message-row.user .message-avatar {
+  background: #e0f2fe;
+  color: #075985;
+}
+
+.message-bubble {
+  max-width: min(680px, 72%);
+  padding: 10px 13px;
+  border: 1px solid #e5e7eb;
   border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.65;
   white-space: pre-wrap;
-  max-width: 85%;
+  word-break: break-word;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
-.message.user {
-  margin-left: auto;
-  background: var(--primary-color);
-  color: #fff;
+
+.message-row.user .message-bubble {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #ffffff;
 }
-.message.assistant {
-  margin-right: auto;
-  background: var(--surface-color);
-  border: 1px solid var(--border-color);
+
+.typing {
+  color: #6b7280;
 }
+
 .confirmation-card {
-  border: 1px solid var(--danger-color, #e02424);
+  width: min(720px, 78%);
+  padding: 14px;
+  border: 1px solid #fecaca;
   border-radius: 8px;
-  padding: 16px;
-  margin: 4px 0;
-  background: color-mix(in srgb, var(--danger-color, #e02424) 6%, transparent);
+  background: #fff7f7;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
+
 .confirmation-header {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
-  font-weight: 700;
+  margin-bottom: 10px;
+  color: #111827;
   font-size: 14px;
+  font-weight: 700;
 }
+
 .confirmation-icon {
-  font-size: 18px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 12px;
 }
+
 .confirmation-title {
   flex: 1;
 }
+
 .confirmation-risk {
-  font-size: 12px;
-  font-weight: 600;
   padding: 2px 8px;
-  border-radius: 4px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
 }
+
 .confirmation-risk.high {
-  color: var(--danger-color, #e02424);
-  background: color-mix(in srgb, var(--danger-color, #e02424) 10%, transparent);
+  background: #fee2e2;
+  color: #b91c1c;
 }
+
 .confirmation-risk.medium {
-  color: #d97706;
-  background: color-mix(in srgb, #d97706 10%, transparent);
+  background: #fef3c7;
+  color: #92400e;
 }
+
 .confirmation-summary {
-  font-size: 13px;
-  color: var(--text-secondary);
   margin-bottom: 12px;
+  color: #4b5563;
+  font-size: 13px;
+  line-height: 1.55;
 }
+
 .confirmation-actions {
   display: flex;
-  gap: 8px;
   justify-content: flex-end;
-}
-.confirmation-actions button {
-  padding: 6px 16px;
-  border-radius: 8px;
-  border: none;
-  font-weight: 600;
-  cursor: pointer;
-}
-.btn-cancel {
-  border: 1px solid var(--border-color);
-  background: var(--surface-color);
-  color: var(--text-color);
-}
-.btn-confirm {
-  background: var(--danger-color, #e02424);
-  color: #fff;
-}
-.confirmation-result {
-  font-size: 13px;
-  color: var(--success-color, #16a34a);
-  margin-top: 8px;
-}
-.composer {
-  display: flex;
   gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border-color);
-  background: var(--surface-color);
-  flex-shrink: 0;
 }
-.composer input {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 14px;
-  outline: none;
-  background: var(--bg-color);
+
+.btn-cancel {
+  padding: 0 13px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
 }
-.composer input:focus {
-  border-color: var(--primary-color);
+
+.btn-confirm {
+  padding: 0 13px;
+  border: 1px solid #dc2626;
+  background: #dc2626;
+  color: #ffffff;
 }
-.composer button {
-  padding: 8px 20px;
-  border: none;
-  border-radius: 8px;
-  background: var(--primary-color);
-  color: #fff;
+
+.confirmation-result {
+  color: #15803d;
+  font-size: 13px;
   font-weight: 600;
-  cursor: pointer;
 }
-.composer button:disabled {
-  opacity: 0.5;
+
+.composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid #eef0f3;
+  background: #ffffff;
+}
+
+.composer textarea {
+  width: 100%;
+  min-height: 38px;
+  max-height: 96px;
+  resize: vertical;
+  padding: 9px 12px;
+  border: 1px solid #d9dee7;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.45;
+  outline: none;
+}
+
+.composer textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.send-button {
+  min-width: 82px;
+  padding: 0 16px;
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.send-button:disabled {
+  border-color: #cbd5e1;
+  background: #cbd5e1;
   cursor: not-allowed;
 }
-.footer-link {
-  text-align: center;
-  padding: 8px;
-  border-top: 1px solid var(--border-color);
-  flex-shrink: 0;
+
+.stop-button {
+  min-width: 72px;
+  padding: 0 16px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
 }
-.footer-link a {
-  font-size: 13px;
-  color: var(--primary-color);
-  text-decoration: none;
-}
-.footer-link a:hover {
-  text-decoration: underline;
+
+@media (max-width: 900px) {
+  .ai-assistant-tab {
+    min-height: 560px;
+    max-height: none;
+  }
+
+  .messages {
+    padding: 16px;
+  }
+
+  .message-bubble,
+  .confirmation-card {
+    max-width: 82%;
+    width: auto;
+  }
 }
 </style>
