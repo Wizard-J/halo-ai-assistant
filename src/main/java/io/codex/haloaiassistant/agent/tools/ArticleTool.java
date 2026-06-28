@@ -56,7 +56,7 @@ public class ArticleTool implements Tool {
 
     @Override
     public String getDescription() {
-        return "获取文章列表，支持分页和状态筛选（已发布、草稿、回收站等）";
+        return "获取文章列表，支持分页和状态筛选；当用户询问未发布、草稿、待发布文章时必须传 status=draft";
     }
 
     @Override
@@ -78,7 +78,7 @@ public class ArticleTool implements Tool {
         ObjectNode statusProp = props.putObject("status");
         statusProp.put("type", "string");
         statusProp.putArray("enum").add("published").add("draft").add("trash").add("");
-        statusProp.put("description", "文章状态筛选");
+        statusProp.put("description", "文章状态筛选：published=已发布，draft=未发布/草稿，trash=回收站；用户问未发布时使用 draft");
         statusProp.put("default", "");
 
         return schema.toPrettyString();
@@ -88,23 +88,33 @@ public class ArticleTool implements Tool {
     public String execute(JsonNode args) {
         int page = args.has("page") ? args.get("page").asInt(1) : 1;
         int size = args.has("size") ? args.get("size").asInt(10) : 10;
-        String status = args.has("status") ? args.get("status").asText("") : "";
+        String status = normalizeStatus(args.has("status") ? args.get("status").asText("") : "");
 
         try {
-            ListResult<Post> result = client.list(Post.class, null, null, page - 1, size).block();
+            int fetchPage = status.isBlank() ? page - 1 : 0;
+            int fetchSize = status.isBlank() ? size : Math.max(500, page * size);
+            ListResult<Post> result = client.list(Post.class, null, null, fetchPage, fetchSize).block();
             if (result == null) {
                 return "获取文章列表失败：无返回结果";
             }
 
+            List<Post> filtered = result.getItems().stream()
+                    .filter(post -> matchesStatus(post, status))
+                    .toList();
+            long total = status.isBlank() ? result.getTotal() : filtered.size();
+            int totalPages = Math.max(1, (int) Math.ceil(total / (double) size));
+            int from = Math.min(Math.max(page - 1, 0) * size, filtered.size());
+            int to = Math.min(from + size, filtered.size());
+            List<Post> pageItems = status.isBlank() ? result.getItems() : filtered.subList(from, to);
+
             StringBuilder sb = new StringBuilder();
-            ListResult<Post> resultLocal = result;
-            sb.append(String.format("共 %d 篇文章（当前第 %d/%d 页）\n\n",
-                    resultLocal.getTotal(), page, resultLocal.getTotalPages()));
+            sb.append(String.format("共 %d 篇%s文章（当前第 %d/%d 页）\n\n",
+                    total, statusLabel(status), page, totalPages));
             // 数据量大时用精简格式，帮助 AI 高效处理
-            boolean compact = resultLocal.getItems().size() > 15;
+            boolean compact = pageItems.size() > 15;
             if (compact) {
                 sb.append("文章列表（精简格式）：\n");
-                for (Post post : resultLocal.getItems()) {
+                for (Post post : pageItems) {
                     var meta = post.getMetadata();
                     var spec = post.getSpec();
                     String title = spec != null && spec.getTitle() != null ? spec.getTitle() : "无标题";
@@ -113,12 +123,12 @@ public class ArticleTool implements Tool {
             } else {
                 sb.append("| ID | 标题 | 状态 | 发布时间 |\n");
                 sb.append("|---|---|---|---|\n");
-                for (Post post : resultLocal.getItems()) {
+                for (Post post : pageItems) {
                     var meta = post.getMetadata();
                     var spec = post.getSpec();
                     String title = spec != null && spec.getTitle() != null ? spec.getTitle() : "无标题";
-                    String postStatus = post.isPublished()
-                            ? "已发布" : post.isDeleted()
+                    String postStatus = isPublished(post)
+                            ? "已发布" : isDeleted(post)
                             ? "回收站" : "草稿";
                     String publishTime = spec != null && spec.getPublishTime() != null
                             ? spec.getPublishTime().toString() : "未设置";
@@ -131,6 +141,56 @@ public class ArticleTool implements Tool {
             log.error("获取文章列表失败", e);
             return "获取文章列表失败: " + e.getMessage();
         }
+    }
+
+    static String normalizeStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return "";
+        }
+        String normalized = status.trim().toLowerCase();
+        return switch (normalized) {
+            case "published", "publish", "已发布" -> "published";
+            case "draft", "unpublished", "未发布", "草稿", "待发布" -> "draft";
+            case "trash", "deleted", "回收站", "已删除" -> "trash";
+            default -> "";
+        };
+    }
+
+    static boolean matchesStatus(Post post, String status) {
+        if (status == null || status.isBlank()) {
+            return true;
+        }
+        return switch (status) {
+            case "published" -> isPublished(post) && !isDeleted(post);
+            case "draft" -> !isPublished(post) && !isDeleted(post);
+            case "trash" -> isDeleted(post);
+            default -> true;
+        };
+    }
+
+    static boolean isPublished(Post post) {
+        var spec = post.getSpec();
+        if (spec != null && spec.getPublish() != null) {
+            return spec.getPublish();
+        }
+        return post.isPublished();
+    }
+
+    static boolean isDeleted(Post post) {
+        var spec = post.getSpec();
+        if (spec != null && spec.getDeleted() != null) {
+            return spec.getDeleted();
+        }
+        return post.isDeleted();
+    }
+
+    static String statusLabel(String status) {
+        return switch (status == null ? "" : status) {
+            case "published" -> "已发布";
+            case "draft" -> "草稿/未发布";
+            case "trash" -> "回收站";
+            default -> "";
+        };
     }
 
     public static List<String> splitNames(String value) {

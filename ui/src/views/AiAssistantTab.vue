@@ -62,18 +62,25 @@ function parseConfirmation(content: string): ConfirmationInfo | undefined {
 
 function parseSseEvents(chunk: string, done = false) {
   streamBuffer += chunk;
-  const lines = streamBuffer.split(/\r?\n/);
-  streamBuffer = done ? "" : lines.pop() || "";
+  const events = streamBuffer.split(/\r?\n\r?\n/);
+  streamBuffer = done ? "" : events.pop() || "";
   const dataParts: string[] = [];
 
-  for (const line of lines) {
-    if (!line.startsWith("data:")) continue;
-    const data = line.slice(5).replace(/^ /, "");
+  for (const event of events) {
+    const dataLines = event
+      .split(/\r?\n/)
+      .filter(line => line.startsWith("data:"))
+      .map(line => line.slice(5).replace(/^ /, ""));
+    const data = dataLines.join("\n");
     if (data && data !== "[DONE]") dataParts.push(data);
   }
 
-  if (done && streamBuffer.startsWith("data:")) {
-    const data = streamBuffer.slice(5).replace(/^ /, "");
+  if (done && streamBuffer.trim()) {
+    const data = streamBuffer
+      .split(/\r?\n/)
+      .filter(line => line.startsWith("data:"))
+      .map(line => line.slice(5).replace(/^ /, ""))
+      .join("\n");
     if (data && data !== "[DONE]") dataParts.push(data);
     streamBuffer = "";
   }
@@ -83,7 +90,11 @@ function parseSseEvents(chunk: string, done = false) {
 
 function normalizeAssistantContent(content: string) {
   return content
-    .replace(/(^|\n)data:\s*/g, "$1")
+    .replace(/\r\n/g, "\n")
+    .replace(/(^|[\n|])data:\s*/g, "$1")
+    .replace(/([^\n])(\s*#{1,3}\s+)/g, "$1\n\n$2")
+    .replace(/([^\n])(\s*---+\s*)/g, "$1\n\n---\n")
+    .replace(/([^\n])(\s*[-*]\s+(?:\*\*|[\u{1F300}-\u{1FAFF}]))/gu, "$1\n$2")
     .replace(/\n{3,}/g, "\n\n")
     .trimStart();
 }
@@ -101,6 +112,7 @@ function renderMarkdown(content: string) {
   const normalized = normalizeAssistantContent(content);
   const lines = normalized.split(/\n/);
   const html: string[] = [];
+  let index = 0;
   let listOpen = false;
 
   const closeList = () => {
@@ -110,30 +122,55 @@ function renderMarkdown(content: string) {
     }
   };
 
-  for (const rawLine of lines) {
+  const splitTableRow = (line: string) => line.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim());
+
+  while (index < lines.length) {
+    const rawLine = lines[index];
     const line = rawLine.trimEnd();
     if (!line.trim()) {
       closeList();
+      index += 1;
       continue;
     }
 
-    if (line.startsWith("## ")) {
+    const nextLine = lines[index + 1] || "";
+    if (line.includes("|") && /^\s*\|?\s*:?-{3,}/.test(nextLine)) {
       closeList();
-      html.push("<h3>" + renderInline(line.slice(3)) + "</h3>");
+      const headers = splitTableRow(line);
+      const rows: string[][] = [];
+      index += 2;
+      while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
+        rows.push(splitTableRow(lines[index]));
+        index += 1;
+      }
+      html.push("<table><thead><tr>" + headers.map(cell => "<th>" + renderInline(cell) + "</th>").join("") + "</tr></thead><tbody>");
+      rows.forEach(row => html.push("<tr>" + row.map(cell => "<td>" + renderInline(cell) + "</td>").join("") + "</tr>"));
+      html.push("</tbody></table>");
       continue;
     }
 
-    if (/^[-*]\s+/.test(line)) {
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = Math.min(heading[1].length + 2, 4);
+      html.push("<h" + level + ">" + renderInline(heading[2]) + "</h" + level + ">");
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*[-*]\s+/.test(line)) {
       if (!listOpen) {
         html.push("<ul>");
         listOpen = true;
       }
-      html.push("<li>" + renderInline(line.replace(/^[-*]\s+/, "")) + "</li>");
+      html.push("<li>" + renderInline(line.replace(/^\s*[-*]\s+/, "")) + "</li>");
+      index += 1;
       continue;
     }
 
     closeList();
     html.push("<p>" + renderInline(line) + "</p>");
+    index += 1;
   }
 
   closeList();
@@ -529,15 +566,37 @@ function goToImmersive() {
   margin-bottom: 0;
 }
 
-.message-bubble.markdown :deep(h3) {
+.message-bubble.markdown :deep(h3),
+.message-bubble.markdown :deep(h4) {
   margin: 14px 0 8px;
   color: #111827;
   font-size: 14px;
   font-weight: 700;
 }
 
-.message-bubble.markdown :deep(h3:first-child) {
+.message-bubble.markdown :deep(h3:first-child),
+.message-bubble.markdown :deep(h4:first-child) {
   margin-top: 0;
+}
+
+.message-bubble.markdown :deep(table) {
+  width: 100%;
+  margin: 8px 0 10px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.message-bubble.markdown :deep(th),
+.message-bubble.markdown :deep(td) {
+  padding: 6px 8px;
+  border: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: top;
+}
+
+.message-bubble.markdown :deep(th) {
+  background: #f8fafc;
+  font-weight: 700;
 }
 
 .message-bubble.markdown :deep(ul) {
