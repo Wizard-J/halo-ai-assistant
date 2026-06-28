@@ -6,7 +6,7 @@ import lombok.Data;
 public class AutoOpsSetting {
     // === 第一人物：巫师前沿站 ===
     private Boolean enabled = false;
-    private Boolean autoPublish = true;
+    private Boolean autoPublish = false;
     private String runTime = "08:30";
     private String timezone = "Asia/Shanghai";
     private String authorName = "巫师前沿站";

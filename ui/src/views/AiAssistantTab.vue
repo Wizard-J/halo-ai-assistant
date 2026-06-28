@@ -4,15 +4,28 @@ import type { Plugin } from "@halo-dev/console-shared";
 
 const plugin = inject<Ref<Plugin | undefined>>("plugin");
 
-const messages = ref<string[]>([]);
+interface ConfirmationInfo {
+  id: string;
+  title: string;
+  summary: string;
+  riskLevel: string;
+  status: "pending" | "confirmed" | "cancelled";
+  result?: string;
+}
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  confirmation?: ConfirmationInfo;
+}
+
+const messages = ref<ChatMessage[]>([]);
 const inputText = ref("");
 const isStreaming = ref(false);
 const history = ref<{ role: string; content: string }[]>([]);
 let abortController: AbortController | null = null;
 const sessionId = ref(localStorage.getItem("ai-assistant-session") || "console-" + Date.now());
-const currentUserText = ref("");
 
-// 页面加载时获取服务端 sessionId，保持跨页面一致性
 onMounted(async () => {
   try {
     const resp = await fetch("/api/ai-assistant/me");
@@ -26,12 +39,52 @@ onMounted(async () => {
   }
 });
 
+function parseConfirmation(content: string): ConfirmationInfo | undefined {
+  const idMatch = content.match(/确认ID[：:]\s*`(confirm_[a-z0-9]+)`/);
+  const titleMatch = content.match(/\*\*操作[：:]\*\*\s*(.+)/);
+  const summaryMatch = content.match(/\*\*摘要[：:]\*\*\s*(.+)/);
+  const riskMatch = content.match(/\*\*风险等级[：:]\*\*\s*(MEDIUM|HIGH)/);
+  if (!idMatch) return undefined;
+  return {
+    id: idMatch[1],
+    title: titleMatch ? titleMatch[1].trim() : "待确认操作",
+    summary: summaryMatch ? summaryMatch[1].trim() : "",
+    riskLevel: riskMatch ? riskMatch[1] : "HIGH",
+    status: "pending",
+  };
+}
+
+async function cancelConfirmation(msg: ChatMessage) {
+  if (!msg.confirmation) return;
+  try {
+    const resp = await fetch("/api/ai-assistant/pending-actions/" + msg.confirmation.id + "/cancel", { method: "POST" });
+    const data = await resp.json();
+    msg.confirmation.status = "cancelled";
+    msg.confirmation.result = data.success ? "操作已取消" : "取消失败";
+  } catch (e: any) {
+    msg.confirmation.status = "cancelled";
+    msg.confirmation.result = "取消失败: " + e.message;
+  }
+}
+
+async function confirmAction(msg: ChatMessage) {
+  if (!msg.confirmation) return;
+  try {
+    const resp = await fetch("/api/ai-assistant/pending-actions/" + msg.confirmation.id + "/confirm", { method: "POST" });
+    const data = await resp.json();
+    msg.confirmation.status = "confirmed";
+    msg.confirmation.result = data.message || (data.success ? "操作已执行" : "执行失败");
+  } catch (e: any) {
+    msg.confirmation.status = "confirmed";
+    msg.confirmation.result = "执行失败: " + e.message;
+  }
+}
+
 async function sendMessage() {
   const text = inputText.value.trim();
   if (!text || isStreaming.value) return;
 
-  currentUserText.value = text;
-  messages.value.push("用户: " + text);
+  messages.value.push({ role: "user", content: text });
   history.value.push({ role: "user", content: text });
   inputText.value = "";
   isStreaming.value = true;
@@ -52,14 +105,14 @@ async function sendMessage() {
 
     if (!resp.ok) {
       const errorText = await resp.text();
-      messages.value.push("助手: [请求失败] " + (errorText || "HTTP " + resp.status));
+      messages.value.push({ role: "assistant", content: "[请求失败] " + (errorText || "HTTP " + resp.status) });
       return;
     }
 
     const reader = resp.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    let assistantMsg = "助手: ";
+    let assistantMsg: ChatMessage = { role: "assistant", content: "" };
 
     messages.value.push(assistantMsg);
 
@@ -67,7 +120,12 @@ async function sendMessage() {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: !done });
-      messages.value[messages.value.length - 1] = "助手: " + buffer;
+      assistantMsg.content = buffer;
+      // 检测确认信息
+      const conf = parseConfirmation(buffer);
+      if (conf) {
+        assistantMsg.confirmation = conf;
+      }
     }
 
     if (buffer.trim()) {
@@ -75,7 +133,7 @@ async function sendMessage() {
     }
   } catch (error: any) {
     if (error.name !== "AbortError") {
-      messages.value.push("助手: [请求失败] " + error.message);
+      messages.value.push({ role: "assistant", content: "[请求失败] " + error.message });
     }
   } finally {
     isStreaming.value = false;
@@ -99,14 +157,37 @@ function goToImmersive() {
       </div>
     </div>
 
-    <div class="messages" ref="messagesRef">
+    <div class="messages">
       <div v-if="messages.length === 0" class="welcome">
         <h2>你好，我是老巫师</h2>
         <p>我可以帮你管理文章、分类、标签和评论。</p>
       </div>
-      <div v-for="(msg, i) in messages" :key="i" class="message" :class="{ user: msg.startsWith('用户'), assistant: msg.startsWith('助手') }">
-        {{ msg }}
-      </div>
+
+      <template v-for="(msg, i) in messages" :key="i">
+        <!-- 普通消息 -->
+        <div v-if="!msg.confirmation" class="message" :class="msg.role">
+          {{ msg.content }}
+        </div>
+
+        <!-- 确认卡片 -->
+        <div v-else class="confirmation-card">
+          <div class="confirmation-header">
+            <span class="confirmation-icon">⚠️</span>
+            <span class="confirmation-title">待确认操作</span>
+            <span class="confirmation-risk" :class="msg.confirmation.riskLevel.toLowerCase()">{{ msg.confirmation.riskLevel }}</span>
+          </div>
+          <div class="confirmation-body">
+            <div class="confirmation-summary">{{ msg.confirmation.summary }}</div>
+          </div>
+          <div v-if="msg.confirmation.status === 'pending'" class="confirmation-actions">
+            <button class="btn-cancel" @click="cancelConfirmation(msg)">取消</button>
+            <button class="btn-confirm" @click="confirmAction(msg)">确认执行</button>
+          </div>
+          <div v-else class="confirmation-result">
+            {{ msg.confirmation.result }}
+          </div>
+        </div>
+      </template>
     </div>
 
     <div class="composer">
@@ -190,6 +271,72 @@ function goToImmersive() {
   margin-right: auto;
   background: var(--surface-color);
   border: 1px solid var(--border-color);
+}
+.confirmation-card {
+  border: 1px solid var(--danger-color, #e02424);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 4px 0;
+  background: color-mix(in srgb, var(--danger-color, #e02424) 6%, transparent);
+}
+.confirmation-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-weight: 700;
+  font-size: 14px;
+}
+.confirmation-icon {
+  font-size: 18px;
+}
+.confirmation-title {
+  flex: 1;
+}
+.confirmation-risk {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.confirmation-risk.high {
+  color: var(--danger-color, #e02424);
+  background: color-mix(in srgb, var(--danger-color, #e02424) 10%, transparent);
+}
+.confirmation-risk.medium {
+  color: #d97706;
+  background: color-mix(in srgb, #d97706 10%, transparent);
+}
+.confirmation-summary {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.confirmation-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.confirmation-actions button {
+  padding: 6px 16px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-cancel {
+  border: 1px solid var(--border-color);
+  background: var(--surface-color);
+  color: var(--text-color);
+}
+.btn-confirm {
+  background: var(--danger-color, #e02424);
+  color: #fff;
+}
+.confirmation-result {
+  font-size: 13px;
+  color: var(--success-color, #16a34a);
+  margin-top: 8px;
 }
 .composer {
   display: flex;

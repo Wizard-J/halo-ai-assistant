@@ -129,6 +129,25 @@ public class CommentTool implements Tool {
                 return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
             }
         }
+
+        /**
+         * 内部执行方法——确认后直接审核，不走确认路径。
+         */
+        public static String executeInternal(String id) {
+            ReactiveExtensionClient client = SpringContextBridge.getBean(ReactiveExtensionClient.class);
+            try {
+                Comment comment = client.get(Comment.class, id).block();
+                if (comment == null) {
+                    return "评论不存在: " + id;
+                }
+                comment.getSpec().setApproved(true);
+                client.update(comment).block();
+                return "评论已审核通过（ID: " + id + "）";
+            } catch (Exception e) {
+                log.error("审核评论失败", e);
+                return "审核评论失败: " + e.getMessage();
+            }
+        }
     }
 
     @Component
@@ -181,6 +200,24 @@ public class CommentTool implements Tool {
             } catch (Exception e) {
                 log.error("创建待确认操作失败，已取消执行", e);
                 return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
+            }
+        }
+
+        /**
+         * 内部执行方法——确认后直接删除，不走确认路径。
+         */
+        public static String executeInternal(String id) {
+            ReactiveExtensionClient client = SpringContextBridge.getBean(ReactiveExtensionClient.class);
+            try {
+                Comment comment = client.get(Comment.class, id).block();
+                if (comment == null) {
+                    return "评论不存在: " + id;
+                }
+                client.delete(comment).block();
+                return "评论已删除（ID: " + id + "）";
+            } catch (Exception e) {
+                log.error("删除评论失败", e);
+                return "删除评论失败: " + e.getMessage();
             }
         }
     }

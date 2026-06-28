@@ -100,7 +100,7 @@ public class PendingActionService {
         }
 
         try {
-            String result = tool.execute(action.getPayload());
+            String result = PendingActionExecutor.execute(action);
             ObjectNode success = objectMapper.createObjectNode();
             success.put("success", true);
             success.put("result", result);

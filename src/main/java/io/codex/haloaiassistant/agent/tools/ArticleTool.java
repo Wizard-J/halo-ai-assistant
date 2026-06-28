@@ -940,6 +940,35 @@ public class ArticleTool implements Tool {
                 return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
             }
         }
+
+        /**
+         * 内部执行方法——确认后直接执行删除，不走确认路径。
+         */
+        public static String executeInternal(String id, boolean permanent) {
+            ReactiveExtensionClient client = SpringContextBridge.getBean(ReactiveExtensionClient.class);
+            try {
+                if (permanent) {
+                    Post post = client.get(Post.class, id).block();
+                    if (post == null) {
+                        return "文章不存在: " + id;
+                    }
+                    client.delete(post).block();
+                    return "文章已永久删除（ID: " + id + "）";
+                } else {
+                    Post post = client.get(Post.class, id).block();
+                    if (post == null) {
+                        return "文章不存在: " + id;
+                    }
+                    var spec = post.getSpec();
+                    spec.setDeleted(true);
+                    client.update(post).block();
+                    return "文章已移入回收站（ID: " + id + "）";
+                }
+            } catch (Exception e) {
+                log.error("删除文章失败", e);
+                return "删除文章失败: " + e.getMessage();
+            }
+        }
     }
 
     private static Instant parsePublishTime(String value) {
@@ -1059,8 +1088,28 @@ public class ArticleTool implements Tool {
 
         @Override
         public String execute(JsonNode args) {
+            // 批量更新标签/分类需要确认
             try {
-                List<String> tags = args.has("tags")
+                PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
+                String ids = args.has("articleIds") ? args.get("articleIds").asText("") : "";
+                String summary = "将批量更新文章标签/分类。影响文章：" + (ids.isBlank() ? "全部" : ids);
+                var result = pas.create("batchTagArticles", "批量更新确认", summary, RiskLevel.HIGH, args);
+                return "⚠️ 需要确认操作\n\n"
+                        + "**待确认操作**\n\n"
+                        + "**操作：** 批量更新确认\n"
+                        + "**摘要：** " + summary + "\n"
+                        + "**风险等级：** HIGH\n\n"
+                        + "**确认ID：** `" + result.getConfirmationId() + "`\n\n"
+                        + "请管理员点击确认后执行操作。";
+            } catch (Exception e) {
+                log.error("创建待确认操作失败，已取消执行", e);
+                return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
+            }
+        }
+    }
+
+    /**
+     * 全自动标签工具 — 读取所有文章标题，调用 AI 自行分类并打上对应标签
                         ? ArticleTool.splitNames(args.get("tags").asText())
                         : List.of();
                 List<String> categories = args.has("categories")

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.codex.haloaiassistant.agent.AgentService;
 import io.codex.haloaiassistant.agent.ToolRegistry;
+import io.codex.haloaiassistant.agent.confirmation.PendingAction;
 import io.codex.haloaiassistant.agent.confirmation.PendingActionService;
 import io.codex.haloaiassistant.autoops.AutoOpsService;
 import io.codex.haloaiassistant.config.AiAssistantSetting;

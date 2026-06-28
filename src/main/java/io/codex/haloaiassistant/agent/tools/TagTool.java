@@ -121,5 +121,28 @@ public class TagTool implements Tool {
                 return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
             }
         }
+
+        /**
+         * 内部执行方法——确认后直接创建标签，不走确认路径。
+         */
+        public static String executeInternal(String name, String slug) {
+            ReactiveExtensionClient client = SpringContextBridge.getBean(ReactiveExtensionClient.class);
+            try {
+                Tag tag = new Tag();
+                var metadata = new run.halo.app.extension.Metadata();
+                metadata.setName("tag-" + Instant.now().toEpochMilli());
+                metadata.setGenerateName("tag-");
+                tag.setMetadata(metadata);
+                var spec = new Tag.TagSpec();
+                spec.setDisplayName(name);
+                spec.setSlug(slug);
+                tag.setSpec(spec);
+                client.create(tag).block();
+                return "标签创建成功：\n- 名称：" + name + "\n- 别名：" + slug;
+            } catch (Exception e) {
+                log.error("创建标签失败", e);
+                return "创建标签失败: " + e.getMessage();
+            }
+        }
     }
 }
