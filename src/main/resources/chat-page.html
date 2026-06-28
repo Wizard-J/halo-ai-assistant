@@ -521,6 +521,81 @@
             padding-left: 20px;
         }
 
+        .assistant-content .article-result {
+            display: grid;
+            gap: 11px;
+            min-width: min(680px, 100%);
+        }
+
+        .assistant-content .article-result-summary {
+            color: var(--text);
+            font-weight: 650;
+        }
+
+        .assistant-content .article-result-list {
+            display: grid;
+            gap: 7px;
+        }
+
+        .assistant-content .article-result-item {
+            display: grid;
+            grid-template-columns: 32px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 11px;
+            padding: 9px 11px;
+            border: 1px solid var(--border);
+            border-radius: 7px;
+            background: var(--surface);
+        }
+
+        .assistant-content .article-result-index {
+            display: inline-grid;
+            place-items: center;
+            width: 25px;
+            height: 25px;
+            border-radius: 999px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 750;
+        }
+
+        .assistant-content .article-result-title {
+            min-width: 0;
+            color: var(--text);
+            font-weight: 620;
+            line-height: 1.45;
+        }
+
+        .assistant-content .article-result-meta {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-muted);
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .assistant-content .article-result-meta span:first-child {
+            padding: 2px 7px;
+            border-radius: 999px;
+            background: var(--surface-subtle);
+            color: var(--text-muted);
+            font-weight: 650;
+        }
+
+        @media (max-width: 720px) {
+            .assistant-content .article-result-item {
+                grid-template-columns: 30px minmax(0, 1fr);
+            }
+
+            .assistant-content .article-result-meta {
+                grid-column: 2;
+                justify-self: start;
+                white-space: normal;
+            }
+        }
+
         .message-error {
             padding: 12px 14px;
             border: 1px solid color-mix(in srgb, var(--danger) 28%, var(--border));
@@ -1516,6 +1591,52 @@
             + '</tbody></table></div>';
     }
 
+    function parseArticleResult(content) {
+        const lines = String(content || '')
+            .split('\n')
+            .map(line => line.trim())
+            .filter(Boolean);
+        const summaryLine = lines.find(line => /当前共有\s*\d+\s*篇/.test(line) && /已全部列出/.test(line));
+        if (!summaryLine) return null;
+
+        const summaryMatch = summaryLine.match(/当前共有\s*\d+\s*篇.+?已全部列出[：:]?/);
+        const summary = summaryMatch ? summaryMatch[0].replace(/[：:]?$/, '') : summaryLine;
+        const items = [];
+        const itemPattern = /^(?:(\d+)[.)]\s*)?(.+?)（([^，）]+)，时间：([^）]+)）$/;
+
+        lines.forEach(line => {
+            const match = line.match(itemPattern);
+            if (!match) return;
+            items.push({
+                index: Number(match[1] || items.length + 1),
+                title: match[2].trim(),
+                status: match[3].trim(),
+                time: formatArticleTime(match[4].trim()),
+            });
+        });
+
+        return items.length ? { summary, items } : null;
+    }
+
+    function formatArticleTime(value) {
+        if (!value || value === '未设置') return '未设置';
+        const dateOnly = value.match(/^\d{4}-\d{2}-\d{2}/);
+        return dateOnly ? dateOnly[0] : value;
+    }
+
+    function renderArticleResult(result) {
+        return '<div class="article-result">'
+            + `<div class="article-result-summary">${renderInline(result.summary)}</div>`
+            + '<div class="article-result-list">'
+            + result.items.map(item => '<div class="article-result-item">'
+                + `<span class="article-result-index">${item.index}</span>`
+                + `<span class="article-result-title">${renderInline(item.title)}</span>`
+                + '<span class="article-result-meta">'
+                + `<span>${renderInline(item.status)}</span><span>${renderInline(item.time)}</span>`
+                + '</span></div>').join('')
+            + '</div></div>';
+    }
+
     function normalizeAssistantContent(source) {
         const normalized = String(source || '')
             .replace(/\r\n/g, '\n')
@@ -1598,7 +1719,11 @@
     }
 
     function renderMarkdown(source) {
-        const lines = normalizeAssistantContent(source).split('\n');
+        const normalized = normalizeAssistantContent(source);
+        const articleResult = parseArticleResult(normalized);
+        if (articleResult) return renderArticleResult(articleResult);
+
+        const lines = normalized.split('\n');
         const html = [];
         let index = 0;
         let listType = null;

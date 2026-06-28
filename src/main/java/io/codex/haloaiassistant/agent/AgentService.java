@@ -392,7 +392,7 @@ public class AgentService {
                 .collectList()
                 .flatMapMany(results -> {
                     if (shouldReturnToolResultDirectly(results)) {
-                        return Flux.just(joinToolResults(results));
+                        return directToolResult(results);
                     }
                     for (Object[] r : results) {
                         newMessages.add(new ChatMessage("tool",
@@ -471,7 +471,7 @@ public class AgentService {
                                                 .collectList()
                                                 .flatMapMany(results -> {
                                                     if (shouldReturnToolResultDirectly(results)) {
-                                                        return Flux.just(joinToolResults(results));
+                                                        return directToolResult(results);
                                                     }
                                                     for (Object[] r : results) {
                                                         newMessages.add(new ChatMessage("tool",
@@ -512,6 +512,16 @@ public class AgentService {
                 .map(result -> (String) result[2])
                 .reduce((left, right) -> left + "\n\n" + right)
                 .orElse("");
+    }
+
+    private Flux<String> directToolResult(List<Object[]> results) {
+        String result = joinToolResults(results);
+        long numberedLines = result.lines()
+                .filter(line -> line.matches("^\\d+[.)]\\s+.*"))
+                .count();
+        log.info("直接返回 listArticles 工具结果: chars={}, numberedLines={}",
+                result.length(), numberedLines);
+        return Flux.just(result);
     }
 
     // ========== 请求体构造 ==========

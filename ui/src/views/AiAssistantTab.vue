@@ -16,6 +16,18 @@ interface ChatMessage {
   confirmation?: ConfirmationInfo;
 }
 
+interface ArticleResultItem {
+  index: number;
+  title: string;
+  status: string;
+  time: string;
+}
+
+interface ArticleResult {
+  summary: string;
+  items: ArticleResultItem[];
+}
+
 const messages = ref<ChatMessage[]>([]);
 const inputText = ref("");
 const isStreaming = ref(false);
@@ -185,6 +197,9 @@ function escapeHtml(value: string) {
 
 function renderMarkdown(content: string) {
   const normalized = normalizeAssistantContent(content);
+  const articleResult = parseArticleResult(normalized);
+  if (articleResult) return renderArticleResult(articleResult);
+
   const lines = normalized.split(/\n/);
   const html: string[] = [];
   let index = 0;
@@ -316,6 +331,51 @@ function renderMarkdown(content: string) {
 
   closeList();
   return html.join("");
+}
+
+function parseArticleResult(content: string): ArticleResult | null {
+  const lines = content
+    .split(/\n/)
+    .map(line => line.trim())
+    .filter(Boolean);
+  const summaryLine = lines.find(line => /当前共有\s*\d+\s*篇/.test(line) && /已全部列出/.test(line));
+  if (!summaryLine) return null;
+
+  const summaryMatch = summaryLine.match(/当前共有\s*\d+\s*篇.+?已全部列出[：:]?/);
+  const summary = summaryMatch ? summaryMatch[0].replace(/[：:]?$/, "") : summaryLine;
+  const items: ArticleResultItem[] = [];
+  const itemPattern = /^(?:(\d+)[.)]\s*)?(.+?)（([^，）]+)，时间：([^）]+)）$/;
+
+  lines.forEach(line => {
+    const match = line.match(itemPattern);
+    if (!match) return;
+    items.push({
+      index: Number(match[1] || items.length + 1),
+      title: match[2].trim(),
+      status: match[3].trim(),
+      time: formatArticleTime(match[4].trim()),
+    });
+  });
+
+  return items.length ? { summary, items } : null;
+}
+
+function formatArticleTime(value: string) {
+  if (!value || value === "未设置") return "未设置";
+  const dateOnly = value.match(/^\d{4}-\d{2}-\d{2}/);
+  return dateOnly ? dateOnly[0] : value;
+}
+
+function renderArticleResult(result: ArticleResult) {
+  return "<div class=\"article-result\">"
+    + "<div class=\"article-result-summary\">" + renderInline(result.summary) + "</div>"
+    + "<div class=\"article-result-list\">"
+    + result.items.map(item => "<div class=\"article-result-item\">"
+      + "<span class=\"article-result-index\">" + item.index + "</span>"
+      + "<span class=\"article-result-title\">" + renderInline(item.title) + "</span>"
+      + "<span class=\"article-result-meta\"><span>" + renderInline(item.status) + "</span><span>" + renderInline(item.time) + "</span></span>"
+      + "</div>").join("")
+    + "</div></div>";
 }
 
 function renderInline(value: string) {
@@ -769,6 +829,69 @@ function goToImmersive() {
   padding-left: 18px;
 }
 
+.message-bubble.markdown :deep(.article-result) {
+  display: grid;
+  gap: 10px;
+  min-width: min(620px, 100%);
+}
+
+.message-bubble.markdown :deep(.article-result-summary) {
+  color: #334155;
+  font-weight: 650;
+}
+
+.message-bubble.markdown :deep(.article-result-list) {
+  display: grid;
+  gap: 6px;
+}
+
+.message-bubble.markdown :deep(.article-result-item) {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.message-bubble.markdown :deep(.article-result-index) {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.message-bubble.markdown :deep(.article-result-title) {
+  min-width: 0;
+  color: #111827;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.message-bubble.markdown :deep(.article-result-meta) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.message-bubble.markdown :deep(.article-result-meta span:first-child) {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-weight: 650;
+}
+
 .message-bubble.markdown :deep(ul),
 .message-bubble.markdown :deep(ol) {
   margin: 6px 0 10px;
@@ -792,6 +915,18 @@ function goToImmersive() {
   color: #374151;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .message-bubble.markdown :deep(.article-result-item) {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .message-bubble.markdown :deep(.article-result-meta) {
+    grid-column: 2;
+    justify-self: start;
+    white-space: normal;
+  }
 }
 
 .typing {
