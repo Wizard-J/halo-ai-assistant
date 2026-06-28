@@ -554,6 +554,7 @@ public class AgentService {
                     + "- 创建文章：直接调 createArticle。不反问、不确认、不商量。\n"
                     + "- 永远不说「我先看看」「让我检查」「我发现了一个工具」等废话。直接行动。\n"
                     + "- 回复上限 3 句话。超过就是违规。\n"
+                    + "- 当用户要求发布“第一篇/第 N 篇/这篇/刚才那篇”时，必须根据最近一次 listArticles 返回的序号和 ID 找到对应文章，调用 updateArticle 并传 id=对应ID 且 publish=true；不要只复述列表。\n"
                     + "- 除文章列表外，当需要展示其他表格时，必须使用标准 Markdown 表格格式。");
         }
 

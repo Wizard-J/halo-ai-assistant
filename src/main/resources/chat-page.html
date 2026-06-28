@@ -1465,6 +1465,7 @@
     const historyList = document.getElementById('historyList');
     const drawerBackdrop = document.getElementById('drawerBackdrop');
     const closeHistoryButton = document.getElementById('closeHistoryButton');
+    const confirmationInputPattern = /^(确认|确认执行|执行|同意|好的|好|yes|ok)$/i;
 
     let activePersona = { id: 'default', displayName: 'AI 智能助手', iconUrl: null, brandColor: '#2563eb', greeting: '你好，我是 Halo AI 智能助手', thinkingPhrases: '[]' };
     let personas = [];
@@ -1602,7 +1603,7 @@
         const summaryMatch = summaryLine.match(/当前共有\s*\d+\s*篇.+?已全部列出[：:]?/);
         const summary = summaryMatch ? summaryMatch[0].replace(/[：:]?$/, '') : summaryLine;
         const items = [];
-        const itemPattern = /^(?:(\d+)[.)]\s*)?(.+?)（([^，）]+)，时间：([^）]+)）$/;
+        const itemPattern = /^(?:(\d+)[.)]\s*)?(.+?)（(?:ID\s*[：:]\s*([^，,）]+)\s*[，,]\s*)?([^，,）]+?)\s*[，,]\s*时间\s*[：:]\s*([^）]+)）$/;
 
         lines.forEach(line => {
             const match = line.match(itemPattern);
@@ -1610,8 +1611,9 @@
             items.push({
                 index: Number(match[1] || items.length + 1),
                 title: match[2].trim(),
-                status: match[3].trim(),
-                time: formatArticleTime(match[4].trim()),
+                id: match[3]?.trim() || '',
+                status: match[4].trim(),
+                time: formatArticleTime(match[5].trim()),
             });
         });
 
@@ -1859,7 +1861,7 @@
         } else if (options.error) {
             contentElement.className = 'message-error';
             contentElement.textContent = content;
-        } else if (content.includes('⚠️ 需要确认操作') && content.includes('确认ID')) {
+        } else if (hasConfirmation(content)) {
             contentElement.className = 'assistant-content';
             renderConfirmationCard(contentElement, content);
         } else {
@@ -1890,10 +1892,12 @@
 
     function renderConfirmationCard(container, content) {
         // 从 Markdown 中提取确认信息
-        const idMatch = content.match(/确认ID[：:]\s*`(confirm_[a-z0-9]+)`/);
-        const titleMatch = content.match(/\*\*操作[：:]\*\*\s*(.+)/);
-        const summaryMatch = content.match(/\*\*摘要[：:]\*\*\s*(.+)/);
-        const riskMatch = content.match(/\*\*风险等级[：:]\*\*\s*(MEDIUM|HIGH)/);
+        const idMatch =
+            content.match(/确认\s*ID\s*[：:]?\s*(?:\*\*)?\s*`?(confirm_[a-z0-9]+)`?/i)
+            || content.match(/`?(confirm_[a-z0-9]+)`?/i);
+        const titleMatch = content.match(/(?:\*\*)?操作[：:](?:\*\*)?\s*(.+)/);
+        const summaryMatch = content.match(/(?:\*\*)?摘要[：:](?:\*\*)?\s*(.+)/);
+        const riskMatch = content.match(/(?:\*\*)?风险等级[：:](?:\*\*)?\s*(LOW|MEDIUM|HIGH)/i);
         const confirmationId = idMatch ? idMatch[1] : '';
         const title = titleMatch ? titleMatch[1].trim() : '待确认操作';
         const summary = summaryMatch ? summaryMatch[1].trim() : '';
@@ -1902,6 +1906,8 @@
         container.innerHTML = '';
         const card = document.createElement('div');
         card.className = 'confirmation-card';
+        card.dataset.confirmationId = confirmationId;
+        card.dataset.confirmationStatus = 'pending';
         card.style.cssText = 'border:1px solid var(--danger);border-radius:8px;padding:16px;margin:8px 0;background:color-mix(in srgb, var(--danger) 6%, transparent);';
 
         const header = document.createElement('div');
@@ -1934,6 +1940,7 @@
                 const resp = await fetch('/api/ai-assistant/pending-actions/' + confirmationId + '/cancel', { method: 'POST' });
                 const data = await resp.json();
                 if (data.success) {
+                    card.dataset.confirmationStatus = 'cancelled';
                     card.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">✅ 操作已取消</div>';
                 } else {
                     card.innerHTML = '<div style="color:var(--danger);font-size:13px;">取消失败：' + (data.error || '未知错误') + '</div>';
@@ -1952,6 +1959,7 @@
                 const resp = await fetch('/api/ai-assistant/pending-actions/' + confirmationId + '/confirm', { method: 'POST' });
                 const data = await resp.json();
                 if (data.success) {
+                    card.dataset.confirmationStatus = 'confirmed';
                     card.innerHTML = '<div style="color:var(--success);font-size:13px;">✅ ' + (data.message || '操作已确认') + '</div>';
                 } else {
                     card.innerHTML = '<div style="color:var(--danger);font-size:13px;">确认失败：' + (data.error || '未知错误') + '</div>';
@@ -1965,6 +1973,25 @@
         actions.appendChild(confirmBtn);
         card.appendChild(actions);
         container.appendChild(card);
+    }
+
+    function hasConfirmation(content) {
+        return /confirm_[a-z0-9]+/i.test(String(content || ''));
+    }
+
+    function confirmLatestPendingFromInput(text) {
+        if (!confirmationInputPattern.test(text)) return false;
+        const cards = Array.from(messagesElement.querySelectorAll('.confirmation-card[data-confirmation-status="pending"]'));
+        const card = cards[cards.length - 1];
+        if (!card) return false;
+        const button = card.querySelector('.button-primary');
+        if (!button) return false;
+        createMessage('user', text);
+        history.push({ role: 'user', content: text });
+        input.value = '';
+        autoResizeInput();
+        button.click();
+        return true;
     }
 
     function parseSseEvent(eventText) {
@@ -2299,6 +2326,8 @@
 
     async function sendMessage(text) {
         if (!text || isStreaming) return;
+        if (confirmLatestPendingFromInput(text)) return;
+
         const requestHistory = history.slice();
         welcomeElement.hidden = true;
         createMessage('user', text);
@@ -2339,12 +2368,19 @@
             assistantElement.classList.add('typing');
             activityElement.hidden = true;
             fullContent = await readStream(response, content => {
-                assistantElement.innerHTML = renderMarkdown(content);
+                if (hasConfirmation(content)) {
+                    assistantElement.classList.remove('typing');
+                    renderConfirmationCard(assistantElement, content);
+                } else {
+                    assistantElement.innerHTML = renderMarkdown(content);
+                }
                 scrollToBottom('auto');
             });
             if (!fullContent.trim()) {
                 fullContent = '[错误] AI 服务没有返回内容，请稍后重试。';
                 assistantElement.innerHTML = renderMarkdown(fullContent);
+            } else if (hasConfirmation(fullContent)) {
+                renderConfirmationCard(assistantElement, fullContent);
             }
 
             assistantElement.classList.remove('typing');

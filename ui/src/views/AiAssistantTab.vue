@@ -19,6 +19,7 @@ interface ChatMessage {
 interface ArticleResultItem {
   index: number;
   title: string;
+  id?: string;
   status: string;
   time: string;
 }
@@ -38,6 +39,7 @@ let streamBuffer = "";
 const sessionId = ref(localStorage.getItem("ai-assistant-session") || "console-" + Date.now());
 const assistantName = "老巫师";
 const assistantAvatar = "/plugins/ai-assistant/assets/logo.png";
+const confirmationInputPattern = /^(确认|确认执行|执行|同意|好的|好|yes|ok)$/i;
 
 onMounted(async () => {
   try {
@@ -60,10 +62,12 @@ function scrollToBottom() {
 }
 
 function parseConfirmation(content: string): ConfirmationInfo | undefined {
-  const idMatch = content.match(/确认ID[：:]\s*`(confirm_[a-z0-9]+)`/);
-  const titleMatch = content.match(/\*\*操作[：:]\*\*\s*(.+)/);
-  const summaryMatch = content.match(/\*\*摘要[：:]\*\*\s*(.+)/);
-  const riskMatch = content.match(/\*\*风险等级[：:]\*\*\s*(MEDIUM|HIGH)/);
+  const idMatch =
+    content.match(/确认\s*ID\s*[：:]?\s*(?:\*\*)?\s*`?(confirm_[a-z0-9]+)`?/i)
+    || content.match(/`?(confirm_[a-z0-9]+)`?/i);
+  const titleMatch = content.match(/(?:\*\*)?操作[：:](?:\*\*)?\s*(.+)/);
+  const summaryMatch = content.match(/(?:\*\*)?摘要[：:](?:\*\*)?\s*(.+)/);
+  const riskMatch = content.match(/(?:\*\*)?风险等级[：:](?:\*\*)?\s*(LOW|MEDIUM|HIGH)/i);
   if (!idMatch) return undefined;
   return {
     id: idMatch[1],
@@ -72,6 +76,14 @@ function parseConfirmation(content: string): ConfirmationInfo | undefined {
     riskLevel: riskMatch ? riskMatch[1] : "HIGH",
     status: "pending",
   };
+}
+
+function latestPendingConfirmation() {
+  for (let i = messages.value.length - 1; i >= 0; i -= 1) {
+    const confirmation = messages.value[i].confirmation;
+    if (confirmation?.status === "pending") return messages.value[i];
+  }
+  return undefined;
 }
 
 function parseSseEvents(chunk: string, done = false) {
@@ -344,7 +356,7 @@ function parseArticleResult(content: string): ArticleResult | null {
   const summaryMatch = summaryLine.match(/当前共有\s*\d+\s*篇.+?已全部列出[：:]?/);
   const summary = summaryMatch ? summaryMatch[0].replace(/[：:]?$/, "") : summaryLine;
   const items: ArticleResultItem[] = [];
-  const itemPattern = /^(?:(\d+)[.)]\s*)?(.+?)（([^，）]+)，时间：([^）]+)）$/;
+  const itemPattern = /^(?:(\d+)[.)]\s*)?(.+?)（(?:ID\s*[：:]\s*([^，,）]+)\s*[，,]\s*)?([^，,）]+?)\s*[，,]\s*时间\s*[：:]\s*([^）]+)）$/;
 
   lines.forEach(line => {
     const match = line.match(itemPattern);
@@ -352,8 +364,9 @@ function parseArticleResult(content: string): ArticleResult | null {
     items.push({
       index: Number(match[1] || items.length + 1),
       title: match[2].trim(),
-      status: match[3].trim(),
-      time: formatArticleTime(match[4].trim()),
+      id: match[3]?.trim() || "",
+      status: match[4].trim(),
+      time: formatArticleTime(match[5].trim()),
     });
   });
 
@@ -433,6 +446,17 @@ function stopStreaming() {
 async function sendMessage() {
   const text = inputText.value.trim();
   if (!text || isStreaming.value) return;
+
+  const pendingMessage = latestPendingConfirmation();
+  if (pendingMessage && confirmationInputPattern.test(text)) {
+    const userMsg: ChatMessage = { role: "user", content: text };
+    messages.value.push(userMsg);
+    history.value.push({ role: "user", content: text });
+    inputText.value = "";
+    scrollToBottom();
+    await confirmAction(pendingMessage);
+    return;
+  }
 
   const requestHistory = history.value.slice();
   const userMsg: ChatMessage = { role: "user", content: text };

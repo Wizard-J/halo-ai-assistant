@@ -119,14 +119,15 @@ public class ArticleTool implements Tool {
             for (Post post : pageItems) {
                 var meta = post.getMetadata();
                 var spec = post.getSpec();
+                String id = meta != null && meta.getName() != null ? meta.getName() : "";
                 String title = spec != null && spec.getTitle() != null ? spec.getTitle() : "无标题";
                 String postStatus = isPublished(post)
                         ? "已发布" : isDeleted(post)
                         ? "回收站" : "草稿";
                 String publishTime = spec != null && spec.getPublishTime() != null
                         ? spec.getPublishTime().toString() : "未设置";
-                sb.append(String.format("%d. %s（%s，时间：%s）\n",
-                        rowNumber++, title, postStatus, publishTime));
+                sb.append(String.format("%d. %s（ID：%s，%s，时间：%s）\n",
+                        rowNumber++, title, id, postStatus, publishTime));
             }
             return sb.toString();
         } catch (Exception e) {
@@ -790,7 +791,7 @@ public class ArticleTool implements Tool {
 
         @Override
         public String getDescription() {
-            return "更新文章标题、内容、标签、分类、发布状态或发布时间";
+            return "更新文章标题、内容、标签、分类、发布状态或发布时间；发布已有草稿时传 id 与 publish=true";
         }
 
         @Override
