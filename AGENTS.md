@@ -403,6 +403,72 @@ Spring WebFlux 的 `flatMap` 链中 lambda 参数类型容易推断失败：
 - 修复：显式指定 `.flatMap((PersonaDefinition persona) -> toPersonaSummary(persona))`
 - 或使用 `toPersonaSummary((PersonaDefinition) persona)`
 
+### UI 依赖安装纪律
+
+- `ui/` 子项目默认不要把 `rm -rf node_modules package-lock.json` 当成构建前置步骤；这会触发全量依赖解析和下载，容易因为 npm peer dependency 冲突或网络问题表现为“卡很久”。
+- 日常验证优先使用：
+  ```bash
+  cd /Users/zhangjianmin/project/halo-ai-assistant/ui
+  npm install
+  npm run build
+  ```
+- 只有在明确要重建依赖树、修复 lockfile、或排查损坏的 `node_modules` 时，才清理 `node_modules` / `package-lock.json`。
+- 当前 `package-lock.json` 被 `.gitignore` 忽略；如果将来决定追踪 lockfile，应优先使用 `npm ci` 做可重复安装。
+
+### Halo 官方审核整改：Console 扩展与高风险确认
+
+#### 入口位置与审核表达
+
+- 本插件保留独立沉浸式页面：`/api/ai-assistant/chat-page`。这是高级/沉浸式对话入口，不要删除。
+- 官方审核要求的后台入口应通过 Halo 官方 UI 扩展点接入 Console，不要手写一个仿 Console 的独立后台页面。
+- 当前精简版“老巫师 AI 助手”接入点是：`plugin:self:tabs:create`。
+- `plugin:self:tabs:create` 只会出现在 **Console → 插件 → 已安装插件 → AI 智能助手 → 插件详情页 tab**，不会自动出现在左侧菜单。
+- 如果用户说“后台没有入口”，先确认 TA 是否在插件详情页 tab 查找；不要误判为左侧菜单缺失。
+- 如果希望审核员更容易看到入口，可在保留 `plugin:self:tabs:create` 的基础上新增 `console:dashboard:widgets:create` 仪表盘小组件，提供“进入插件详情页对话框 / 打开沉浸式模式”按钮。
+
+#### Console 前端资源与构建
+
+- Console 扩展前端源码位于 `ui/src/`，入口通常是 `ui/src/index.ts`。
+- 构建产物必须同步到：
+  - `src/main/resources/console/main.js`
+  - `src/main/resources/console/style.css`
+- 打包后看不到 Console tab 时，优先排查：
+  1. 服务器安装的是否是最新 JAR。
+  2. JAR 内是否包含 `console/main.js` 和 `console/style.css`。
+  3. 浏览器是否缓存了旧 Console 页面，先强刷/清缓存。
+  4. DevTools Console 是否有 JS 报错。
+  5. DevTools Network 是否有插件前端资源 404。
+  6. 是否找错位置：当前 tab 在插件详情页，不在左侧菜单。
+- `ui/package.json` 依赖版本要与目标 Halo/Console 版本兼容；Halo 2.22.x 项目中已验证过 `@halo-dev/ui-plugin-bundler-kit` 2.22.x 与 Console 2.21.x 相关包组合可构建。
+
+#### 高风险 AI 操作确认机制
+
+- AI 工具涉及发布、删除、批量修改、评论审核/删除、分类/标签变更、自动运维发布等高影响操作时，必须先创建 pending action，展示操作摘要和风险等级，管理员确认后再执行。
+- 不要把 `skipConfirmation` 或类似绕过确认的参数暴露给模型可见的 tool schema。
+- `PendingActionService.confirmAndExecute(id)` 只能执行已存储的 pending action，确认后应移除该 action，缺失/过期 ID 必须安全失败。
+- `PendingActionExecutor` 的 confirmed path 不应调用公开的 `tool.execute(args)`，否则可能再次创建确认卡片或被模型参数绕过；应调用 `executeInternal(args)` 或专门的 confirmed 方法。
+- pending action 创建失败时必须 fail-safe，返回错误并取消执行；绝不能 fall through 到直接发布/删除/批量修改。
+
+#### 已确认需要保护的工具路径
+
+- `createArticle`：当 `status=published` 时先 pending confirmation，确认后走内部创建逻辑。
+- `updateArticle`：涉及 `publish`、`categories`、`tags` 等高影响字段时先 pending confirmation，确认后走内部更新逻辑。
+- `deleteArticle`：删除/永久删除必须确认。
+- `deleteComment` / `approveComment`：评论删除、审核必须确认。
+- `createCategory` / `deleteCategory` / `createTag`：分类/标签创建删除必须确认。
+- `batchTagArticles`：批量更新标签/分类必须确认。
+- `syncArticlePublishTimes`：`dryRun=true` 或未传 `dryRun` 只预览，可直接执行；`dryRun=false` 会批量修改发布时间，必须先创建 `syncArticlePublishTimes` pending action，确认后由 `PendingActionExecutor` 调 `executeInternal(args)` 执行。
+- `autoPublish` 默认值必须保持关闭：`settings.yaml` 和 `AutoOpsSetting.java` 都应默认为 `false`。
+
+#### 审核前最低验证清单
+
+- `cd ui && npm run build` 成功，并确认 `src/main/resources/console/main.js` / `style.css` 已更新。
+- `./gradlew test` 和 `./gradlew clean build` 成功。
+- Console 插件详情页能看到“老巫师 AI 助手”tab。
+- 独立页面 `/api/ai-assistant/chat-page` 仍可访问。
+- 高风险操作在 Console tab 和独立页面中都显示确认卡片。
+- 点击取消不执行；点击确认只执行一次，不生成第二个确认 ID。
+
 ## 扩展索引注册（重要！）
 
 **问题**：Halo 2.22.x 中 `schemeManager.register(Class)` 的简写方式不会自动创建扩展索引，导致 `client.fetch()`/`client.update()` 操作报错："No indices found for type"。

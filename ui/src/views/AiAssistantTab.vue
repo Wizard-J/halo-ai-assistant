@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { inject, ref, Ref, onMounted } from "vue";
-import type { Plugin } from "@halo-dev/console-shared";
+import type { Plugin } from "@halo-dev/ui-shared";
 
 const plugin = inject<Ref<Plugin | undefined>>("plugin");
 
