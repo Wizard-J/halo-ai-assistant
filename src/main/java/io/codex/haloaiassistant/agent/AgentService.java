@@ -54,18 +54,13 @@ public class AgentService {
         String model = setting.getModel();
         int promptChars = (systemPrompt == null ? 0 : systemPrompt.length())
                 + (userPrompt == null ? 0 : userPrompt.length());
-        ObjectNode body = objectMapper.createObjectNode();
-        body.put("model", model);
-        body.put("max_tokens", maxTokens);
-        ArrayNode messages = body.putArray("messages");
-        messages.addObject().put("role", "system").put("content", systemPrompt);
-        messages.addObject().put("role", "user").put("content", userPrompt);
+        String requestBody = buildGenerateTextRequestBody(model, systemPrompt, userPrompt, maxTokens);
 
         return WebClient.create().post()
                 .uri(URI.create(endpoint + "/chat/completions"))
                 .header("Authorization", "Bearer " + setting.getApiKey())
                 .header("Content-Type", "application/json")
-                .bodyValue(body)
+                .bodyValue(requestBody)
                 .exchangeToMono(response -> response.bodyToMono(String.class)
                         .defaultIfEmpty("")
                         .flatMap(raw -> {
@@ -89,6 +84,16 @@ public class AgentService {
                     }
                     return content;
                 });
+    }
+
+    private String buildGenerateTextRequestBody(String model, String systemPrompt, String userPrompt, int maxTokens) {
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("model", model);
+        body.put("max_tokens", maxTokens);
+        ArrayNode messages = body.putArray("messages");
+        messages.addObject().put("role", "system").put("content", systemPrompt);
+        messages.addObject().put("role", "user").put("content", userPrompt);
+        return body.toString();
     }
 
     // ========== 前台聊天（流式） ==========

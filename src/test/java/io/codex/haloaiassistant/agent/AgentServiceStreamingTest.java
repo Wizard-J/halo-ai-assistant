@@ -2,6 +2,7 @@ package io.codex.haloaiassistant.agent;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +24,7 @@ import reactor.test.StepVerifier;
 class AgentServiceStreamingTest {
 
     private AgentService agentService;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private Class<?> stateClass;
     private Constructor<?> stateCtor;
     private Method parseSseChunkMethod;
@@ -42,6 +44,22 @@ class AgentServiceStreamingTest {
         handleStreamDataMethod = AgentService.class.getDeclaredMethod(
                 "handleStreamData", String.class, stateClass);
         handleStreamDataMethod.setAccessible(true);
+    }
+
+    @Test @DisplayName("generateText 请求体包含顶层 messages")
+    void testBuildGenerateTextRequestBody_HasMessages() throws Exception {
+        Method m = AgentService.class.getDeclaredMethod(
+                "buildGenerateTextRequestBody", String.class, String.class, String.class, int.class);
+        m.setAccessible(true);
+
+        String body = (String) m.invoke(agentService, "deepseek-v4-flash", "system", "user", 3000);
+        var root = objectMapper.readTree(body);
+
+        assertEquals("deepseek-v4-flash", root.path("model").asText());
+        assertEquals(3000, root.path("max_tokens").asInt());
+        assertTrue(root.path("messages").isArray(), "messages 应是顶层数组");
+        assertEquals("system", root.path("messages").path(0).path("role").asText());
+        assertEquals("user", root.path("messages").path(1).path("role").asText());
     }
 
     private Object newState() throws Exception {
