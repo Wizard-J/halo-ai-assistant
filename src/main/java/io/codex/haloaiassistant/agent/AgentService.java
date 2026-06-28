@@ -391,6 +391,9 @@ public class AgentService {
                 })
                 .collectList()
                 .flatMapMany(results -> {
+                    if (shouldReturnToolResultDirectly(results)) {
+                        return Flux.just(joinToolResults(results));
+                    }
                     for (Object[] r : results) {
                         newMessages.add(new ChatMessage("tool",
                                 (String) r[2], (String) r[0], (String) r[1]));
@@ -467,6 +470,9 @@ public class AgentService {
                                                 })
                                                 .collectList()
                                                 .flatMapMany(results -> {
+                                                    if (shouldReturnToolResultDirectly(results)) {
+                                                        return Flux.just(joinToolResults(results));
+                                                    }
                                                     for (Object[] r : results) {
                                                         newMessages.add(new ChatMessage("tool",
                                                                 (String) r[2], (String) r[0], (String) r[1]));
@@ -496,6 +502,18 @@ public class AgentService {
                 });
     }
 
+    private boolean shouldReturnToolResultDirectly(List<Object[]> results) {
+        return !results.isEmpty()
+                && results.stream().allMatch(result -> "listArticles".equals(result[1]));
+    }
+
+    private String joinToolResults(List<Object[]> results) {
+        return results.stream()
+                .map(result -> (String) result[2])
+                .reduce((left, right) -> left + "\n\n" + right)
+                .orElse("");
+    }
+
     // ========== 请求体构造 ==========
 
     /**
@@ -522,11 +540,11 @@ public class AgentService {
                     + "- 分类/打标签：你的第一句回复必须包含 autoTagArticles 工具调用。不许先说废话，直接调！\n"
                     + "- 查询未发布/草稿文章：必须调用 listArticles，并传 status=draft；不要用发布时间是否为空来猜。\n"
                     + "- 查询已发布文章：必须调用 listArticles，并传 status=published。\n"
-                    + "- 展示文章列表时必须使用编号列表，不要使用 Markdown 表格。\n"
+                    + "- 展示文章列表时必须使用编号列表，不要使用 Markdown 表格，不要分页追问。\n"
                     + "- 创建文章：直接调 createArticle。不反问、不确认、不商量。\n"
                     + "- 永远不说「我先看看」「让我检查」「我发现了一个工具」等废话。直接行动。\n"
                     + "- 回复上限 3 句话。超过就是违规。\n"
-                    + "- 当需要展示列表或表格时，必须使用标准 Markdown 表格格式，以 | 开头和结尾，例如：| 序号 | 文章标题 |。分隔行必须完整（如 | --- | --- |）。不要输出零散的 ---、|:、| 作为单独行。");
+                    + "- 除文章列表外，当需要展示其他表格时，必须使用标准 Markdown 表格格式。");
         }
 
         for (ChatMessage msg : messages) {

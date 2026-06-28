@@ -72,8 +72,8 @@ public class ArticleTool implements Tool {
 
         ObjectNode sizeProp = props.putObject("size");
         sizeProp.put("type", "integer");
-        sizeProp.put("description", "每页数量");
-        sizeProp.put("default", 10);
+        sizeProp.put("description", "每页数量；按状态筛选时会一次返回全部匹配文章，不分页");
+        sizeProp.put("default", 50);
 
         ObjectNode statusProp = props.putObject("status");
         statusProp.put("type", "string");
@@ -87,12 +87,12 @@ public class ArticleTool implements Tool {
     @Override
     public String execute(JsonNode args) {
         int page = args.has("page") ? args.get("page").asInt(1) : 1;
-        int size = args.has("size") ? args.get("size").asInt(10) : 10;
+        int size = args.has("size") ? args.get("size").asInt(50) : 50;
         String status = normalizeStatus(args.has("status") ? args.get("status").asText("") : "");
 
         try {
             int fetchPage = status.isBlank() ? page - 1 : 0;
-            int fetchSize = status.isBlank() ? size : Math.max(500, page * size);
+            int fetchSize = status.isBlank() ? size : 500;
             ListResult<Post> result = client.list(Post.class, null, null, fetchPage, fetchSize).block();
             if (result == null) {
                 return "获取文章列表失败：无返回结果";
@@ -102,15 +102,19 @@ public class ArticleTool implements Tool {
                     .filter(post -> matchesStatus(post, status))
                     .toList();
             long total = status.isBlank() ? result.getTotal() : filtered.size();
-            int totalPages = Math.max(1, (int) Math.ceil(total / (double) size));
-            int from = Math.min(Math.max(page - 1, 0) * size, filtered.size());
-            int to = Math.min(from + size, filtered.size());
+            int totalPages = status.isBlank() ? Math.max(1, (int) Math.ceil(total / (double) size)) : 1;
+            int from = status.isBlank() ? Math.min(Math.max(page - 1, 0) * size, filtered.size()) : 0;
+            int to = status.isBlank() ? Math.min(from + size, filtered.size()) : filtered.size();
             List<Post> pageItems = status.isBlank() ? result.getItems() : filtered.subList(from, to);
 
             StringBuilder sb = new StringBuilder();
-            sb.append(String.format("共 %d 篇%s文章（当前第 %d/%d 页）\n\n",
-                    total, statusLabel(status), page, totalPages));
-            sb.append("文章列表（请在最终答复中保留编号列表，不要改写成 Markdown 表格）：\n");
+            if (status.isBlank()) {
+                sb.append(String.format("共 %d 篇文章（当前第 %d/%d 页）\n\n",
+                        total, page, totalPages));
+            } else {
+                sb.append(String.format("当前共有 %d 篇%s文章，已全部列出：\n\n",
+                        total, statusLabel(status)));
+            }
             int rowNumber = from + 1;
             for (Post post : pageItems) {
                 var meta = post.getMetadata();
@@ -121,8 +125,8 @@ public class ArticleTool implements Tool {
                         ? "回收站" : "草稿";
                 String publishTime = spec != null && spec.getPublishTime() != null
                         ? spec.getPublishTime().toString() : "未设置";
-                sb.append(String.format("%d. %s（%s，时间：%s，ID：%s）\n",
-                        rowNumber++, title, postStatus, publishTime, meta.getName()));
+                sb.append(String.format("%d. %s（%s，时间：%s）\n",
+                        rowNumber++, title, postStatus, publishTime));
             }
             return sb.toString();
         } catch (Exception e) {
