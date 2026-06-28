@@ -1,4 +1,4 @@
-package io.codex.haloaiassistant.agent.tools;
+package io.codex.haloaiassistant.agent.confirmation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
