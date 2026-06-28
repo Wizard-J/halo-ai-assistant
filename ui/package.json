@@ -1,0 +1,24 @@
+{
+  "name": "@wizard-j/halo-ai-assistant",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch --mode=development",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@halo-dev/api-client": "^2.25.2",
+    "@halo-dev/components": "^2.25.2",
+    "@halo-dev/console-shared": "^2.21.0",
+    "@halo-dev/ui-plugin-bundler-kit": "^2.25.2",
+    "@rsbuild/core": "^2.1.1",
+    "@rsbuild/plugin-vue": "^2.0.0",
+    "@vitejs/plugin-vue": "^5.2.4",
+    "typescript": "^5.9.3",
+    "vue": "^3.5.39",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
