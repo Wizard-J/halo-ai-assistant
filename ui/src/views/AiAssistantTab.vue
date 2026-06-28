@@ -62,22 +62,88 @@ function parseConfirmation(content: string): ConfirmationInfo | undefined {
 
 function parseSseEvents(chunk: string, done = false) {
   streamBuffer += chunk;
-  const parts = streamBuffer.split(/\r?\n\r?\n/);
-  const tail = parts.pop() || "";
-  streamBuffer = done ? "" : tail;
-  const events = done ? parts.concat(tail ? [tail] : []) : parts;
+  const lines = streamBuffer.split(/\r?\n/);
+  streamBuffer = done ? "" : lines.pop() || "";
+  const dataParts: string[] = [];
 
-  return events
-    .map((event) => {
-      const data = event
-        .split(/\r?\n/)
-        .filter((line) => line.startsWith("data:"))
-        .map((line) => line.slice(5).replace(/^ /, ""))
-        .join("\n");
-      return data || event;
-    })
-    .filter((data) => data && data !== "[DONE]")
-    .join("");
+  for (const line of lines) {
+    if (!line.startsWith("data:")) continue;
+    const data = line.slice(5).replace(/^ /, "");
+    if (data && data !== "[DONE]") dataParts.push(data);
+  }
+
+  if (done && streamBuffer.startsWith("data:")) {
+    const data = streamBuffer.slice(5).replace(/^ /, "");
+    if (data && data !== "[DONE]") dataParts.push(data);
+    streamBuffer = "";
+  }
+
+  return dataParts.join("");
+}
+
+function normalizeAssistantContent(content: string) {
+  return content
+    .replace(/(^|\n)data:\s*/g, "$1")
+    .replace(/\n{3,}/g, "\n\n")
+    .trimStart();
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderMarkdown(content: string) {
+  const normalized = normalizeAssistantContent(content);
+  const lines = normalized.split(/\n/);
+  const html: string[] = [];
+  let listOpen = false;
+
+  const closeList = () => {
+    if (listOpen) {
+      html.push("</ul>");
+      listOpen = false;
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    if (!line.trim()) {
+      closeList();
+      continue;
+    }
+
+    if (line.startsWith("## ")) {
+      closeList();
+      html.push("<h3>" + renderInline(line.slice(3)) + "</h3>");
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(line)) {
+      if (!listOpen) {
+        html.push("<ul>");
+        listOpen = true;
+      }
+      html.push("<li>" + renderInline(line.replace(/^[-*]\s+/, "")) + "</li>");
+      continue;
+    }
+
+    closeList();
+    html.push("<p>" + renderInline(line) + "</p>");
+  }
+
+  closeList();
+  return html.join("");
+}
+
+function renderInline(value: string) {
+  return escapeHtml(value)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
 function isLoginResponse(response: Response) {
@@ -171,7 +237,7 @@ async function sendMessage() {
       const chunk = decoder.decode(value || new Uint8Array(), { stream: !done });
       const parsed = parseSseEvents(chunk, done);
       if (parsed) {
-        assistantMsg.content += parsed;
+        assistantMsg.content = normalizeAssistantContent(assistantMsg.content + parsed);
         const conf = parseConfirmation(assistantMsg.content);
         if (conf) assistantMsg.confirmation = conf;
         scrollToBottom();
@@ -235,9 +301,14 @@ function goToImmersive() {
           {{ msg.role === "user" ? "你" : "AI" }}
         </div>
 
-        <div v-if="!msg.confirmation" class="message-bubble">
+        <div
+          v-if="!msg.confirmation"
+          class="message-bubble"
+          :class="{ markdown: msg.role === 'assistant' }"
+        >
           <span v-if="msg.role === 'assistant' && !msg.content" class="typing">正在思考...</span>
-          <span v-else>{{ msg.content }}</span>
+          <span v-else-if="msg.role === 'user'">{{ msg.content }}</span>
+          <span v-else v-html="renderMarkdown(msg.content)"></span>
         </div>
 
         <div v-else class="confirmation-card">
@@ -448,6 +519,43 @@ function goToImmersive() {
   border-color: #2563eb;
   background: #2563eb;
   color: #ffffff;
+}
+
+.message-bubble.markdown :deep(p) {
+  margin: 0 0 8px;
+}
+
+.message-bubble.markdown :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.message-bubble.markdown :deep(h3) {
+  margin: 14px 0 8px;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.message-bubble.markdown :deep(h3:first-child) {
+  margin-top: 0;
+}
+
+.message-bubble.markdown :deep(ul) {
+  margin: 6px 0 10px;
+  padding-left: 18px;
+}
+
+.message-bubble.markdown :deep(li) {
+  margin: 4px 0;
+}
+
+.message-bubble.markdown :deep(code) {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #f3f4f6;
+  color: #374151;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
 }
 
 .typing {
