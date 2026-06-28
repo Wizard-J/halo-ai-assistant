@@ -1983,6 +1983,22 @@
                     assistantElement.classList.remove('typing');
                     if (!fullContent) assistantElement.textContent = '已停止生成。';
                 }
+            } else if (error.authExpired) {
+                if (assistantElement) assistantElement.closest('.message-row').remove();
+                // 回滚 history：移除刚刚提交的用户消息
+                const last = history[history.length - 1];
+                if (last && last.role === 'user' && last.content === text) {
+                    history.pop();
+                }
+                // 移除用户消息 DOM 节点
+                const userRows = messagesElement.querySelectorAll('.message-row.user');
+                const lastUserRow = userRows[userRows.length - 1];
+                if (lastUserRow) lastUserRow.remove();
+                // 恢复输入框
+                input.value = text;
+                autoResizeInput();
+                welcomeElement.hidden = history.length > 0;
+                alert(error.message || '登录状态已过期，请重新登录后再试。');
             } else {
                 if (assistantElement) assistantElement.closest('.message-row').remove();
                 createMessage('assistant', `[请求失败] ${error.message || '无法连接到 AI 助手'}`, { error: true });
