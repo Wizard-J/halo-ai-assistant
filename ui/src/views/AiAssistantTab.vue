@@ -188,12 +188,20 @@ function renderMarkdown(content: string) {
   const lines = normalized.split(/\n/);
   const html: string[] = [];
   let index = 0;
-  let listOpen = false;
+  let listType: "ul" | "ol" | null = null;
 
-  const closeList = () => {
-    if (listOpen) {
-      html.push("</ul>");
-      listOpen = false;
+  const closeList = (target?: "ul" | "ol") => {
+    if (listType && (!target || listType !== target)) {
+      html.push("</" + listType + ">");
+      listType = null;
+    }
+  };
+
+  const openList = (target: "ul" | "ol") => {
+    if (listType !== target) {
+      closeList();
+      html.push("<" + target + ">");
+      listType = target;
     }
   };
 
@@ -287,11 +295,16 @@ function renderMarkdown(content: string) {
     }
 
     if (/^\s*[-*]\s+/.test(line)) {
-      if (!listOpen) {
-        html.push("<ul>");
-        listOpen = true;
-      }
+      openList("ul");
       html.push("<li>" + renderInline(line.replace(/^\s*[-*]\s+/, "")) + "</li>");
+      index += 1;
+      continue;
+    }
+
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (ordered) {
+      openList("ol");
+      html.push("<li>" + renderInline(ordered[1]) + "</li>");
       index += 1;
       continue;
     }
@@ -756,13 +769,20 @@ function goToImmersive() {
   padding-left: 18px;
 }
 
-.message-bubble.markdown :deep(ul) {
+.message-bubble.markdown :deep(ul),
+.message-bubble.markdown :deep(ol) {
   margin: 6px 0 10px;
-  padding-left: 18px;
+  padding-left: 24px;
 }
 
 .message-bubble.markdown :deep(li) {
-  margin: 4px 0;
+  margin: 5px 0;
+  padding-left: 2px;
+}
+
+.message-bubble.markdown :deep(ol li::marker) {
+  color: #64748b;
+  font-weight: 700;
 }
 
 .message-bubble.markdown :deep(code) {

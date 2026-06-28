@@ -431,11 +431,17 @@
         .assistant-content ul,
         .assistant-content ol {
             margin: 8px 0 15px;
-            padding-left: 23px;
+            padding-left: 25px;
         }
 
         .assistant-content li {
             margin: 5px 0;
+            padding-left: 2px;
+        }
+
+        .assistant-content ol li::marker {
+            color: var(--text-muted);
+            font-weight: 650;
         }
 
         .assistant-content code {
