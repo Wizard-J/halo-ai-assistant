@@ -72,7 +72,7 @@ public class ArticleTool implements Tool {
 
         ObjectNode sizeProp = props.putObject("size");
         sizeProp.put("type", "integer");
-        sizeProp.put("description", "每页数量；按状态筛选时会一次返回全部匹配文章，不分页");
+        sizeProp.put("description", "兼容参数；文章列表会一次返回全部匹配文章，不分页");
         sizeProp.put("default", 50);
 
         ObjectNode statusProp = props.putObject("status");
@@ -86,37 +86,20 @@ public class ArticleTool implements Tool {
 
     @Override
     public String execute(JsonNode args) {
-        int page = args.has("page") ? args.get("page").asInt(1) : 1;
-        int size = args.has("size") ? args.get("size").asInt(50) : 50;
         String status = normalizeStatus(args.has("status") ? args.get("status").asText("") : "");
 
         try {
-            int fetchPage = status.isBlank() ? page - 1 : 0;
-            int fetchSize = status.isBlank() ? size : 500;
-            ListResult<Post> result = client.list(Post.class, null, null, fetchPage, fetchSize).block();
-            if (result == null) {
-                return "获取文章列表失败：无返回结果";
-            }
-
-            List<Post> filtered = result.getItems().stream()
+            List<Post> allPosts = listAllPosts();
+            List<Post> filtered = allPosts.stream()
                     .filter(post -> matchesStatus(post, status))
                     .toList();
-            long total = status.isBlank() ? result.getTotal() : filtered.size();
-            int totalPages = status.isBlank() ? Math.max(1, (int) Math.ceil(total / (double) size)) : 1;
-            int from = status.isBlank() ? Math.min(Math.max(page - 1, 0) * size, filtered.size()) : 0;
-            int to = status.isBlank() ? Math.min(from + size, filtered.size()) : filtered.size();
-            List<Post> pageItems = status.isBlank() ? result.getItems() : filtered.subList(from, to);
+            long total = filtered.size();
 
             StringBuilder sb = new StringBuilder();
-            if (status.isBlank()) {
-                sb.append(String.format("共 %d 篇文章（当前第 %d/%d 页）\n\n",
-                        total, page, totalPages));
-            } else {
-                sb.append(String.format("当前共有 %d 篇%s文章，已全部列出：\n\n",
-                        total, statusLabel(status)));
-            }
-            int rowNumber = from + 1;
-            for (Post post : pageItems) {
+            sb.append(String.format("当前共有 %d 篇%s文章，已全部列出：\n\n",
+                    total, statusLabel(status)));
+            int rowNumber = 1;
+            for (Post post : filtered) {
                 var meta = post.getMetadata();
                 var spec = post.getSpec();
                 String id = meta != null && meta.getName() != null ? meta.getName() : "";
@@ -134,6 +117,26 @@ public class ArticleTool implements Tool {
             log.error("获取文章列表失败", e);
             return "获取文章列表失败: " + e.getMessage();
         }
+    }
+
+    private List<Post> listAllPosts() {
+        int page = 0;
+        int size = 500;
+        List<Post> posts = new ArrayList<>();
+        long total = Long.MAX_VALUE;
+        while (posts.size() < total) {
+            ListResult<Post> result = client.list(Post.class, null, null, page, size).block();
+            if (result == null) {
+                throw new IllegalStateException("无返回结果");
+            }
+            posts.addAll(result.getItems());
+            total = result.getTotal();
+            if (result.getItems().isEmpty()) {
+                break;
+            }
+            page++;
+        }
+        return posts;
     }
 
     static String normalizeStatus(String status) {

@@ -379,11 +379,17 @@ function parseArticleResult(content: string): ArticleResult | null {
     .split(/\n/)
     .map(line => line.trim())
     .filter(Boolean);
-  const summaryLine = lines.find(line => /当前共有\s*\d+\s*篇/.test(line) && /已全部列出/.test(line));
-  if (!summaryLine) return null;
-
-  const summaryMatch = summaryLine.match(/当前共有\s*\d+\s*篇.+?已全部列出[：:]?/);
-  const summary = summaryMatch ? summaryMatch[0].replace(/[：:]?$/, "") : summaryLine;
+  let summaryLine = lines.find(line => /当前共有\s*\d+\s*篇/.test(line) && /已全部列出/.test(line));
+  let summary = '';
+  if (summaryLine) {
+    const summaryMatch = summaryLine.match(/当前共有\s*\d+\s*篇.+?已全部列出[：:]?/);
+    summary = summaryMatch ? summaryMatch[0].replace(/[：:]?$/, "") : summaryLine;
+  } else {
+    summaryLine = lines.find(line => /共\s*\d+\s*篇文章/i.test(line));
+    const summaryMatch = summaryLine?.match(/共\s*\d+\s*篇文章(?:（当前第\s*\d+\/\d+\s*页）)?/i);
+    if (summaryLine) summary = summaryMatch ? summaryMatch[0] : summaryLine;
+  }
+  if (!summaryLine && !summary) return null;
   const items: ArticleResultItem[] = [];
   const itemPattern = /^(?:(\d+)[.)]\s*)?(.+?)（(?:ID\s*[：:]\s*([^，,）]+)\s*[，,]\s*)?([^，,）]+?)\s*[，,]\s*时间\s*[：:]\s*([^）]+)）$/;
 
