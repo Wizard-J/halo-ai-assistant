@@ -36,6 +36,7 @@ const history = ref<{ role: string; content: string }[]>([]);
 const messagePane = ref<HTMLElement | null>(null);
 let abortController: AbortController | null = null;
 let streamBuffer = "";
+let streamMode: "unknown" | "sse" | "raw" = "unknown";
 const sessionId = ref(localStorage.getItem("ai-assistant-session") || "console-" + Date.now());
 const assistantName = "老巫师";
 const assistantAvatar = "/plugins/ai-assistant/assets/logo.png";
@@ -86,8 +87,28 @@ function latestPendingConfirmation() {
   return undefined;
 }
 
-function parseSseEvents(chunk: string, done = false) {
+function parseStreamChunk(chunk: string, done = false) {
   streamBuffer += chunk;
+  if (streamMode === "unknown") {
+    const probe = streamBuffer.trimStart();
+    if (/^(data|event|id|retry):/.test(probe)) {
+      streamMode = "sse";
+    } else if (!done && isPotentialSsePrefix(probe)) {
+      return "";
+    } else {
+      streamMode = "raw";
+      const text = streamBuffer;
+      streamBuffer = "";
+      return text;
+    }
+  }
+
+  if (streamMode === "raw") {
+    const text = streamBuffer;
+    streamBuffer = "";
+    return text;
+  }
+
   const events = streamBuffer.split(/\r?\n\r?\n/);
   streamBuffer = done ? "" : events.pop() || "";
   const dataParts: string[] = [];
@@ -112,6 +133,14 @@ function parseSseEvents(chunk: string, done = false) {
   }
 
   return dataParts.join("");
+}
+
+function isPotentialSsePrefix(value: string) {
+  if (!value) return true;
+  return ["d", "da", "dat", "data", "data:"].includes(value)
+    || ["e", "ev", "eve", "even", "event", "event:"].includes(value)
+    || ["i", "id", "id:"].includes(value)
+    || ["r", "re", "ret", "retr", "retry", "retry:"].includes(value);
 }
 
 function normalizeAssistantContent(content: string) {
@@ -477,6 +506,7 @@ async function sendMessage() {
   inputText.value = "";
   isStreaming.value = true;
   streamBuffer = "";
+  streamMode = "unknown";
   abortController = new AbortController();
   scrollToBottom();
 
@@ -509,7 +539,7 @@ async function sendMessage() {
     while (true) {
       const { done, value } = await reader.read();
       const chunk = decoder.decode(value || new Uint8Array(), { stream: !done });
-      const parsed = parseSseEvents(chunk, done);
+      const parsed = parseStreamChunk(chunk, done);
       if (parsed) {
         assistantMsg.content = normalizeAssistantContent(assistantMsg.content + parsed);
         const conf = parseConfirmation(assistantMsg.content);
