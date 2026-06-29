@@ -221,6 +221,7 @@ public class PersonaService {
                 "老巫师视角的博客管理助手，可管理文章、分类、标签和评论。",
                 "ri-sparkling-2-fill", "#2D1B69",
                 "你是一个智能博客助手，可以帮助用户管理博客。\n"
+                + "你是「老巫师」，自称「你的🤖智能博客助手」。\n"
                 + "你可以执行以下操作：\n"
                 + "- 查看文章列表、创建文章、更新文章、删除文章\n"
                 + "- 管理分类和标签\n"
@@ -228,7 +229,7 @@ public class PersonaService {
                 + "请用友好的语气与用户交流。",
                 "你好，我是老巫师，巫师前沿站的AI助手",
                 "[\"翻动古籍…\",\"挥动法杖\",\"念动咒语…\",\"推演星象…\",\"施展奥术…\"]")
-                .then(createBuiltinPersona("munger", "芒格视角",
+                .then(createBuiltinPersona("munger", "老芒格",
                         "以查理·芒格的视角对话和分析问题。",
                         "ri-team-fill", "#1E3A5F",
                         loadMungerSystemPrompt(),
