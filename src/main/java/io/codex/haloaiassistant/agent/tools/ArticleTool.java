@@ -437,20 +437,35 @@ public class ArticleTool implements Tool {
         }
 
         private static String toReadableHtml(String markdown) {
-            String escaped = markdown
-                    .replace("&", "&amp;")
-                    .replace("<", "&lt;")
-                    .replace(">", "&gt;");
             StringBuilder html = new StringBuilder();
             boolean inList = false;
-            for (String line : escaped.split("\\R", -1)) {
+            boolean inBlockquote = false;
+            for (String line : markdown.split("\\R", -1)) {
                 String trimmed = line.trim();
+                if (trimmed.startsWith(">")) {
+                    if (inList) {
+                        html.append("</ul>");
+                        inList = false;
+                    }
+                    if (!inBlockquote) {
+                        html.append("<blockquote>");
+                        inBlockquote = true;
+                    } else {
+                        html.append("<br>");
+                    }
+                    html.append(renderInline(escapeHtml(trimmed.replaceFirst("^>\\s?", ""))));
+                    continue;
+                }
+                if (inBlockquote) {
+                    html.append("</blockquote>");
+                    inBlockquote = false;
+                }
                 if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
                     if (!inList) {
                         html.append("<ul>");
                         inList = true;
                     }
-                    html.append("<li>").append(renderInline(trimmed.substring(2))).append("</li>");
+                    html.append("<li>").append(renderInline(escapeHtml(trimmed.substring(2)))).append("</li>");
                     continue;
                 }
                 if (inList) {
@@ -465,16 +480,26 @@ public class ArticleTool implements Tool {
                     heading++;
                 }
                 if (heading > 0 && heading < trimmed.length() && trimmed.charAt(heading) == ' ') {
-                    html.append("<h").append(heading).append(">").append(renderInline(trimmed.substring(heading + 1)))
+                    html.append("<h").append(heading).append(">").append(renderInline(escapeHtml(trimmed.substring(heading + 1))))
                             .append("</h").append(heading).append(">");
                 } else {
-                    html.append("<p>").append(renderInline(trimmed)).append("</p>");
+                    html.append("<p>").append(renderInline(escapeHtml(trimmed))).append("</p>");
                 }
+            }
+            if (inBlockquote) {
+                html.append("</blockquote>");
             }
             if (inList) {
                 html.append("</ul>");
             }
             return html.toString();
+        }
+
+        private static String escapeHtml(String value) {
+            return value
+                    .replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;");
         }
 
         private static String renderInline(String value) {
