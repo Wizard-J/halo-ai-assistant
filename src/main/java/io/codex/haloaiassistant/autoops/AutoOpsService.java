@@ -47,7 +47,7 @@ import run.halo.app.plugin.ReactiveSettingFetcher;
 @RequiredArgsConstructor
 public class AutoOpsService {
     private static final String STATE_NAME = "ai-assistant-auto-ops-state";
-    private static final String LAST_RUN_KEY = "lastRunDate";
+    private static final String LAST_RUN_KEY = "lastRunTime";
     private static final String PROCESSED_KEY = "processedUrls";
 
     private final ReactiveSettingFetcher settingFetcher;
@@ -57,9 +57,12 @@ public class AutoOpsService {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AtomicBoolean running = new AtomicBoolean(false);
 
+    private boolean anySucceeded = false;
+
     @Scheduled(fixedDelay = 60_000, initialDelay = 15_000)
     public void tick() {
         if (!running.compareAndSet(false, true)) return;
+        anySucceeded = false;
         settingFetcher.fetch("autoOps", AutoOpsSetting.class)
                 .defaultIfEmpty(new AutoOpsSetting())
                 .onErrorResume(e -> { log.error("tick 配置失败", e); return Mono.just(new AutoOpsSetting()); })
@@ -80,10 +83,14 @@ public class AutoOpsService {
         LocalTime runTime = LocalTime.parse(defaultText(auto.getRunTime(), "08:30"));
         ZonedDateTime now = ZonedDateTime.now(zone);
         ConfigMap state = getOrCreateState();
-        String today = now.toLocalDate().toString();
-        if (today.equals(state.getData().get(LAST_RUN_KEY)) || now.toLocalTime().isBefore(runTime)) return;
+        ZonedDateTime todayRunTime = now.toLocalDate().atTime(runTime).atZone(zone);
+        String lastRunRaw = state.getData().get(LAST_RUN_KEY);
+        if (lastRunRaw != null) {
+            ZonedDateTime lastRunTime = ZonedDateTime.parse(lastRunRaw);
+            if (!lastRunTime.isBefore(todayRunTime)) return;
+        }
+        if (now.toLocalTime().isBefore(runTime)) return;
 
-        boolean anySucceeded = false;
         try {
             runPrimaryPipeline(auto, basic, state, now, false);
             anySucceeded = true;
@@ -105,11 +112,29 @@ public class AutoOpsService {
                 log.error("技术猎手失败", e);
             }
         if (anySucceeded) {
-            state.getData().put(LAST_RUN_KEY, today);
-            saveState(state);
+            state.getData().put(LAST_RUN_KEY, now.toString());
+            saveStateWithRetry(state);
         } else {
             log.warn("自动运维今日所有管线均失败，未写入 {}", LAST_RUN_KEY);
         }
+    }
+
+    private void saveStateWithRetry(ConfigMap state) {
+        for (int attempt = 0; attempt < 3; attempt++) {
+            try {
+                client.update(state).block();
+                return;
+            } catch (Exception e) {
+                log.warn("saveState 第 {} 次失败: {}", attempt + 1, rootMessage(e));
+                // 重新获取最新 state，合并数据后重试
+                ConfigMap latest = client.fetch(ConfigMap.class, STATE_NAME).block();
+                if (latest != null) {
+                    latest.getData().putAll(state.getData());
+                    state = latest;
+                }
+            }
+        }
+        log.error("saveState 重试 3 次均失败");
     }
 
     public Mono<Map<String, Object>> testNow() {
@@ -192,7 +217,6 @@ public class AutoOpsService {
             Instant ts = Instant.now();
             for (ScoredNewsItem item : candidates) processed.put(item.link(), ts);
             writeProcessed(state, processed, PROCESSED_KEY);
-            saveState(state);
         }
         log.info("巫师前沿站 完成: {}", article.title());
         return personaResult("巫师前沿站", testMode, candidates.size(), article.title(), result,
@@ -243,7 +267,6 @@ public class AutoOpsService {
             Instant ts = Instant.now();
             for (ScoredNewsItem item : candidates) processed.put(item.link(), ts);
             writeProcessed(state, processed, "secondary" + PROCESSED_KEY);
-            saveState(state);
         }
         log.info("书虫漫步 完成: {}", article.title());
         return personaResult("书虫漫步", testMode, candidates.size(), article.title(), result,
@@ -294,7 +317,6 @@ public class AutoOpsService {
             Instant ts = Instant.now();
             for (ScoredNewsItem item : candidates) processed.put(item.link(), ts);
             writeProcessed(state, processed, "tertiary" + PROCESSED_KEY);
-            saveState(state);
         }
         log.info("技术猎手 完成: {}", article.title());
         return personaResult("技术猎手", testMode, candidates.size(), article.title(), result,
@@ -312,7 +334,7 @@ public class AutoOpsService {
         args.put("owner", authorUsername);
         args.put("publishTime", now.toInstant().toString());
         args.put("tags", tags);
-        return createArticleTool.execute(args);
+        return createArticleTool.executeInternal(args);
     }
 
     private Map<String, Object> personaResult(String persona, boolean testMode,

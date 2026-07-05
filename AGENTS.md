@@ -171,21 +171,22 @@ JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./grad
 
 ### 部署（命令行，可选）
 
-> 仅在用户明确要求“命令行发布到 Halo 实例”时使用。优先走 Halo Console API 上传/升级插件，**不要**用 SCP、`docker cp` 或 `./gradlew reloadPlugin` 操作生产站。
+> 仅在用户明确要求"命令行发布到 Halo 实例"时使用。优先走 Halo Console API 上传/升级插件，**不要**用 SCP、`docker cp` 或 `./gradlew reloadPlugin` 操作生产站。
 
 前置条件：
 
 - 在 Halo 后台创建/准备一个有插件管理权限的 Personal Access Token。
-- 本地环境变量 `HALO_PAT` 保存该 Token。
+- Token 保存在项目根目录的 `.halo-pat` 文件（已加入 `.gitignore`，不被提交）。
 - 目标插件已经安装时使用 `upgrade`；首次安装才使用 `install`。
 
 ```bash
 cd /Users/zhangjianmin/project/halo-ai-assistant
 
+HALO_PAT=$(cat .halo-pat)
 VERSION="$(sed -n 's/^version=//p' gradle.properties)"
 JAR="build/libs/halo-ai-assistant-${VERSION}.jar"
-HALO_BASE_URL="https://wizardj.cn"
 PLUGIN_NAME="ai-assistant"
+HALO_BASE_URL="https://wizardj.cn"
 
 JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build
 test -f "$JAR"
@@ -405,7 +406,7 @@ Spring WebFlux 的 `flatMap` 链中 lambda 参数类型容易推断失败：
 
 ### UI 依赖安装纪律
 
-- `ui/` 子项目默认不要把 `rm -rf node_modules package-lock.json` 当成构建前置步骤；这会触发全量依赖解析和下载，容易因为 npm peer dependency 冲突或网络问题表现为“卡很久”。
+- `ui/` 子项目默认不要把 `rm -rf node_modules package-lock.json` 当成构建前置步骤；这会触发全量依赖解析和下载，容易因为 npm peer dependency 冲突或网络问题表现为"卡很久"。
 - 日常验证优先使用：
   ```bash
   cd /Users/zhangjianmin/project/halo-ai-assistant/ui
@@ -421,10 +422,10 @@ Spring WebFlux 的 `flatMap` 链中 lambda 参数类型容易推断失败：
 
 - 本插件保留独立沉浸式页面：`/api/ai-assistant/chat-page`。这是高级/沉浸式对话入口，不要删除。
 - 官方审核要求的后台入口应通过 Halo 官方 UI 扩展点接入 Console，不要手写一个仿 Console 的独立后台页面。
-- 当前精简版“老巫师 AI 助手”接入点是：`plugin:self:tabs:create`。
+- 当前精简版"老巫师 AI 助手"接入点是：`plugin:self:tabs:create`。
 - `plugin:self:tabs:create` 只会出现在 **Console → 插件 → 已安装插件 → AI 智能助手 → 插件详情页 tab**，不会自动出现在左侧菜单。
-- 如果用户说“后台没有入口”，先确认 TA 是否在插件详情页 tab 查找；不要误判为左侧菜单缺失。
-- 如果希望审核员更容易看到入口，可在保留 `plugin:self:tabs:create` 的基础上新增 `console:dashboard:widgets:create` 仪表盘小组件，提供“进入插件详情页对话框 / 打开沉浸式模式”按钮。
+- 如果用户说"后台没有入口"，先确认 TA 是否在插件详情页 tab 查找；不要误判为左侧菜单缺失。
+- 如果希望审核员更容易看到入口，可在保留 `plugin:self:tabs:create` 的基础上新增 `console:dashboard:widgets:create` 仪表盘小组件，提供"进入插件详情页对话框 / 打开沉浸式模式"按钮。
 
 #### Console 前端资源与构建
 
@@ -464,7 +465,7 @@ Spring WebFlux 的 `flatMap` 链中 lambda 参数类型容易推断失败：
 
 - `cd ui && npm run build` 成功，并确认 `src/main/resources/console/main.js` / `style.css` 已更新。
 - `./gradlew test` 和 `./gradlew clean build` 成功。
-- Console 插件详情页能看到“老巫师 AI 助手”tab。
+- Console 插件详情页能看到"老巫师 AI 助手"tab。
 - 独立页面 `/api/ai-assistant/chat-page` 仍可访问。
 - 高风险操作在 Console tab 和独立页面中都显示确认卡片。
 - 点击取消不执行；点击确认只执行一次，不生成第二个确认 ID。
@@ -834,7 +835,7 @@ gh release upload "v${VERSION}" "$JAR" --clobber
 
 #### 生产站部署仍然手动
 
-WizardJ 生产站默认仍按前文“部署方式说明”：本地构建 JAR 后，通过 1Panel/Halo 插件管理上传。若用户明确要求命令行部署，使用 Halo Console API 的 `plugins/{name}/upgrade` 上传 JAR；不要用命令行 SCP、`docker cp` 或 `reloadPlugin` 去操作生产站。
+WizardJ 生产站默认仍按前文"部署方式说明"：本地构建 JAR 后，通过 1Panel/Halo 插件管理上传。若用户明确要求命令行部署，使用 Halo Console API 的 `plugins/{name}/upgrade` 上传 JAR；不要用命令行 SCP、`docker cp` 或 `reloadPlugin` 去操作生产站。
 
 ### 硬编码的环境依赖（必须修改）
 

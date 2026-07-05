@@ -353,7 +353,8 @@ public class AiChatEndpoint {
                             .replace("<title>AI 智能助手</title>", "<title>" + escapeHtml(title) + "</title>")
                             .replace("你好，我是 Halo AI 智能助手",
                                     escapeHtml(greeting))
-                            .replace("AI 智能助手", escapeHtml(title));
+                            .replace("AI 智能助手", escapeHtml(title))
+                            .replace("__PAGE_ICON__", icon);
                     return ServerResponse.ok()
                             .header("Content-Type", "text/html; charset=utf-8")
                             .bodyValue(html);

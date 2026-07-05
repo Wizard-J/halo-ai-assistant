@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light dark">
     <title>AI 智能助手</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>__PAGE_ICON__</text></svg>">
     <link rel="preconnect" href="https://cdn.jsdelivr.net">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.6.0/fonts/remixicon.css">
     <style>
@@ -1896,6 +1897,20 @@
                 continue;
             }
 
+            if (/^>\s?/.test(line)) {
+                closeList();
+                const quoteLines = [];
+                while (index < lines.length) {
+                    const l = lines[index];
+                    if (!/^>/.test(l) && l.trim()) break;
+                    if (!/^>/.test(l)) { index += 1; continue; }
+                    quoteLines.push(l.replace(/^>\s?/, ''));
+                    index += 1;
+                }
+                html.push('<blockquote>' + quoteLines.map(seg => renderInline(seg)).join('<br>') + '</blockquote>');
+                continue;
+            }
+
             const next = findNextTableLine(lines, index + 1);
             if (isPipeTableRow(line) && (next.skippedSeparator || isPipeTableRow(lines[next.cursor] || ''))) {
                 closeList();
@@ -2172,7 +2187,7 @@
         const lines = eventText.split(/\r?\n/);
         const dataLines = lines
             .filter(line => line.startsWith('data:'))
-            .map(line => line.slice(5).replace(/^ /, ''));
+            .map(line => line.slice(5));
         return dataLines.length ? dataLines.join('\n') : eventText;
     }
 

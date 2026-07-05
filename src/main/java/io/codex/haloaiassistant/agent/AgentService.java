@@ -223,7 +223,7 @@ public class AgentService {
 
             for (String line : event.split("\\R")) {
                 if (!line.startsWith("data:")) continue;
-                String data = line.substring(5).trim();
+                String data = line.substring(5);
                 if (data.isBlank() || "[DONE]".equals(data)) continue;
                 try {
                     String content = handleStreamData(data, state);

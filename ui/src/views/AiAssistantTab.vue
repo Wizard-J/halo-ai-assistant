@@ -117,7 +117,7 @@ function parseStreamChunk(chunk: string, done = false) {
     const dataLines = event
       .split(/\r?\n/)
       .filter(line => line.startsWith("data:"))
-      .map(line => line.slice(5).replace(/^ /, ""));
+      .map(line => line.slice(5));
     const data = dataLines.join("\n");
     if (data && data !== "[DONE]") dataParts.push(data);
   }
@@ -126,7 +126,7 @@ function parseStreamChunk(chunk: string, done = false) {
     const data = streamBuffer
       .split(/\r?\n/)
       .filter(line => line.startsWith("data:"))
-      .map(line => line.slice(5).replace(/^ /, ""))
+      .map(line => line.slice(5))
       .join("\n");
     if (data && data !== "[DONE]") dataParts.push(data);
     streamBuffer = "";
@@ -314,6 +314,20 @@ function renderMarkdown(content: string) {
     if (isSeparatorFragment(line)) {
       closeList();
       index += 1;
+      continue;
+    }
+
+    if (/^>\s?/.test(line)) {
+      closeList();
+      const quoteLines: string[] = [];
+      while (index < lines.length) {
+        const l = lines[index];
+        if (!/^>/.test(l) && l.trim()) break;
+        if (!/^>/.test(l)) { index += 1; continue; }
+        quoteLines.push(l.replace(/^>\s?/, ""));
+        index += 1;
+      }
+      html.push("<blockquote>" + quoteLines.map(seg => renderInline(seg)).join("<br>") + "</blockquote>");
       continue;
     }
 
@@ -989,6 +1003,13 @@ function goToImmersive() {
   color: #374151;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
+}
+
+.message-bubble.markdown :deep(blockquote) {
+  margin: 8px 0;
+  padding: 4px 12px;
+  border-left: 3px solid #d1d5db;
+  color: #6b7280;
 }
 
 @media (max-width: 720px) {
