@@ -1968,12 +1968,37 @@
         return html.join('');
     }
 
+    function normalizeTimestamp(timestamp, fallback = Date.now()) {
+        if (timestamp instanceof Date) return timestamp.getTime();
+        if (typeof timestamp === 'number' && Number.isFinite(timestamp)) return timestamp;
+        if (typeof timestamp === 'string' && timestamp.trim()) {
+            const parsed = Date.parse(timestamp);
+            if (!Number.isNaN(parsed)) return parsed;
+        }
+        return normalizeTimestamp(fallback, Date.now());
+    }
+
+    function currentTimestamp() {
+        return new Date().toISOString();
+    }
+
+    function normalizeMessages(messages, fallbackTimestamp) {
+        if (!Array.isArray(messages)) return [];
+        return messages
+            .filter(message => message && message.role && typeof message.content === 'string')
+            .map(message => ({
+                role: message.role,
+                content: message.content,
+                timestamp: message.timestamp || fallbackTimestamp || currentTimestamp()
+            }));
+    }
+
     function formatTime(timestamp = Date.now()) {
         return new Intl.DateTimeFormat('zh-CN', {
             hour: '2-digit',
             minute: '2-digit',
             hour12: false
-        }).format(timestamp);
+        }).format(new Date(normalizeTimestamp(timestamp)));
     }
 
     function scrollToBottom(behavior = 'smooth') {
@@ -1996,7 +2021,8 @@
         body.className = 'message-body';
         const meta = document.createElement('div');
         meta.className = 'message-meta';
-        meta.textContent = role === 'assistant' ? `${activePersona.displayName} · ${formatTime(options.timestamp)}` : formatTime(options.timestamp);
+        const timestamp = options.timestamp || currentTimestamp();
+        meta.textContent = role === 'assistant' ? `${activePersona.displayName} · ${formatTime(timestamp)}` : formatTime(timestamp);
         const contentElement = document.createElement('div');
 
         if (role === 'user') {
@@ -2158,9 +2184,13 @@
         if (!confirmationId) return;
         const index = history.findIndex(item => item.role === 'assistant' && item.content && item.content.includes(confirmationId));
         if (index >= 0) {
-            history[index] = { role: 'assistant', content: '确认结果：' + message };
+            history[index] = {
+                role: 'assistant',
+                content: '确认结果：' + message,
+                timestamp: history[index].timestamp || currentTimestamp()
+            };
         } else {
-            history.push({ role: 'assistant', content: '确认结果：' + message });
+            history.push({ role: 'assistant', content: '确认结果：' + message, timestamp: currentTimestamp() });
         }
     }
 
@@ -2175,8 +2205,9 @@
         if (!card) return false;
         const button = card.querySelector('.button-primary');
         if (!button) return false;
-        createMessage('user', text);
-        history.push({ role: 'user', content: text });
+        const timestamp = currentTimestamp();
+        createMessage('user', text, { timestamp });
+        history.push({ role: 'user', content: text, timestamp });
         input.value = '';
         autoResizeInput();
         button.click();
@@ -2471,11 +2502,15 @@
     function loadConversation(conversation) {
         // 如果有完整的消息列表，直接加载
         if (Array.isArray(conversation.messages) && conversation.messages.length > 0) {
-            history = conversation.messages;
+            history = normalizeMessages(conversation.messages, conversation.updatedAt);
             conversationId = conversation.id;
             messagesElement.replaceChildren();
             welcomeElement.hidden = history.length > 0;
-            history.forEach(message => createMessage(message.role, message.content, { instant: true, historical: true }));
+            history.forEach(message => createMessage(message.role, message.content, {
+                instant: true,
+                historical: true,
+                timestamp: message.timestamp
+            }));
             closeHistory();
             input.focus();
             return;
@@ -2485,11 +2520,15 @@
             .then(resp => resp.ok ? resp.json() : Promise.reject('HTTP ' + resp.status))
             .then(data => {
                 const msgs = data.messages || [];
-                history = msgs.map(m => ({ role: m.role, content: m.content }));
+                history = normalizeMessages(msgs, data.updatedAt || conversation.updatedAt);
                 conversationId = data.id || conversation.id;
                 messagesElement.replaceChildren();
                 welcomeElement.hidden = history.length > 0;
-                history.forEach(message => createMessage(message.role, message.content, { instant: true, historical: true }));
+                history.forEach(message => createMessage(message.role, message.content, {
+                    instant: true,
+                    historical: true,
+                    timestamp: message.timestamp
+                }));
                 closeHistory();
                 input.focus();
             })
@@ -2518,9 +2557,10 @@
         if (confirmLatestPendingFromInput(text)) return;
 
         const requestHistory = history.slice();
+        const userTimestamp = currentTimestamp();
         welcomeElement.hidden = true;
-        createMessage('user', text);
-        history.push({ role: 'user', content: text });
+        createMessage('user', text, { timestamp: userTimestamp });
+        history.push({ role: 'user', content: text, timestamp: userTimestamp });
         input.value = '';
         autoResizeInput();
         setStreamingState(true);
@@ -2553,7 +2593,8 @@
                 throw new Error(await readRequestError(response));
             }
 
-            assistantElement = createMessage('assistant', '');
+            const assistantTimestamp = currentTimestamp();
+            assistantElement = createMessage('assistant', '', { timestamp: assistantTimestamp });
             assistantElement.classList.add('typing');
             activityElement.hidden = true;
             fullContent = await readStream(response, content => {
@@ -2573,7 +2614,7 @@
             }
 
             assistantElement.classList.remove('typing');
-            history.push({ role: 'assistant', content: fullContent });
+            history.push({ role: 'assistant', content: fullContent, timestamp: assistantTimestamp });
             saveConversation();
         } catch (error) {
             activityElement.hidden = true;
@@ -2846,11 +2887,15 @@
             const data = await resp.json();
             const msgs = data.messages || [];
             if (msgs.length === 0) { welcomeElement.hidden = false; return; }
-            history = msgs;
+            history = normalizeMessages(msgs, data.updatedAt);
             conversationId = data.id;
             messagesElement.replaceChildren();
             welcomeElement.hidden = false;
-            msgs.forEach(msg => createMessage(msg.role, msg.content, { instant: true, historical: true }));
+            history.forEach(msg => createMessage(msg.role, msg.content, {
+                instant: true,
+                historical: true,
+                timestamp: msg.timestamp
+            }));
             welcomeElement.hidden = true;
         } catch (e) {
             console.warn('加载对话历史失败', e);
@@ -2924,11 +2969,15 @@
             const data = await resp.json();
             const msgs = data.messages || [];
             if (msgs.length === 0) return false;
-            history = msgs;
+            history = normalizeMessages(msgs, data.updatedAt);
             conversationId = data.id;
             messagesElement.replaceChildren();
             welcomeElement.hidden = false;
-            msgs.forEach(msg => createMessage(msg.role, msg.content, { instant: true, historical: true }));
+            history.forEach(msg => createMessage(msg.role, msg.content, {
+                instant: true,
+                historical: true,
+                timestamp: msg.timestamp
+            }));
             welcomeElement.hidden = true;
             return true;
         } catch (e) {

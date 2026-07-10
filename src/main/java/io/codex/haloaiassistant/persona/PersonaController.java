@@ -197,13 +197,16 @@ public class PersonaController {
                     }
                     ConversationRef conv = list.get(0);
                     var spec = conv.getSpec();
-                    java.util.List<Map<String, String>> msgs = new java.util.ArrayList<>();
+                    java.util.List<Map<String, Object>> msgs = new java.util.ArrayList<>();
                     ArrayNode raw = personaService.parseMessages(conv);
                     if (raw != null) {
                         for (JsonNode msg : raw) {
-                            Map<String, String> m = new java.util.HashMap<>();
+                            Map<String, Object> m = new java.util.HashMap<>();
                             m.put("role", msg.path("role").asText());
                             m.put("content", msg.path("content").asText());
+                            if (msg.hasNonNull("timestamp")) {
+                                m.put("timestamp", msg.path("timestamp").asText());
+                            }
                             msgs.add(m);
                         }
                     }
@@ -226,13 +229,16 @@ public class PersonaController {
         return personaService.getConversation(convId)
                 .flatMap(conv -> {
                     var spec = conv.getSpec();
-                    java.util.List<Map<String, String>> msgs = new java.util.ArrayList<>();
+                    java.util.List<Map<String, Object>> msgs = new java.util.ArrayList<>();
                     ArrayNode raw = personaService.parseMessages(conv);
                     if (raw != null) {
                         for (JsonNode msg : raw) {
-                            Map<String, String> m = new java.util.HashMap<>();
+                            Map<String, Object> m = new java.util.HashMap<>();
                             m.put("role", msg.path("role").asText());
                             m.put("content", msg.path("content").asText());
+                            if (msg.hasNonNull("timestamp")) {
+                                m.put("timestamp", msg.path("timestamp").asText());
+                            }
                             msgs.add(m);
                         }
                     }

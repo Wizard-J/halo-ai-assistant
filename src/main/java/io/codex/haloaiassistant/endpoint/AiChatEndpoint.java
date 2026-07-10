@@ -239,14 +239,15 @@ public class AiChatEndpoint {
                         // 保存服务端持久化（追加本次用户消息）
                         // 异步保存，不阻塞流式响应
                         ArrayNode messagesJson = objectMapper.createArrayNode();
-                        for (AgentService.ChatMessage msg : history) {
-                            if (!"system".equals(msg.role())) {
-                                ObjectNode msgNode = objectMapper.createObjectNode();
-                                msgNode.put("role", msg.role());
-                                msgNode.put("content", msg.content());
-                                messagesJson.add(msgNode);
+                        if (body.has("history") && body.get("history").isArray()) {
+                            for (JsonNode msg : body.get("history")) {
+                                if (!"system".equals(msg.path("role").asText())) {
+                                    messagesJson.add(toPersistentMessageNode(msg, null));
+                                }
                             }
                         }
+                        messagesJson.add(toPersistentMessageNode(
+                                "user", history.get(history.size() - 1).content(), Instant.now().toString()));
                         // 流式返回 + 结束时一次性保存用户消息 + AI 回复
                         Flux<String> chatStream = agentService.chat(fullHistory);
                         StringBuilder assistantResponse = new StringBuilder();
@@ -262,6 +263,7 @@ public class AiChatEndpoint {
                                         ObjectNode assistNode = objectMapper.createObjectNode();
                                         assistNode.put("role", "assistant");
                                         assistNode.put("content", reply);
+                                        assistNode.put("timestamp", Instant.now().toString());
                                         allMessagesToSave.add(assistNode);
                                     }
                                     if (allMessagesToSave.size() > 0) {
@@ -289,6 +291,7 @@ public class AiChatEndpoint {
             ObjectNode msgNode = objectMapper.createObjectNode();
             msgNode.put("role", msg.role());
             msgNode.put("content", msg.content());
+            msgNode.put("timestamp", Instant.now().toString());
             messagesJson.add(msgNode);
         }
         return personaService.appendMessages(sessionId, personaId, messagesJson)
@@ -297,6 +300,24 @@ public class AiChatEndpoint {
                     log.warn("保存对话消息失败（可能索引问题），忽略: {}", e.getMessage());
                     return Mono.empty();
                 });
+    }
+
+    private ObjectNode toPersistentMessageNode(JsonNode msg, String fallbackTimestamp) {
+        String timestamp = msg.path("timestamp").asText("");
+        return toPersistentMessageNode(
+                msg.path("role").asText(),
+                msg.path("content").asText(),
+                !timestamp.isBlank() ? timestamp : fallbackTimestamp);
+    }
+
+    private ObjectNode toPersistentMessageNode(String role, String content, String timestamp) {
+        ObjectNode msgNode = objectMapper.createObjectNode();
+        msgNode.put("role", role);
+        msgNode.put("content", content);
+        if (timestamp != null && !timestamp.isBlank()) {
+            msgNode.put("timestamp", timestamp);
+        }
+        return msgNode;
     }
 
     /**
