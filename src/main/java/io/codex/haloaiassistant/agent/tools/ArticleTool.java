@@ -438,15 +438,12 @@ public class ArticleTool implements Tool {
 
         private static String toReadableHtml(String markdown) {
             StringBuilder html = new StringBuilder();
-            boolean inList = false;
+            String listType = null;
             boolean inBlockquote = false;
             for (String line : markdown.split("\\R", -1)) {
                 String trimmed = line.trim();
                 if (trimmed.startsWith(">")) {
-                    if (inList) {
-                        html.append("</ul>");
-                        inList = false;
-                    }
+                    listType = closeList(html, listType);
                     if (!inBlockquote) {
                         html.append("<blockquote>");
                         inBlockquote = true;
@@ -460,18 +457,30 @@ public class ArticleTool implements Tool {
                     html.append("</blockquote>");
                     inBlockquote = false;
                 }
-                if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
-                    if (!inList) {
-                        html.append("<ul>");
-                        inList = true;
-                    }
-                    html.append("<li>").append(renderInline(escapeHtml(trimmed.substring(2)))).append("</li>");
+                if (isHorizontalRule(trimmed)) {
+                    listType = closeList(html, listType);
+                    html.append("<hr>");
                     continue;
                 }
-                if (inList) {
-                    html.append("</ul>");
-                    inList = false;
+                if (trimmed.matches("^[-*+]\\s+.+")) {
+                    if (!"ul".equals(listType)) {
+                        listType = closeList(html, listType);
+                        html.append("<ul>");
+                        listType = "ul";
+                    }
+                    html.append("<li>").append(renderInline(escapeHtml(trimmed.replaceFirst("^[-*+]\\s+", "")))).append("</li>");
+                    continue;
                 }
+                if (trimmed.matches("^\\d+[.)]\\s+.+")) {
+                    if (!"ol".equals(listType)) {
+                        listType = closeList(html, listType);
+                        html.append("<ol>");
+                        listType = "ol";
+                    }
+                    html.append("<li>").append(renderInline(escapeHtml(trimmed.replaceFirst("^\\d+[.)]\\s+", "")))).append("</li>");
+                    continue;
+                }
+                listType = closeList(html, listType);
                 if (trimmed.isBlank()) {
                     continue;
                 }
@@ -489,10 +498,19 @@ public class ArticleTool implements Tool {
             if (inBlockquote) {
                 html.append("</blockquote>");
             }
-            if (inList) {
-                html.append("</ul>");
-            }
+            closeList(html, listType);
             return html.toString();
+        }
+
+        private static String closeList(StringBuilder html, String listType) {
+            if (listType != null) {
+                html.append("</").append(listType).append(">");
+            }
+            return null;
+        }
+
+        private static boolean isHorizontalRule(String value) {
+            return value.matches("^(?:-{3,}|\\*{3,}|_{3,})$");
         }
 
         private static String escapeHtml(String value) {
@@ -506,6 +524,8 @@ public class ArticleTool implements Tool {
             return value
                     .replaceAll("\\[([^\\]]+)]\\((https?://[^\\s)]+)\\)",
                             "<a href=\"$2\" target=\"_blank\" rel=\"noopener noreferrer\">$1</a>")
+                    .replaceAll("\\[([^\\]]+)]\\(((?:[\\w-]+\\.)+[\\w-]+/[^\\s)]+)\\)",
+                            "<a href=\"https://$2\" target=\"_blank\" rel=\"noopener noreferrer\">$1</a>")
                     .replaceAll("\\*\\*([^*]+)\\*\\*", "<strong>$1</strong>")
                     .replaceAll("`([^`]+)`", "<code>$1</code>");
         }
