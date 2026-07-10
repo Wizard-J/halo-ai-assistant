@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Component
 public class ToolRegistry {
@@ -33,8 +34,15 @@ public class ToolRegistry {
      * 生成 OpenAI/DeepSeek function calling 格式的工具声明
      */
     public String generateToolsJson() {
+        return generateToolsJson(null);
+    }
+
+    public String generateToolsJson(Set<String> allowedToolNames) {
         ArrayNode toolsArray = objectMapper.createArrayNode();
         for (Tool tool : tools) {
+            if (allowedToolNames != null && !allowedToolNames.contains(tool.getName())) {
+                continue;
+            }
             ObjectNode toolNode = objectMapper.createObjectNode();
             toolNode.put("type", "function");
             ObjectNode functionNode = toolNode.putObject("function");

@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -108,7 +109,20 @@ public class AgentService {
             if (configError != null) {
                 return Flux.just(configError);
             }
-            return doChat(messages, 0);
+            return doChat(messages, 0, null);
+        });
+    }
+
+    /**
+     * 发送对话消息，但只暴露并执行指定工具。用于限制 Persona 的能力边界。
+     */
+    public Flux<String> chatWithTools(List<ChatMessage> messages, Set<String> allowedToolNames) {
+        return Flux.defer(() -> {
+            String configError = validateSetting();
+            if (configError != null) {
+                return Flux.just(configError);
+            }
+            return doChat(messages, 0, allowedToolNames);
         });
     }
 
@@ -127,13 +141,13 @@ public class AgentService {
 
     // ========== 流式对话主路径 ==========
 
-    private Flux<String> doChat(List<ChatMessage> messages, int depth) {
+    private Flux<String> doChat(List<ChatMessage> messages, int depth, Set<String> allowedToolNames) {
         if (depth > MAX_TOOL_DEPTH) {
             return Flux.just("[系统] 工具调用次数过多，请简化指令");
         }
 
         String endpoint = normalizeEndpoint(currentSetting.getApiEndpoint());
-        String toolsJson = toolRegistry.generateToolsJson();
+        String toolsJson = toolRegistry.generateToolsJson(allowedToolNames);
         String requestBody = buildRequestBody(messages, toolsJson, true);
         StreamState state = new StreamState();
 
@@ -142,7 +156,7 @@ public class AgentService {
         return contentStream.concatWith(Flux.defer(() -> {
             // 流结束后处理工具调用或空内容
             if (state.hasToolCalls()) {
-                return continueAfterToolCalls(messages, state, depth);
+                return continueAfterToolCalls(messages, state, depth, allowedToolNames);
             }
             if (state.content.length() == 0 && state.refusal != null && !state.refusal.isBlank()) {
                 return Flux.just("[AI 拒绝回答] " + state.refusal);
@@ -158,7 +172,7 @@ public class AgentService {
             // 尝试检测是否因 stream: true 不被支持，回退非流式
             if (error.statusCode == 400 && extractErrorMessage(error.responseBody).toLowerCase().contains("stream")) {
                 log.warn("当前模型服务可能不支持 stream，回退到非流式调用");
-                return doChatNonStreaming(messages, depth)
+                return doChatNonStreaming(messages, depth, allowedToolNames)
                         .onErrorResume(AiApiException.class, fallbackError -> {
                             log.warn("非流式 fallback 请求失败，状态码: {}，响应: {}",
                                     fallbackError.statusCode, abbreviate(fallbackError.responseBody, 1000));
@@ -402,7 +416,8 @@ public class AgentService {
     /**
      * 流结束后发现有 tool_calls，执行工具并递归继续对话。
      */
-    private Flux<String> continueAfterToolCalls(List<ChatMessage> messages, StreamState state, int depth) {
+    private Flux<String> continueAfterToolCalls(List<ChatMessage> messages, StreamState state, int depth,
+                                                Set<String> allowedToolNames) {
         ArrayNode toolCalls = buildToolCallsNode(state);
         if (toolCalls.size() == 0) {
             return Flux.just("[错误] AI 期望调用工具，但调用格式不完整");
@@ -420,6 +435,10 @@ public class AgentService {
                     String args = tc.path("function").path("arguments").asText();
                     Tool tool = toolRegistry.getByName(name).orElse(null);
                     return Mono.fromCallable(() -> {
+                                if (allowedToolNames != null && !allowedToolNames.contains(name)) {
+                                    log.warn("拒绝执行未授权工具: {}", name);
+                                    return "工具未授权: " + name;
+                                }
                                 if (tool != null) {
                                     try {
                                         JsonNode argsJson = objectMapper.readTree(args);
@@ -444,7 +463,7 @@ public class AgentService {
                         newMessages.add(new ChatMessage("tool",
                                 (String) r[2], (String) r[0], (String) r[1]));
                     }
-                    return doChat(newMessages, depth + 1);
+                    return doChat(newMessages, depth + 1, allowedToolNames);
                 });
     }
 
@@ -453,13 +472,13 @@ public class AgentService {
     /**
      * 不支持 stream 的模型回退到非流式调用（代码从原 doChat 抽取）。
      */
-    private Flux<String> doChatNonStreaming(List<ChatMessage> messages, int depth) {
+    private Flux<String> doChatNonStreaming(List<ChatMessage> messages, int depth, Set<String> allowedToolNames) {
         if (depth > MAX_TOOL_DEPTH) {
             return Flux.just("[系统] 工具调用次数过多，请简化指令");
         }
 
         String endpoint = normalizeEndpoint(currentSetting.getApiEndpoint());
-        String toolsJson = toolRegistry.generateToolsJson();
+        String toolsJson = toolRegistry.generateToolsJson(allowedToolNames);
 
         return WebClient.create()
                 .post()
@@ -499,6 +518,10 @@ public class AgentService {
                                                     String args = tc.path("function").path("arguments").asText();
                                                     Tool tool = toolRegistry.getByName(name).orElse(null);
                                                     return Mono.fromCallable(() -> {
+                                                                if (allowedToolNames != null && !allowedToolNames.contains(name)) {
+                                                                    log.warn("拒绝执行未授权工具: {}", name);
+                                                                    return "工具未授权: " + name;
+                                                                }
                                                                 if (tool != null) {
                                                                     try {
                                                                         JsonNode argsJson = objectMapper.readTree(args);
@@ -523,7 +546,7 @@ public class AgentService {
                                                         newMessages.add(new ChatMessage("tool",
                                                                 (String) r[2], (String) r[0], (String) r[1]));
                                                     }
-                                                    return doChatNonStreaming(newMessages, depth + 1);
+                                                    return doChatNonStreaming(newMessages, depth + 1, allowedToolNames);
                                                 });
                                     }));
                         }
@@ -633,6 +656,7 @@ public class AgentService {
                     + "- 查询未发布/草稿文章：必须调用 listArticles，并传 status=draft；不要用发布时间是否为空来猜。\n"
                     + "- 查询已发布文章：必须调用 listArticles，并传 status=published。\n"
                     + "- 展示文章列表时必须使用编号列表，不要使用 Markdown 表格，不要分页追问。\n"
+                    + "- 需要最新/当前/外部事实时，可调用 webSearch；每次只查一个具体问题，limit 默认 3，不要连续重复搜索。\n"
                     + "- 创建文章：直接调 createArticle。不反问、不确认、不商量。\n"
                     + "- 永远不说「我先看看」「让我检查」「我发现了一个工具」等废话。直接行动。\n"
                     + "- 回复上限 3 句话。超过就是违规。\n"
