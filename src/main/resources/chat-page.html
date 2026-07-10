@@ -46,17 +46,15 @@
         /* 内置文本图标：不加载 Remix Icon 或任何外部 CDN。 */
         i[class^="ri-"], i[class*=" ri-"] { font-style: normal; line-height: 1; }
         i[class^="ri-"]::before, i[class*=" ri-"]::before { content: "•"; }
-        .ri-add-line::before { content: "+" !important; }
         .ri-close-line::before, .ri-close-circle-line::before { content: "×" !important; }
         .ri-check-line::before, .ri-chat-check-line::before { content: "✓" !important; }
         .ri-delete-bin-line::before, .ri-delete-bin-6-line::before { content: "⌫" !important; }
         .ri-edit-line::before { content: "✎" !important; }
         .ri-download-line::before { content: "↓" !important; }
         .ri-upload-cloud-2-line::before { content: "↑" !important; }
-        .ri-history-line::before, .ri-time-line::before { content: "◷" !important; }
+        .ri-time-line::before { content: "◷" !important; }
         .ri-send-plane-2-fill::before { content: "→" !important; }
         .ri-stop-fill::before { content: "■" !important; }
-        .ri-arrow-down-s-line::before { content: "⌄" !important; }
         .ri-settings-3-line::before, .ri-equalizer-2-line::before { content: "⚙" !important; }
         .ri-file-list-3-line::before, .ri-file-text-line::before, .ri-draft-line::before { content: "▤" !important; }
         .ri-price-tag-3-line::before { content: "#" !important; }
@@ -239,6 +237,22 @@
         .button-primary:hover {
             border-color: var(--accent-hover);
             background: var(--accent-hover);
+        }
+
+        .ui-icon {
+            display: block;
+            width: 16px;
+            height: 16px;
+            flex: 0 0 16px;
+            color: currentColor;
+        }
+
+        .persona-chevron {
+            transition: transform 160ms ease;
+        }
+
+        #personaButton[aria-expanded="true"] .persona-chevron {
+            transform: rotate(180deg);
         }
 
         .button-icon {
@@ -1648,7 +1662,9 @@
                         aria-haspopup="menu" aria-controls="personaMenu" aria-expanded="false">
                     <span id="personaButtonIcon">🤖</span>
                     <span id="personaButtonLabel" class="button-label">AI 智能助手</span>
-                    <i class="ri-arrow-down-s-line" aria-hidden="true"></i>
+                    <svg class="ui-icon persona-chevron" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                        <path fill="currentColor" d="m12 13.171 4.95-4.95 1.414 1.415L12 16 5.636 9.636 7.05 8.222z"></path>
+                    </svg>
                 </button>
                 <div class="persona-menu" id="personaMenu" role="menu" aria-label="选择角色和角色工具" hidden>
                     <div id="personaList"></div>
@@ -1671,11 +1687,15 @@
                 <span class="button-label">测试自动运维</span>
             </button>
             <button class="button" id="historyButton" type="button">
-                <i class="ri-history-line" aria-hidden="true"></i>
+                <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                    <path fill="currentColor" d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12h2a8 8 0 1 0 1.385-4.5H8v2H2v-6h2V6a9.99 9.99 0 0 1 8-4m1 5v4.585l3.243 3.243-1.415 1.415L11 12.413V7z"></path>
+                </svg>
                 <span class="button-label">历史记录</span>
             </button>
             <button class="button button-primary" id="newChatButton" type="button">
-                <i class="ri-add-line" aria-hidden="true"></i>
+                <svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+                    <path fill="currentColor" d="M11 11V5h2v6h6v2h-6v6h-2v-6H5v-2z"></path>
+                </svg>
                 <span class="button-label">新建对话</span>
             </button>
         </div>
