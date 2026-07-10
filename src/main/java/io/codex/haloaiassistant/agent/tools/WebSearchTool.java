@@ -34,6 +34,7 @@ public class WebSearchTool implements Tool {
     private static final int MAX_LIMIT = 5;
     private static final int MAX_QUERY_LENGTH = 120;
     private static final int MAX_SNIPPET_LENGTH = 220;
+    private static final int MAX_TITLE_LENGTH = 120;
     private static final int MAX_OUTPUT_LENGTH = 2200;
     private static final int MAX_RESPONSE_BYTES = 256 * 1024;
     private static final String ANYSEARCH_ENDPOINT = "https://api.anysearch.com/mcp";
@@ -47,6 +48,8 @@ public class WebSearchTool implements Tool {
                     + "(?:<a[^>]*class=\"[^\"]*result__snippet[^\"]*\"[^>]*>(.*?)</a>|<div[^>]*class=\"[^\"]*result__snippet[^\"]*\"[^>]*>(.*?)</div>)");
     private static final Pattern RESULT_LINK_ONLY = Pattern.compile(
             "(?s)<a[^>]*class=\"[^\"]*result__a[^\"]*\"[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>");
+    private static final Pattern MARKDOWN_LINK = Pattern.compile("\\[([^\\]]+)]\\((https?://[^\\s)]+)\\)");
+    private static final Pattern URL_PATTERN = Pattern.compile("https?://[^\\s)\\]>\"']+");
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -227,19 +230,19 @@ public class WebSearchTool implements Tool {
 
     private String formatResults(String query, List<SearchResult> results, String title) {
         StringBuilder out = new StringBuilder();
-        out.append(title).append("（已压缩，仅含摘要与链接；关键词：")
+        out.append(title).append("（已压缩，仅含摘要、链接与引用编号；关键词：")
                 .append(query)
                 .append("）\n");
         for (int i = 0; i < results.size(); i++) {
             SearchResult result = results.get(i);
-            out.append("\n").append(i + 1).append(". ")
+            out.append("\n[").append(i + 1).append("] ")
                     .append(result.title()).append("\n")
-                    .append("   链接：").append(result.url()).append("\n");
+                    .append("来源：").append(result.url()).append("\n");
             if (!result.snippet().isBlank()) {
-                out.append("   摘要：").append(result.snippet()).append("\n");
+                out.append("摘要：").append(result.snippet()).append("\n");
             }
         }
-        out.append("\n请基于以上摘要回答，并在涉及事实时提到来源序号。");
+        out.append("\n引用要求：回答中涉及搜索事实时，必须使用 [1]、[2] 这样的编号引用；结尾列出“来源”并保留 URL。");
         return trim(out.toString(), MAX_OUTPUT_LENGTH);
     }
 
@@ -264,6 +267,14 @@ public class WebSearchTool implements Tool {
 
     private String compressAnySearchText(String query, String domain, String text) {
         String normalized = cleanAnySearchText(text);
+        List<SearchResult> results = parseAnySearchResults(normalized, MAX_LIMIT);
+        if (!results.isEmpty()) {
+            String title = "AnySearch 联网搜索结果";
+            if (!domain.isBlank()) {
+                title += "（domain：" + domain + "）";
+            }
+            return formatResults(query, results, title);
+        }
         StringBuilder out = new StringBuilder();
         out.append("AnySearch 联网搜索结果（已压缩；关键词：")
                 .append(query);
@@ -272,8 +283,92 @@ public class WebSearchTool implements Tool {
         }
         out.append("）\n\n")
                 .append(trim(normalized, MAX_OUTPUT_LENGTH - 120))
-                .append("\n\n请基于以上摘要回答，并在涉及事实时提到来源序号或链接。");
+                .append("\n\n引用要求：回答中涉及搜索事实时，必须提到可见的来源序号或链接；如果工具结果没有明确 URL，请说明“搜索结果未提供可直接引用链接”。");
         return trim(out.toString(), MAX_OUTPUT_LENGTH);
+    }
+
+    static List<SearchResult> parseAnySearchResults(String text, int limit) {
+        List<SearchResult> results = new ArrayList<>();
+        if (text == null || text.isBlank()) {
+            return results;
+        }
+        String[] blocks = text.split("\\n\\s*\\n");
+        for (String block : blocks) {
+            if (results.size() >= limit) break;
+            SearchResult result = parseAnySearchBlock(block);
+            if (result != null && results.stream().noneMatch(existing -> existing.url().equals(result.url()))) {
+                results.add(result);
+            }
+        }
+        if (!results.isEmpty()) {
+            return results;
+        }
+        Matcher matcher = URL_PATTERN.matcher(text);
+        while (matcher.find() && results.size() < limit) {
+            String url = matcher.group();
+            if (results.stream().anyMatch(existing -> existing.url().equals(url))) {
+                continue;
+            }
+            results.add(new SearchResult(hostFromUrl(url), url, ""));
+        }
+        return results;
+    }
+
+    private static SearchResult parseAnySearchBlock(String block) {
+        if (block == null || block.isBlank()) {
+            return null;
+        }
+        String normalized = block.replace("\r\n", "\n").trim();
+        Matcher markdownLink = MARKDOWN_LINK.matcher(normalized);
+        String title = "";
+        String url = "";
+        if (markdownLink.find()) {
+            title = markdownLink.group(1);
+            url = markdownLink.group(2);
+        } else {
+            Matcher urlMatcher = URL_PATTERN.matcher(normalized);
+            if (!urlMatcher.find()) {
+                return null;
+            }
+            url = urlMatcher.group();
+            title = titleNearUrl(normalized, url);
+        }
+        String snippet = normalized
+                .replaceAll("\\[([^\\]]+)]\\(https?://[^\\s)]+\\)", "$1")
+                .replace(url, "")
+                .replaceAll("(?im)^\\s*(title|标题|url|link|链接|source|来源|snippet|摘要)\\s*[:：]\\s*", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (title.isBlank()) {
+            title = hostFromUrl(url);
+        }
+        if (snippet.equals(title)) {
+            snippet = "";
+        }
+        return new SearchResult(trim(title, MAX_TITLE_LENGTH), url, trim(snippet, MAX_SNIPPET_LENGTH));
+    }
+
+    private static String titleNearUrl(String block, String url) {
+        String[] lines = block.split("\\n");
+        for (String line : lines) {
+            String cleaned = line.replace(url, "")
+                    .replaceAll("(?im)^\\s*(title|标题|url|link|链接|source|来源)\\s*[:：]\\s*", "")
+                    .replaceAll("^[\\s\\-*>#\\d.)、]+", "")
+                    .trim();
+            if (!cleaned.isBlank() && !URL_PATTERN.matcher(cleaned).find()) {
+                return cleaned;
+            }
+        }
+        return "";
+    }
+
+    private static String hostFromUrl(String url) {
+        try {
+            String host = URI.create(url).getHost();
+            return host == null || host.isBlank() ? url : host.replaceFirst("^www\\.", "");
+        } catch (Exception ignored) {
+            return url;
+        }
     }
 
     private static String cleanAnySearchText(String text) {

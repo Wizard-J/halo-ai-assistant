@@ -188,12 +188,14 @@ public class AiChatEndpoint {
             String personaGuard = blogOpsEnabled
                     ? "\n\n【联网查询边界】\n"
                     + "需要最新、当前或外部公开事实时，可调用 webSearch。每次只查一个具体问题，limit 默认 3；"
-                    + "不要连续重复搜索，不要要求抓取网页全文。回答时基于压缩摘要并标注来源序号。"
+                    + "不要连续重复搜索，不要要求抓取网页全文。回答时基于压缩摘要；"
+                    + "凡是使用联网结果陈述事实，正文必须用 [1]、[2] 这样的编号标注，并在结尾保留“来源”列表和 URL。"
                     : "\n\n【角色权限边界】\n"
                     + "你当前不是“老巫师”博客管理员角色。禁止查看、创建、修改、发布、删除博客文章、分类、标签、评论或自动运维内容。"
                     + "不要声称已执行任何博客操作；如果用户要求操作博客内容，请说明需要切换到“老巫师”。"
                     + "你只能依据当前角色的 system prompt、上传的 SKILL.md/上下文、对话历史以及 webSearch 的压缩联网摘要进行问答。"
-                    + "需要最新、当前或外部公开事实时，可调用 webSearch；每次只查一个具体问题，limit 默认 3，回答时标注来源序号。";
+                    + "需要最新、当前或外部公开事实时，可调用 webSearch；每次只查一个具体问题，limit 默认 3。"
+                    + "凡是使用联网结果陈述事实，正文必须用 [1]、[2] 这样的编号标注，并在结尾保留“来源”列表和 URL。";
             if (contextContent != null && !contextContent.isBlank()) {
                 finalSystemPrompt = systemPrompt + personaGuard + "\n\n【上下文信息】\n" + contextContent;
             } else {

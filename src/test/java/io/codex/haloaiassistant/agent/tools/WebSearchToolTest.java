@@ -44,4 +44,38 @@ class WebSearchToolTest {
         assertEquals(1, results.size());
         assertTrue(results.get(0).title().contains("One"));
     }
+
+    @Test
+    void parseAnySearchResultsExtractsMarkdownLinksAsCitableSources() {
+        String text = """
+                [OpenAI News](https://openai.com/news/)
+                OpenAI announced a new capability this week.
+
+                [GitHub Changelog](https://github.blog/changelog/example)
+                GitHub shipped an update for developers.
+                """;
+
+        List<WebSearchTool.SearchResult> results = WebSearchTool.parseAnySearchResults(text, 5);
+
+        assertEquals(2, results.size());
+        assertEquals("OpenAI News", results.get(0).title());
+        assertEquals("https://openai.com/news/", results.get(0).url());
+        assertTrue(results.get(0).snippet().contains("announced"));
+    }
+
+    @Test
+    void parseAnySearchResultsExtractsBareUrls() {
+        String text = """
+                标题：Example Research
+                链接：https://example.com/research
+                摘要：A compact research summary.
+                """;
+
+        List<WebSearchTool.SearchResult> results = WebSearchTool.parseAnySearchResults(text, 5);
+
+        assertEquals(1, results.size());
+        assertEquals("Example Research", results.get(0).title());
+        assertEquals("https://example.com/research", results.get(0).url());
+        assertTrue(results.get(0).snippet().contains("compact research summary"));
+    }
 }
