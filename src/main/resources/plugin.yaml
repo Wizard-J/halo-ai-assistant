@@ -1,20 +1,20 @@
 apiVersion: plugin.halo.run/v1alpha1
 kind: Plugin
 metadata:
-  name: ai-assistant
+  name: wizardj-ai-assistant
 spec:
   enabled: true
-  requires: ">=2.20.0"
+  requires: ">=2.22.0"
   author:
     name: "Wizard-J"
     website: "https://github.com/Wizard-J/halo-ai-assistant"
   logo: "logo.png"
   homepage: "https://github.com/Wizard-J/halo-ai-assistant"
   displayName: "老巫师 AI 助手"
-  description: "AI 智能博客助手（管理员专用）。支持自然语言管理文章/分类/标签/评论，多角色 AI 对话（老巫师/芒格视角），自动推送与每日自动发布（RSS 聚合 + AI 润色）。需要 Halo 超级管理员权限。"
-  settingName: ai-assistant-settings
-  configMapName: ai-assistant-configmap
-  entry: "/api/ai-assistant/chat-page"
+  description: "AI 智能博客助手（管理员专用）。支持自然语言管理文章/分类/标签/评论、多角色对话、联网搜索和 RSS 内容提案。所有内容写入与批量操作均需管理员服务端确认。"
+  settingName: wizardj-ai-assistant-settings
+  configMapName: wizardj-ai-assistant-configmap
+  entry: "/apis/console.api.wizardj-ai-assistant.plugin.halo.run/v1alpha1/chat-page"
   license:
     - name: "GPL-3.0"
       url: "https://www.gnu.org/licenses/gpl-3.0.txt"

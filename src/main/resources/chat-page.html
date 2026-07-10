@@ -5,9 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light dark">
     <title>AI 智能助手</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>__PAGE_ICON__</text></svg>">
-    <link rel="preconnect" href="https://cdn.jsdelivr.net">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.6.0/fonts/remixicon.css">
+    <link rel="icon" href="__PAGE_ICON__">
     <style>
 
         /* === Safari 兼容性修复 === */
@@ -44,6 +42,29 @@
             --shadow-soft: 0 10px 28px rgba(15, 23, 42, 0.08);
             --content-width: 820px;
         }
+
+        /* 内置文本图标：不加载 Remix Icon 或任何外部 CDN。 */
+        i[class^="ri-"], i[class*=" ri-"] { font-style: normal; line-height: 1; }
+        i[class^="ri-"]::before, i[class*=" ri-"]::before { content: "•"; }
+        .ri-add-line::before { content: "+" !important; }
+        .ri-close-line::before, .ri-close-circle-line::before { content: "×" !important; }
+        .ri-check-line::before, .ri-chat-check-line::before { content: "✓" !important; }
+        .ri-delete-bin-line::before, .ri-delete-bin-6-line::before { content: "⌫" !important; }
+        .ri-edit-line::before { content: "✎" !important; }
+        .ri-download-line::before { content: "↓" !important; }
+        .ri-upload-cloud-2-line::before { content: "↑" !important; }
+        .ri-history-line::before, .ri-time-line::before { content: "◷" !important; }
+        .ri-send-plane-2-fill::before { content: "→" !important; }
+        .ri-stop-fill::before { content: "■" !important; }
+        .ri-arrow-down-s-line::before { content: "⌄" !important; }
+        .ri-settings-3-line::before, .ri-equalizer-2-line::before { content: "⚙" !important; }
+        .ri-file-list-3-line::before, .ri-file-text-line::before, .ri-draft-line::before { content: "▤" !important; }
+        .ri-price-tag-3-line::before { content: "#" !important; }
+        .ri-folders-line::before, .ri-archive-line::before { content: "▣" !important; }
+        .ri-error-warning-line::before { content: "!" !important; }
+        .ri-flask-line::before { content: "⚗" !important; }
+        .ri-save-3-line::before { content: "✓" !important; }
+        .ri-loader-4-line::before { content: "◌" !important; }
 
         @media (prefers-color-scheme: dark) {
             :root {
@@ -147,6 +168,7 @@
             height: 34px;
             font-size: 18px;
         }
+        .brand-mark img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
 
         .brand-copy {
             display: flex;
@@ -1554,7 +1576,7 @@
 <div class="app">
     <header class="app-header">
         <div class="brand">
-            <span class="brand-mark" aria-hidden="true"><i class="ri-sparkling-2-fill"></i></span>
+            <span class="brand-mark" aria-hidden="true"><img src="__PAGE_ICON__" alt=""></span>
             <div class="brand-copy">
                 <span class="brand-title">AI 智能助手</span>
                 <span class="connection"><span class="connection-dot"></span>AI 服务已连接</span>
@@ -1616,7 +1638,7 @@
                 <div class="content-column">
                     <section class="welcome" id="welcome">
                         <div class="welcome-heading">
-                            <span class="assistant-avatar" aria-hidden="true" id="welcomeAvatar"><i class="ri-sparkling-2-fill"></i></span>
+                            <span class="assistant-avatar" aria-hidden="true" id="welcomeAvatar"><img src="__PAGE_ICON__" alt="" class="avatar-img"></span>
                             <div>
                                 <h1 id="welcomeTitle">你好，我是 Halo AI 智能助手</h1>
                                 <p id="welcomeSubtitle">我可以帮你管理博客文章、分类、标签和评论。</p>
@@ -1693,10 +1715,11 @@
 
 <script>
     // Persona-aware storage keys
-    const SESSION_KEY = 'halo-ai-session-v1';
-    function storageKey() { return 'halo-ai-conv-' + activePersona.id + '-v1'; }
-    const PERSONA_LIST_KEY = 'halo-ai-personas-v1';
-    const ACTIVE_PERSONA_KEY = 'halo-ai-active-persona';
+    const SESSION_KEY = 'wizardj-ai-assistant-session-v1';
+    const LEGACY_SESSION_KEY = 'halo-ai-session-v1';
+    function storageKey() { return 'wizardj-ai-assistant-conv-' + activePersona.id + '-v1'; }
+    const PERSONA_LIST_KEY = 'wizardj-ai-assistant-personas-v1';
+    const ACTIVE_PERSONA_KEY = 'wizardj-ai-assistant-active-persona';
     const scrollArea = document.getElementById('scrollArea');
     const messagesElement = document.getElementById('messages');
     const welcomeElement = document.getElementById('welcome');
@@ -1753,7 +1776,7 @@
         if (serverFetchDone) return;
         serverFetchDone = true;
         try {
-            const resp = await fetch('/api/ai-assistant/me');
+            const resp = await fetch('__API_BASE__/me');
             if (resp.ok) {
                 const data = await resp.json();
                 if (data.authenticated && data.sessionId) {
@@ -1774,11 +1797,11 @@
         }
         // 回退：localStorage 持久化
         try {
-            let sid = localStorage.getItem(SESSION_KEY);
+            let sid = localStorage.getItem(SESSION_KEY) || localStorage.getItem(LEGACY_SESSION_KEY);
             if (!sid) {
                 sid = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + '-' + Math.random().toString(36).slice(2, 10);
-                localStorage.setItem(SESSION_KEY, sid);
             }
+            localStorage.setItem(SESSION_KEY, sid);
             return sid;
         } catch (e) { return ''; }
     }
@@ -2353,17 +2376,14 @@
     }
 
     function renderPersonaAvatar(persona) {
-        if (!persona) return '<i class="ri-sparkling-2-fill"></i>';
-        if (persona.iconUrl && persona.iconUrl.startsWith('http')) {
+        if (!persona) return '<img src="__PAGE_ICON__" alt="" class="avatar-img">';
+        if (persona.iconUrl && (persona.iconUrl.startsWith('http') || persona.iconUrl.startsWith('data:image/'))) {
             return '<img src="' + escapeHtml(persona.iconUrl) + '" alt="" class="avatar-img" onerror="this.remove()">';
         }
-        if (persona.iconUrl && persona.iconUrl.startsWith('ri-')) {
-            return '<i class="' + escapeHtml(persona.iconUrl) + '"></i>';
-        }
-        if (persona.iconUrl) {
+        if (persona.iconUrl && Array.from(persona.iconUrl).length <= 4) {
             return '<span class="avatar-emoji">' + escapeHtml(persona.iconUrl) + '</span>';
         }
-        return '<i class="ri-sparkling-2-fill"></i>';
+        return '<img src="__PAGE_ICON__" alt="" class="avatar-img">';
     }
 
     function confirmationResultMessage(content) {
@@ -2424,7 +2444,7 @@
         cancelBtn.textContent = '取消';
         cancelBtn.onclick = async () => {
             try {
-                const resp = await fetch('/api/ai-assistant/pending-actions/' + confirmationId + '/cancel', { method: 'POST' });
+                const resp = await fetch('__API_BASE__/pending-actions/' + confirmationId + '/cancel', { method: 'POST' });
                 const data = await readJsonSafely(resp);
                 if (data.success) {
                     card.dataset.confirmationStatus = 'cancelled';
@@ -2445,7 +2465,7 @@
         confirmBtn.textContent = '确认执行';
         confirmBtn.onclick = async () => {
             try {
-                const resp = await fetch('/api/ai-assistant/pending-actions/' + confirmationId + '/confirm', { method: 'POST' });
+                const resp = await fetch('__API_BASE__/pending-actions/' + confirmationId + '/confirm', { method: 'POST' });
                 const data = await readJsonSafely(resp);
                 if (data.success) {
                     card.dataset.confirmationStatus = 'confirmed';
@@ -2454,6 +2474,8 @@
                     card.innerHTML = '<div class="confirmation-card-result success"><i class="ri-check-line"></i><span>' + escapeHtml(message) + '</span></div>';
                     replaceConfirmationInHistory(confirmationId, message);
                     saveConversation();
+                    if (String(result.type || '').startsWith('autoOps')) pollPendingActions();
+                    else setTimeout(loadPendingActions, 1200);
                 } else {
                     showConfirmationFailure(card, '确认失败：' + (data.error || data.message || '未知错误'));
                 }
@@ -2680,7 +2702,7 @@
         let conversations = [];
         let shouldUseLocalFallback = false;
         try {
-            const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations?sessionId=' + encodeURIComponent(sessionId));
+            const resp = await fetch('__API_BASE__/persona/' + encodeURIComponent(activePersona.id) + '/conversations?sessionId=' + encodeURIComponent(sessionId));
             if (resp.ok) {
                 const data = await resp.json();
                 conversations = data.conversations || [];
@@ -2769,7 +2791,7 @@
         const newTitle = prompt('输入新名称：', conv.title || '');
         if (!newTitle || newTitle === conv.title) return;
         try {
-            await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id)
+            await fetch('__API_BASE__/persona/' + encodeURIComponent(activePersona.id)
                 + '/conversations/' + encodeURIComponent(conv.id) + '/rename', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -2790,7 +2812,7 @@
     async function deleteConversation(conv) {
         if (!confirm('确认删除此对话？')) return;
         try {
-            const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations/' + encodeURIComponent(conv.id), {
+            const resp = await fetch('__API_BASE__/persona/' + encodeURIComponent(activePersona.id) + '/conversations/' + encodeURIComponent(conv.id), {
                 method: 'DELETE'
             });
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
@@ -2825,7 +2847,7 @@
             return;
         }
         // 从服务端获取完整消息
-        fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/conversations/' + encodeURIComponent(conversation.id))
+        fetch('__API_BASE__/persona/' + encodeURIComponent(activePersona.id) + '/conversations/' + encodeURIComponent(conversation.id))
             .then(resp => resp.ok ? resp.json() : Promise.reject('HTTP ' + resp.status))
             .then(data => {
                 const msgs = data.messages || [];
@@ -2889,7 +2911,7 @@
             if (activePersona.id !== 'default') {
                 requestBody.personaPrompt = true;
             }
-            const response = await fetch('/api/ai-assistant/chat', {
+            const response = await fetch('__API_BASE__/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody),
@@ -2987,42 +3009,21 @@
     });
 
     autoOpsTestButton.addEventListener('click', async () => {
-        if (!confirm('将测试 RSS、AI、作者和文章创建，并生成一篇不会发布的测试草稿。继续吗？')) return;
         const original = autoOpsTestButton.innerHTML;
         autoOpsTestButton.disabled = true;
         autoOpsTestButton.innerHTML = '<i class="ri-loader-4-line ri-spin"></i><span class="button-label">测试中…</span>';
         try {
-            const response = await fetch('/api/ai-assistant/auto-ops/test');
+            const response = await fetch('__API_BASE__/auto-ops/test', { method: 'POST' });
             const result = await response.json();
-            if (!response.ok || !result.success) throw new Error(result.error || `HTTP ${response.status}`);
-            if (result.results) {
-                let msg = '### ✅ 自动运维测试通过\n\n';
-                for (const r of result.results) {
-                    const icon = r.success ? '✅' : '❌';
-                    msg += icon + ' **' + (r.persona || '未知') + '**';
-                    if (r.success) {
-                        msg += '\n  模式：' + (r.mode || '未知') + ' | 新闻：' + (r.newsCount || 0) + ' 条';
-                        msg += '\n  标题：' + (r.title || '未知');
-                        msg += '\n  ' + (r.result || '');
-                    } else {
-                        msg += '\n  ❌ ' + (r.error || '未知错误');
-                    }
-                    msg += '\n\n';
-                }
-                createMessage('assistant', msg, { instant: true });
-            } else if (result.personas) {
-                let msg = '### 🚀 自动运维已启动\n\n';
-                msg += result.message + '\n\n';
-                msg += '**已启动：** ' + result.personas.join('、') + '\n\n';
-                msg += '> ⏳ 各 Persona 正在后台抓取 RSS、调用 AI 生成文章。\n';
-                msg += '> 📋 请前往 **文章列表** 查看草稿/已发布文章。\n';
-                msg += '> 📝 服务器日志可查看详细执行结果。';
-                createMessage('assistant', msg, { instant: true });
-            } else if (result.mode) {
-                createMessage('assistant', `### ✅ 自动运维测试通过\n\n- 模式：${result.mode}\n- 读取新闻：${result.newsCount} 条\n- 草稿标题：${result.title}\n\n${result.result}`, { instant: true });
-            } else {
-                createMessage('assistant', `### ✅ 自动运维\n\n${result.message || '已完成，请查看文章列表'}`, { instant: true });
-            }
+            if (!response.ok || !result.requiresConfirmation) throw new Error(result.error || `HTTP ${response.status}`);
+            const confirmationText = '⚠️ 需要确认操作\n\n'
+                + '**待确认操作**\n\n'
+                + '**操作：** ' + result.title + '\n'
+                + '**摘要：** ' + result.summary + '\n'
+                + '**风险等级：** ' + String(result.riskLevel || 'high').toUpperCase() + '\n\n'
+                + '**确认ID：** `' + result.confirmationId + '`\n\n'
+                + '请管理员点击确认后执行操作。';
+            createMessage('assistant', confirmationText, { instant: true });
             scrollToBottom();
         } catch (error) {
             createMessage('assistant', `自动运维测试失败：${error.message}`, { error: true, instant: true });
@@ -3056,24 +3057,21 @@
     // ========== Persona Management ==========
 
     function getPersonaIconHtml(persona) {
-        if (!persona) return '<i class="ri-sparkling-2-fill"></i>';
-        if (persona.iconUrl && persona.iconUrl.startsWith('http')) {
+        if (!persona) return '<img src="__PAGE_ICON__" alt="" class="avatar-img">';
+        if (persona.iconUrl && (persona.iconUrl.startsWith('http') || persona.iconUrl.startsWith('data:image/'))) {
             return '<img src="' + escapeHtml(persona.iconUrl) + '" alt="" class="avatar-img">';
         }
-        if (persona.iconUrl && persona.iconUrl.startsWith('ri-')) {
-            return '<i class="' + escapeHtml(persona.iconUrl) + '"></i>';
-        }
-        if (persona.iconUrl) {
+        if (persona.iconUrl && Array.from(persona.iconUrl).length <= 4) {
             return '<span class="pi-emoji">' + escapeHtml(persona.iconUrl) + '</span>';
         }
-        return '<i class="ri-sparkling-2-fill"></i>';
+        return '<img src="__PAGE_ICON__" alt="" class="avatar-img">';
     }
 
     async function loadPersonas() {
         if (loadingPersonas) return;
         loadingPersonas = true;
         try {
-            const resp = await fetch('/api/ai-assistant/personas');
+            const resp = await fetch('__API_BASE__/personas');
             if (!resp.ok) throw new Error('HTTP ' + resp.status);
             const data = await resp.json();
             personas = data.personas || [];
@@ -3199,7 +3197,7 @@
 
     async function loadPersonaConversations() {
         try {
-            const resp = await fetch('/api/ai-assistant/persona/'
+            const resp = await fetch('__API_BASE__/persona/'
                 + encodeURIComponent(activePersona.id)
                 + '/conversations/current?sessionId=' + encodeURIComponent(sessionId));
             if (!resp.ok) return;
@@ -3263,6 +3261,7 @@
 
     // Init
     document.addEventListener('DOMContentLoaded', () => {
+        loadPendingActions();
         // 先获取登录用户的 session
         fetchServerSession().then(() => {
             // 如果服务端有 session，替换之前 localStorage 生成的 sessionId
@@ -3274,14 +3273,44 @@
             // 先加载 Persona 列表（会恢复 localStorage 中保存的角色）
             loadPersonas().then(() => {
                 // 此时 activePersona 已正确恢复，再加载服务端对话
-                loadServerConversation().then(() => {});
+                loadServerConversation().then(loadPendingActions);
             });
         });
     });
 
+    async function loadPendingActions() {
+        try {
+            const resp = await fetch('__API_BASE__/pending-actions');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            for (const action of (data.actions || [])) {
+                const existing = document.querySelector('[data-confirmation-id="' + CSS.escape(action.id) + '"]');
+                if (existing?.dataset.confirmationStatus === 'pending') continue;
+                existing?.closest('.message-row')?.remove();
+                const text = '⚠️ 需要确认操作\n\n'
+                    + '**待确认操作**\n\n'
+                    + '**操作：** ' + action.title + '\n'
+                    + '**摘要：** ' + action.summary + '\n'
+                    + '**风险等级：** ' + String(action.riskLevel || 'high').toUpperCase() + '\n\n'
+                    + '**确认ID：** `' + action.id + '`\n\n'
+                    + '请管理员确认或取消。';
+                createMessage('assistant', text, { instant: true });
+            }
+        } catch (e) {
+            console.debug('加载待确认操作失败', e);
+        }
+    }
+
+    function pollPendingActions(remaining = 60) {
+        loadPendingActions();
+        if (remaining > 1) {
+            setTimeout(() => pollPendingActions(remaining - 1), 2000);
+        }
+    }
+
     async function loadServerConversation() {
         try {
-            const resp = await fetch('/api/ai-assistant/persona/'
+            const resp = await fetch('__API_BASE__/persona/'
                 + encodeURIComponent(activePersona.id)
                 + '/conversations/current?sessionId=' + encodeURIComponent(sessionId));
             if (!resp.ok) return false;
@@ -3339,7 +3368,7 @@
                 try {
                     const form = new FormData();
                     form.append('file', file);
-                    const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/context', {
+                    const resp = await fetch('__API_BASE__/persona/' + encodeURIComponent(activePersona.id) + '/context', {
                         method: 'POST',
                         body: form
                     });
@@ -3362,7 +3391,7 @@
         exportContextButton.addEventListener('click', async () => {
             closePersonaMenu();
             try {
-                let url = '/api/ai-assistant/persona/' + encodeURIComponent(activePersona.id) + '/context/download';
+                let url = '__API_BASE__/persona/' + encodeURIComponent(activePersona.id) + '/context/download';
                 if (sessionId) url += '?sessionId=' + encodeURIComponent(sessionId);
                 const resp = await fetch(url);
                 if (!resp.ok) {
@@ -3454,7 +3483,7 @@
             + '<label class="persona-field">显示名称<input class="pe-field" data-field="displayName" data-pid="' + safeId + '" value="' + escapeHtml(p.displayName || '') + '"></label>'
             + '<label class="persona-field">欢迎语<input class="pe-field" data-field="greeting" data-pid="' + safeId + '" value="' + escapeHtml(p.greeting || '') + '"></label>'
             + '<label class="persona-field persona-field-wide">简介<textarea class="pe-field" data-field="description" data-pid="' + safeId + '" rows="2">' + escapeHtml(p.description || '') + '</textarea></label>'
-            + '<label class="persona-field">头像 / Remix 图标<input class="pe-field" data-field="iconUrl" data-pid="' + safeId + '" value="' + escapeHtml(p.iconUrl || '') + '" placeholder="ri-team-fill 或 https://..."></label>'
+            + '<label class="persona-field">头像 URL 或 Emoji<input class="pe-field" data-field="iconUrl" data-pid="' + safeId + '" value="' + escapeHtml(p.iconUrl || '') + '" placeholder="https://... 或 🧙"></label>'
             + '<label class="persona-field">品牌色<div class="persona-color-row"><span class="persona-color-swatch" style="--persona-color:' + color + '"></span><input class="pe-field" data-field="brandColor" data-pid="' + safeId + '" value="' + color + '"></div></label>'
             + '<label class="persona-field persona-field-wide">思考短语（每行一个）<textarea class="pe-field" data-field="thinkingPhrases" data-pid="' + safeId + '" rows="3">' + escapeHtml(thinkingStr) + '</textarea></label>'
             + '</div>'
@@ -3485,7 +3514,7 @@
                     statusEl.style.display = 'inline';
                     statusEl.textContent = '保存中…';
                     statusEl.style.color = 'var(--text-muted)';
-                    const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(p.id), {
+                    const resp = await fetch('__API_BASE__/persona/' + encodeURIComponent(p.id), {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(fields)
@@ -3535,7 +3564,9 @@
         try {
             const form = new FormData();
             form.append('file', file);
-            const uploadResp = await fetch('/api/ai-assistant/persona/upload', {
+            const iconFile = iconInput?.files?.[0];
+            if (iconFile) form.append('icon', iconFile);
+            const uploadResp = await fetch('__API_BASE__/persona/upload', {
                 method: 'POST',
                 body: form
             });
@@ -3543,18 +3574,6 @@
             if (!uploadResp.ok) throw new Error(uploadData.error || '上传失败');
             let uploaded = uploadData.persona || uploadData;
             if (!uploaded || !uploaded.id) throw new Error('上传响应缺少 persona');
-
-            const iconValue = (iconInput?.value || '').trim();
-            if (iconValue) {
-                const updateResp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(uploaded.id), {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ iconUrl: iconValue })
-                });
-                const updateData = await updateResp.json().catch(() => ({}));
-                if (!updateResp.ok) throw new Error(updateData.error || '头像更新失败');
-                uploaded = updateData.persona || updateData;
-            }
 
             upsertPersona(uploaded);
             renderPersonaManagerList();
@@ -3581,7 +3600,7 @@
             statusEl.style.color = 'var(--text-muted)';
         }
         try {
-            const resp = await fetch('/api/ai-assistant/persona/' + encodeURIComponent(persona.id), {
+            const resp = await fetch('__API_BASE__/persona/' + encodeURIComponent(persona.id), {
                 method: 'DELETE'
             });
             if (!resp.ok) {
@@ -3635,7 +3654,7 @@
                 <h4 class="persona-upload-title">上传 SKILL.md 新增角色</h4>
                 <div class="persona-upload-grid">
                     <input id="personaUploadFile" type="file" accept=".md,.txt">
-                    <input id="personaUploadIcon" type="text" placeholder="可选头像：ri-team-fill 或 https://...">
+                    <input id="personaUploadIcon" type="file" accept="image/png,image/jpeg,image/webp" aria-label="可选头像，最大 256KB">
                     <div class="persona-upload-actions">
                         <button class="button button-primary" id="personaUploadButton" type="button"><i class="ri-upload-cloud-2-line"></i><span>上传角色</span></button>
                         <span id="personaUploadStatus" class="persona-status"></span>

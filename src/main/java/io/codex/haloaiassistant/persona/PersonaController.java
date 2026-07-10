@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.codex.haloaiassistant.endpoint.AiChatEndpoint;
 import java.util.List;
 import java.util.Map;
+import java.util.Base64;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -19,38 +21,48 @@ import org.springframework.web.reactive.function.server.RouterFunctions;
 import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
 import reactor.core.publisher.Mono;
+import run.halo.app.core.extension.endpoint.CustomEndpoint;
+import run.halo.app.extension.GroupVersion;
 import run.halo.app.plugin.ReactiveSettingFetcher;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class PersonaController {
+public class PersonaController implements CustomEndpoint {
+
+    private static final int MAX_ICON_BYTES = 256 * 1024;
 
     private final PersonaService personaService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public RouterFunction<ServerResponse> endpoints() {
+    @Override
+    public RouterFunction<ServerResponse> endpoint() {
         return RouterFunctions.route()
-                .GET("/api/ai-assistant/personas", this::handleListPersonas)
-                .POST("/api/ai-assistant/persona/upload", this::handleUploadPersona)
-                .POST("/api/ai-assistant/persona/{id}/context", this::handleUploadContext)
-                .DELETE("/api/ai-assistant/persona/{id}", this::handleDeletePersona)
-                .GET("/api/ai-assistant/persona/{id}/conversations", this::handleListConversations)
-                .GET("/api/ai-assistant/persona/{id}/conversations/current", this::handleGetCurrentConversation)
-                .GET("/api/ai-assistant/persona/{id}/conversations/{convId}",
+                .GET("/personas", this::handleListPersonas)
+                .POST("/persona/upload", this::handleUploadPersona)
+                .POST("/persona/{id}/context", this::handleUploadContext)
+                .DELETE("/persona/{id}", this::handleDeletePersona)
+                .GET("/persona/{id}/conversations", this::handleListConversations)
+                .GET("/persona/{id}/conversations/current", this::handleGetCurrentConversation)
+                .GET("/persona/{id}/conversations/{convId}",
                         this::handleGetConversation)
-                .DELETE("/api/ai-assistant/persona/{id}/conversations/{convId}",
+                .DELETE("/persona/{id}/conversations/{convId}",
                         this::handleDeleteConversation)
-                .PUT("/api/ai-assistant/persona/{id}/conversations/{convId}/rename",
+                .PUT("/persona/{id}/conversations/{convId}/rename",
                         this::handleRenameConversation)
-                .DELETE("/api/ai-assistant/session/conversations",
+                .DELETE("/session/conversations",
                         this::handleClearSessionConversations)
-                .POST("/api/ai-assistant/persona/{id}/context/refine", this::handleRefineContext)
-                .GET("/api/ai-assistant/persona/{id}/context/download",
+                .POST("/persona/{id}/context/refine", this::handleRefineContext)
+                .GET("/persona/{id}/context/download",
                         this::handleDownloadContext)
-                .PUT("/api/ai-assistant/persona/{id}",
+                .PUT("/persona/{id}",
                         this::handleUpdatePersona)
                 .build();
+    }
+
+    @Override
+    public GroupVersion groupVersion() {
+        return AiChatEndpoint.API_VERSION;
     }
 
     /**
@@ -84,10 +96,6 @@ public class PersonaController {
                                 .bodyValue(Map.of("error", "请上传 SKILL.md 文件"));
                     }
 
-                    // 如果有头像图片一并上传
-                    String iconUrl = null;
-                    // 简单处理：头像上传在本实现中先使用请求参数
-                    // 完整实现可走 Halo 附件 API
                     Mono<String> iconUrlMono = Mono.justOrEmpty(iconPart)
                             .filter(p -> p instanceof FilePart)
                             .map(p -> (FilePart) p)
@@ -102,18 +110,54 @@ public class PersonaController {
                                             ServerResponse.badRequest()
                                                     .bodyValue(Map.of("error", e.getMessage())))
                     );
+                })
+                .onErrorResume(IllegalArgumentException.class, e ->
+                        ServerResponse.badRequest().bodyValue(Map.of("error", e.getMessage())))
+                .onErrorResume(e -> {
+                    log.error("上传 Persona 失败", e);
+                    return ServerResponse.status(500)
+                            .bodyValue(Map.of("error", "上传失败，请检查文件后重试"));
                 });
     }
 
     private Mono<String> uploadIcon(FilePart iconPart) {
-        // TODO: 使用 Halo 附件 API 上传头像
-        // 目前返回空，后续实现完整的附件上传
         log.info("收到头像上传请求: {}", iconPart.filename());
-        return DataBufferUtils.join(iconPart.content())
+        return DataBufferUtils.join(iconPart.content(), MAX_ICON_BYTES)
                 .map(dataBuffer -> {
-                    DataBufferUtils.release(dataBuffer);
-                    return "";
-                });
+                    byte[] bytes = new byte[dataBuffer.readableByteCount()];
+                    try {
+                        dataBuffer.read(bytes);
+                    } finally {
+                        DataBufferUtils.release(dataBuffer);
+                    }
+                    String mime = detectImageMime(bytes);
+                    String declared = iconPart.headers().getContentType() == null
+                            ? "" : iconPart.headers().getContentType().toString();
+                    if (mime == null || (!declared.isBlank() && !declared.equalsIgnoreCase(mime))) {
+                        throw new IllegalArgumentException("头像仅支持真实的 PNG、JPEG 或 WebP 图片");
+                    }
+                    return "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(bytes);
+                })
+                .onErrorMap(org.springframework.core.io.buffer.DataBufferLimitException.class,
+                        e -> new IllegalArgumentException("头像文件不能超过 256KB"));
+    }
+
+    static String detectImageMime(byte[] bytes) {
+        if (bytes == null || bytes.length < 12) return null;
+        if ((bytes[0] & 0xff) == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4e
+                && bytes[3] == 0x47 && bytes[4] == 0x0d && bytes[5] == 0x0a
+                && bytes[6] == 0x1a && bytes[7] == 0x0a) {
+            return "image/png";
+        }
+        if ((bytes[0] & 0xff) == 0xff && (bytes[1] & 0xff) == 0xd8
+                && (bytes[2] & 0xff) == 0xff) {
+            return "image/jpeg";
+        }
+        if (bytes[0] == 'R' && bytes[1] == 'I' && bytes[2] == 'F' && bytes[3] == 'F'
+                && bytes[8] == 'W' && bytes[9] == 'E' && bytes[10] == 'B' && bytes[11] == 'P') {
+            return "image/webp";
+        }
+        return null;
     }
 
     /**
@@ -304,9 +348,9 @@ public class PersonaController {
                 .then(ServerResponse.ok()
                         .bodyValue(Map.of("success", true)))
                 .onErrorResume(e -> {
-                    log.warn("清除session对话失败，仍返回成功: {}", e.getMessage());
-                    return ServerResponse.ok()
-                            .bodyValue(Map.of("success", true));
+                    log.warn("清除 session 对话失败: {}", e.getMessage());
+                    return ServerResponse.status(500)
+                            .bodyValue(Map.of("success", false, "error", e.getMessage()));
                 });
     }
 
@@ -314,25 +358,10 @@ public class PersonaController {
 
     /**
      * GET /api/ai-assistant/persona/{id}/context/download
-     * 导出上下文：自动提炼后直接返回合并后的 AGENTS.md（不追加原始对话）
+     * 纯读取导出当前上下文。提炼是独立 POST 操作，GET 不得修改数据。
      */
     private Mono<ServerResponse> handleDownloadContext(ServerRequest request) {
         String personaId = request.pathVariable("id");
-        String sessionId = request.queryParam("sessionId").orElse("");
-
-        // 自动提炼：将未处理过的对话合并到 AGENTS.md（静默处理）
-        Mono<Void> autoRefine = Mono.justOrEmpty(sessionId)
-                .filter(s -> !s.isBlank())
-                .flatMap(s -> personaService.refineContext(personaId, sessionId)
-                        .doOnSuccess(merged -> log.info("导出前自动提炼成功"))
-                        .onErrorResume(e -> {
-                            log.debug("导出前自动提炼跳过: {}", e.getMessage());
-                            return Mono.empty();
-                        })
-                )
-                .then();
-
-        // 获取当前 AGENTS.md（提炼后已是最新版）
         Mono<String> contextMono = personaService.getPersona(personaId)
                 .map(p -> {
                     if (p.getSpec() == null) return "# (无数据)\n\nPersona 数据异常。";
@@ -341,8 +370,7 @@ public class PersonaController {
                             ? ctx : "# (无上下文)\n\n尚未上传上下文文件。";
                 });
 
-        // 先自动提炼，再直接返回合并后的 AGENTS.md
-        return autoRefine.then(contextMono)
+        return contextMono
                 .flatMap(content -> {
                     String filename = "context-" + personaId + ".md";
                     return ServerResponse.ok()

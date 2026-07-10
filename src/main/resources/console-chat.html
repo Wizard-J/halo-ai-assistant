@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>老巫师 AI 助手 - 控制台</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.3.0/fonts/remixicon.css">
 <style>
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;background:#f5f6f8;color:#1f2937;display:flex;flex-direction:column;height:100vh;}
 .header{padding:16px 20px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:12px;flex-shrink:0;}
@@ -28,7 +27,7 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans
 </head>
 <body>
 <div class="header">
-<i class="ri-sparkling-2-fill" style="font-size:24px;color:#2D1B69;"></i>
+<img src="/plugins/wizardj-ai-assistant/assets/logo.png" alt="" width="24" height="24">
 <div><h1>老巫师 AI 助手</h1><div class="subtitle">在 Halo Console 中使用 AI 助手管理站点内容</div></div>
 </div>
 <div class="messages" id="messages">
@@ -41,8 +40,8 @@ body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans
 <input id="input" placeholder="输入消息…" autofocus>
 <button id="sendBtn" onclick="send()">发送</button>
 </div>
-<a class="open-immersive" href="/api/ai-assistant/chat-page" target="_blank">
-<i class="ri-external-link-line"></i> 打开完整对话
+<a class="open-immersive" href="/apis/console.api.wizardj-ai-assistant.plugin.halo.run/v1alpha1/chat-page" target="_blank" rel="noopener noreferrer">
+↗ 打开完整对话
 </a>
 <script>
 const messagesEl=document.getElementById('messages');
@@ -72,7 +71,7 @@ isStreaming=true;
 document.getElementById('sendBtn').disabled=true;
 abortController=new AbortController();
 try{
-const resp=await fetch('/api/ai-assistant/chat',{
+const resp=await fetch('/apis/console.api.wizardj-ai-assistant.plugin.halo.run/v1alpha1/chat',{
 method:'POST',
 headers:{'Content-Type':'application/json'},
 body:JSON.stringify({message:text,history:history.slice(0,-1),persona:'default',sessionId:'console-'+Date.now()}),

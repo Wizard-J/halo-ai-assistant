@@ -5,6 +5,7 @@ import io.codex.haloaiassistant.agent.tools.ArticleTool;
 import io.codex.haloaiassistant.agent.tools.ArticleTool.BatchTagArticlesTool;
 import io.codex.haloaiassistant.agent.tools.ArticleTool.CreateArticleTool;
 import io.codex.haloaiassistant.agent.tools.ArticleTool.UpdateArticleTool;
+import io.codex.haloaiassistant.autoops.AutoOpsService;
 import static io.codex.haloaiassistant.agent.confirmation.ConfirmedExecutors.*;
 import lombok.extern.slf4j.Slf4j;
 
@@ -32,6 +33,9 @@ public class PendingActionExecutor {
                 case "createTag" -> executeCreateTag(payload);
                 case "batchTagArticles" -> executeBatchTagArticles(payload);
                 case "syncArticlePublishTimes" -> executeSyncArticlePublishTimes(payload);
+                case "autoTagArticles" -> executeAutoTagArticles(payload);
+                case "autoOpsTest" -> executeAutoOpsTest(action.getRequester());
+                case "autoOpsScheduled" -> executeAutoOpsScheduled(action.getRequester());
                 default -> throw new IllegalArgumentException("未知操作类型: " + type);
             };
         } catch (Exception e) {
@@ -64,6 +68,33 @@ public class PendingActionExecutor {
     private static String executeSyncArticlePublishTimes(JsonNode args) {
         ArticleTool.SyncArticlePublishTimesTool tool = SpringContextBridge.getBean(ArticleTool.SyncArticlePublishTimesTool.class);
         return tool.executeInternal(args);
+    }
+
+    private static String executeAutoTagArticles(JsonNode args) {
+        ArticleTool.AutoTagArticlesTool tool = SpringContextBridge.getBean(ArticleTool.AutoTagArticlesTool.class);
+        return tool.executeInternal(args);
+    }
+
+    private static String executeAutoOpsTest(String requester) {
+        AutoOpsService service = SpringContextBridge.getBean(AutoOpsService.class);
+        var result = service.testNow(requester).block();
+        if (result == null) {
+            return "自动运维启动失败：服务未返回结果";
+        }
+        if (Boolean.FALSE.equals(result.get("success"))) {
+            return "自动运维启动失败：" + result.getOrDefault("error", "未知错误");
+        }
+        return String.valueOf(result.getOrDefault("message", "自动运维已启动"));
+    }
+
+    private static String executeAutoOpsScheduled(String requester) {
+        AutoOpsService service = SpringContextBridge.getBean(AutoOpsService.class);
+        var result = service.runConfirmedScheduled(requester).block();
+        if (result == null || Boolean.FALSE.equals(result.get("success"))) {
+            return "自动运维启动失败："
+                    + (result == null ? "服务未返回结果" : result.getOrDefault("error", "未知错误"));
+        }
+        return String.valueOf(result.getOrDefault("message", "自动运维已启动"));
     }
 
     private static String executeDeleteComment(JsonNode args) {

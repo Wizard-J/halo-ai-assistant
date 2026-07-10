@@ -164,7 +164,7 @@ public class WebSearchTool implements Tool {
 
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("jsonrpc", "2.0");
-        payload.put("id", "halo-ai-assistant-web-search");
+        payload.put("id", "wizardj-ai-assistant-web-search");
         payload.put("method", "tools/call");
         ObjectNode params = payload.putObject("params");
         params.put("name", "search");

@@ -311,7 +311,7 @@ class PersonaServiceTest {
         metadata.setName(name);
         metadata.setVersion(1L);
         Map<String, Object> data = new HashMap<>();
-        data.put("apiVersion", "ai-assistant.plugin.halo.run/v1alpha1");
+        data.put("apiVersion", "wizardj-ai-assistant.plugin.halo.run/v1alpha1");
         data.put("kind", "ConvRef");
         data.put("metadata", new HashMap<>(Map.of("name", name, "version", 1L)));
         data.put("spec", new HashMap<>(Map.of(
@@ -334,7 +334,7 @@ class PersonaServiceTest {
         metadata.setName(ref.getMetadata().getName());
         metadata.setVersion(ref.getMetadata().getVersion());
         Map<String, Object> data = new HashMap<>();
-        data.put("apiVersion", "ai-assistant.plugin.halo.run/v1alpha1");
+        data.put("apiVersion", "wizardj-ai-assistant.plugin.halo.run/v1alpha1");
         data.put("kind", "ConvRef");
         data.put("metadata", new HashMap<>(Map.of(
                 "name", ref.getMetadata().getName(),

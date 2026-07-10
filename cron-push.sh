@@ -24,12 +24,9 @@ fi
 echo "📡 正在获取今日文章..."
 
 # 调用插件推送接口
-URL="${BLOG}/plugins/ai-assistant/api/ai-assistant/daily-push"
-if [ -n "$SECRET" ]; then
-    URL="${URL}?secret=${SECRET}"
-fi
-
-RESPONSE=$(curl -s "$URL")
+URL="${BLOG}/apis/console.api.wizardj-ai-assistant.plugin.halo.run/v1alpha1/daily-push"
+PAYLOAD=$(printf '{"secret":"%s"}' "$SECRET")
+RESPONSE=$(curl -sS -X POST -H 'Content-Type: application/json' --data "$PAYLOAD" "$URL")
 
 echo "$RESPONSE" | python3 -c "
 import sys, json

@@ -4,13 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.codex.haloaiassistant.agent.Tool;
-import io.codex.haloaiassistant.agent.ToolRegistry;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -19,7 +18,7 @@ import org.springframework.stereotype.Service;
  * 待确认操作管理服务。
  * 使用内存 ConcurrentHashMap 存储，TTL 10 分钟过期。
  * 高风险工具调用此服务创建待确认操作，管理员通过 API 确认/取消。
- * 确认后通过 ToolRegistry 执行对应的工具操作。
+ * 确认后由服务端内部执行器使用已固化 payload 执行，不再经过模型。
  */
 @Slf4j
 @Service
@@ -27,12 +26,7 @@ public class PendingActionService {
 
     private final Map<String, PendingAction> store = new ConcurrentHashMap<>();
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final ToolRegistry toolRegistry;
     private static final long TTL_MINUTES = 10;
-
-    public PendingActionService(ToolRegistry toolRegistry) {
-        this.toolRegistry = toolRegistry;
-    }
 
     /**
      * 创建一个待确认操作，返回 PendingActionResult 供 Tool 返回给 AI 显示。
@@ -48,7 +42,14 @@ public class PendingActionService {
         action.setTitle(title);
         action.setSummary(summary);
         action.setRiskLevel(riskLevel);
-        action.setPayload(payload);
+        JsonNode storedPayload = payload == null ? null : payload.deepCopy();
+        String requester = storedPayload == null ? ""
+                : storedPayload.path("_requester").asText("");
+        if (storedPayload instanceof ObjectNode objectPayload) {
+            objectPayload.remove("_requester");
+        }
+        action.setRequester(requester);
+        action.setPayload(storedPayload);
         action.setCreatedAt(now);
         action.setExpiresAt(now.plusSeconds(TTL_MINUTES * 60));
 
@@ -65,6 +66,10 @@ public class PendingActionService {
      * 获取待确认操作，如果不存在或已过期返回 null。
      */
     public PendingAction get(String id) {
+        return get(id, null);
+    }
+
+    public PendingAction get(String id, String requester) {
         PendingAction action = store.get(id);
         if (action == null) {
             log.warn("待确认操作不存在: {}", id);
@@ -75,29 +80,21 @@ public class PendingActionService {
             log.warn("待确认操作已过期: {}", id);
             return null;
         }
-        return action;
+        return canAccess(action, requester) ? action : null;
     }
 
     /**
      * 确认并执行操作。
-     * 通过 ToolRegistry 查找对应的工具，用存储的 payload 执行工具逻辑。
+     * 原子领取待确认项，并用存储的 payload 执行。
      * 返回包含执行结果的 JsonNode。
      */
     public JsonNode confirmAndExecute(String id) {
-        PendingAction action = get(id);
-        if (action == null) return null;
-        store.remove(id);
+        return confirmAndExecute(id, null);
+    }
 
-        // 通过 ToolRegistry 查找工具并执行
-        String toolName = mapTypeToToolName(action.getType());
-        Tool tool = toolRegistry.getByName(toolName).orElse(null);
-        if (tool == null) {
-            log.error("未找到执行工具: type={}, toolName={}", action.getType(), toolName);
-            ObjectNode error = objectMapper.createObjectNode();
-            error.put("success", false);
-            error.put("error", "未找到执行工具：" + toolName);
-            return error;
-        }
+    public JsonNode confirmAndExecute(String id, String requester) {
+        PendingAction action = take(id, requester);
+        if (action == null) return null;
 
         try {
             String result = PendingActionExecutor.execute(action);
@@ -133,46 +130,62 @@ public class PendingActionService {
     }
 
     /**
-     * 将操作类型映射到工具名称。
-     * 高风险操作（如删除/发布）的 tool 名称与 type 对应。
-     */
-    private String mapTypeToToolName(String type) {
-        return switch (type) {
-            case "deleteArticle" -> "deleteArticle";
-            case "updateArticle" -> "updateArticle";
-            case "createArticle" -> "createArticle";
-            case "deleteComment" -> "deleteComment";
-            case "approveComment" -> "approveComment";
-            case "deleteCategory" -> "deleteCategory";
-            case "createCategory" -> "createCategory";
-            case "createTag" -> "createTag";
-            case "batchTagArticles" -> "batchTagArticles";
-            case "syncArticlePublishTimes" -> "syncArticlePublishTimes";
-            default -> throw new IllegalArgumentException("未知操作类型: " + type);
-        };
-    }
-
-    /**
      * 确认操作（仅获取，不执行）。
      */
     public PendingAction confirm(String id) {
-        PendingAction action = get(id);
-        if (action == null) return null;
-        store.remove(id);
-        return action;
+        return take(id, null);
     }
 
     /**
      * 取消操作。从存储中移除。
      */
     public boolean cancel(String id) {
-        PendingAction removed = store.remove(id);
+        return cancel(id, null);
+    }
+
+    public boolean cancel(String id, String requester) {
+        PendingAction removed = take(id, requester);
         if (removed == null) {
             log.warn("取消操作失败，不存在: {}", id);
             return false;
         }
         log.info("已取消操作: id={}, type={}", id, removed.getType());
         return true;
+    }
+
+    /** 返回当前未过期的待确认项，仅用于 Console 管理界面。 */
+    public List<PendingAction> listPending() {
+        return listPending(null);
+    }
+
+    public List<PendingAction> listPending(String requester) {
+        evictExpired();
+        return store.values().stream()
+                .filter(action -> canAccess(action, requester))
+                .sorted(java.util.Comparator.comparing(PendingAction::getCreatedAt).reversed())
+                .toList();
+    }
+
+    public boolean hasPendingType(String type) {
+        evictExpired();
+        return store.values().stream().anyMatch(action -> type.equals(action.getType()));
+    }
+
+    private PendingAction take(String id, String requester) {
+        AtomicReference<PendingAction> claimed = new AtomicReference<>();
+        store.computeIfPresent(id, (key, action) -> {
+            if (action.isExpired()) return null;
+            if (!canAccess(action, requester)) return action;
+            claimed.set(action);
+            return null;
+        });
+        return claimed.get();
+    }
+
+    private boolean canAccess(PendingAction action, String requester) {
+        if (action == null) return false;
+        String owner = action.getRequester();
+        return requester == null || owner == null || owner.isBlank() || requester.equals(owner);
     }
 
     /**
@@ -242,6 +255,16 @@ public class PendingActionService {
             item.put("type", "post");
             item.put("title", title);
             item.put("action", "published".equals(status) ? "创建并发布" : "创建草稿");
+        } else if ("autoTagArticles".equals(type)) {
+            ObjectNode item = items.addObject();
+            item.put("type", "batch");
+            item.put("articleCount", payload.path("articleCount").asInt(0));
+            item.put("groupCount", payload.path("groups").size());
+            item.put("action", "按已生成提案批量更新标签");
+        } else if ("autoOpsTest".equals(type) || "autoOpsScheduled".equals(type)) {
+            ObjectNode item = items.addObject();
+            item.put("type", "automation");
+            item.put("action", "抓取 RSS 并调用 AI 生成待审核草稿提案");
         }
 
         return items;

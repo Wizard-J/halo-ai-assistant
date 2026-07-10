@@ -88,7 +88,12 @@ public class ArticleTool implements Tool {
 
     @Override
     public String execute(JsonNode args) {
-        String status = normalizeStatus(args.has("status") ? args.get("status").asText("") : "");
+        String requestedStatus = args.has("status") ? args.get("status").asText("") : "";
+        String status = normalizeStatus(requestedStatus);
+        if (!requestedStatus.isBlank() && status.isBlank()) {
+            return "获取文章列表失败：不支持的状态「" + requestedStatus
+                    + "」，可用值为 published、draft、trash";
+        }
 
         try {
             List<Post> allPosts = listAllPosts();
@@ -267,33 +272,27 @@ public class ArticleTool implements Tool {
         @Override
         public String execute(JsonNode args) {
             String title = args.path("title").asText("").trim();
-            String content = args.path("content").asText("");
             boolean published = "published".equals(args.has("status") ? args.get("status").asText("draft") : "draft");
-            String categories = args.has("categories") ? args.get("categories").asText("") : "";
-            String tags = args.has("tags") ? args.get("tags").asText("") : "";
-            Instant publishTime = args.hasNonNull("publishTime")
-                    ? parsePublishTime(args.get("publishTime").asText()) : null;
 
-            // 仅当发布操作时才走确认
-            if (published) {
-                try {
-                    PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
-                    String summary = "将创建文章「" + (title.length() > 40 ? title.substring(0, 40) + "…" : title) + "」并立即发布。";
-                    var result = pas.create("createArticle", "发布文章确认", summary, RiskLevel.MEDIUM, args);
-                    return "⚠️ 需要确认操作\n\n"
-                            + "**待确认操作**\n\n"
-                            + "**操作：** 发布文章确认\n"
-                            + "**摘要：** " + summary + "\n"
-                            + "**风险等级：** MEDIUM\n\n"
-                            + "**确认ID：** `" + result.getConfirmationId() + "`\n\n"
-                            + "请管理员点击确认后执行操作。";
-                } catch (Exception e) {
-                    log.error("创建待确认操作失败，已取消执行", e);
-                    return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
-                }
+            try {
+                PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
+                String shortTitle = title.length() > 40 ? title.substring(0, 40) + "…" : title;
+                String actionTitle = published ? "创建并发布文章确认" : "创建文章草稿确认";
+                String summary = "将创建文章「" + shortTitle + "」"
+                        + (published ? "并立即发布。" : "并保存为草稿。");
+                var result = pas.create("createArticle", actionTitle, summary,
+                        published ? RiskLevel.HIGH : RiskLevel.MEDIUM, args);
+                return "⚠️ 需要确认操作\n\n"
+                        + "**待确认操作**\n\n"
+                        + "**操作：** " + actionTitle + "\n"
+                        + "**摘要：** " + summary + "\n"
+                        + "**风险等级：** " + (published ? "HIGH" : "MEDIUM") + "\n\n"
+                        + "**确认ID：** `" + result.getConfirmationId() + "`\n\n"
+                        + "请管理员点击确认后执行操作。";
+            } catch (Exception e) {
+                log.error("创建待确认操作失败，已取消执行", e);
+                return "[错误] 无法创建待确认操作，已取消执行。请稍后重试。";
             }
-
-            return executeInternal(args);
         }
 
         /**
@@ -1038,9 +1037,9 @@ public class ArticleTool implements Tool {
         public String execute(JsonNode args) {
             String id = args.get("id").asText();
 
-            // 高风险操作（发布/批量改标签分类）需要确认
-            boolean hasHighRisk = args.has("publish") || args.has("categories") || args.has("tags");
-            if (hasHighRisk) {
+            boolean hasMutation = args.has("title") || args.has("content") || args.has("publish")
+                    || args.has("publishTime") || args.has("categories") || args.has("tags");
+            if (hasMutation) {
                 try {
                     PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
                     String summary = "将更新文章（ID: " + id + "）";
@@ -1052,6 +1051,12 @@ public class ArticleTool implements Tool {
                     }
                     if (args.has("tags")) {
                         summary += "，更新标签";
+                    }
+                    if (args.has("title") || args.has("content")) {
+                        summary += "，更新标题/正文";
+                    }
+                    if (args.has("publishTime")) {
+                        summary += "，更新发布时间";
                     }
                     var result = pas.create("updateArticle", "更新文章确认", summary, RiskLevel.HIGH, args);
                     return "⚠️ 需要确认操作\n\n"
@@ -1067,7 +1072,7 @@ public class ArticleTool implements Tool {
                 }
             }
 
-            return executeInternal(args);
+            return "文章更新失败：未提供任何可更新字段";
         }
 
         public String executeInternal(JsonNode args) {
@@ -1655,7 +1660,7 @@ public class ArticleTool implements Tool {
                 Integer maxTokens = aiSetting.getMaxTokens();
                 if (maxTokens == null || maxTokens < 1024) maxTokens = 8192;
                 String response = callAiApi(endpoint, apiKey, model, promptBuilder.toString(), maxTokens);
-                log.info("AI 分类响应: {}", response.substring(0, Math.min(response.length(), 500)));
+                log.debug("AI 分类响应已收到，长度={}", response.length());
 
                 // 5. 解析 AI 返回的 JSON
                 // 先尝试找到 JSON 起始位置，剥离模型思考过程
@@ -1673,64 +1678,93 @@ public class ArticleTool implements Tool {
                     return "AI 返回的分类结果无法解析，请重试";
                 }
 
-                // 6. 为每组文章打标签 - 使用已获取的文章列表，避免重复查询
-                int totalUpdated = 0;
-                int totalFailed = 0;
-                StringBuilder detail = new StringBuilder();
-
-                // 建立文章ID到Post的映射，避免逐篇查询
-                java.util.Map<String, Post> postMap = new java.util.HashMap<>();
-                for (Post post : posts) {
-                    postMap.put(post.getMetadata().getName(), post);
-                }
+                // 6. 固化 AI 生成的变更提案。只保留本次读取到的文章 ID，确认后不再调用 AI。
+                java.util.Set<String> validIds = posts.stream()
+                        .map(post -> post.getMetadata().getName())
+                        .collect(java.util.stream.Collectors.toSet());
+                ObjectNode proposal = objectMapper.createObjectNode();
+                ArrayNode safeGroups = proposal.putArray("groups");
+                int proposedCount = 0;
                 for (JsonNode group : groups) {
-                    String tag = group.path("tag").asText("");
+                    String tag = group.path("tag").asText("").trim();
                     JsonNode ids = group.path("articleIds");
-                    if (tag.isBlank() || !ids.isArray()) continue;
-
-                    List<String> tagList = List.of(tag);
-                    int groupSuccess = 0;
-                    int groupFailed = 0;
-
+                    if (tag.isBlank() || tag.length() > 30 || !ids.isArray()) continue;
+                    ObjectNode safeGroup = safeGroups.addObject();
+                    safeGroup.put("tag", tag);
+                    ArrayNode safeIds = safeGroup.putArray("articleIds");
                     for (JsonNode idNode : ids) {
-                        String id = idNode.asText("");
-                        if (id.isBlank()) continue;
-                        try {
-                            Post post = postMap.get(id);
-                            if (post != null && post.getSpec() != null) {
-                                post.getSpec().setTags(tagList);
-                                client.update(post).block();
-                                groupSuccess++;
-                            }
-                        } catch (Exception e) {
-                            log.warn("更新文章 {} 标签失败: {}", id, e.getMessage());
-                            groupFailed++;
+                        String id = idNode.asText("").trim();
+                        if (validIds.contains(id)) {
+                            safeIds.add(id);
+                            proposedCount++;
                         }
                     }
-
-                    totalUpdated += groupSuccess;
-                    totalFailed += groupFailed;
-                    if (groupSuccess > 0) {
-                        detail.append("\n- 【").append(tag).append("】：").append(groupSuccess).append(" 篇");
+                    if (safeIds.isEmpty()) {
+                        safeGroups.remove(safeGroups.size() - 1);
                     }
                 }
+                if (proposedCount == 0) {
+                    return "AI 未生成可执行的分类提案，未修改任何文章";
+                }
+                proposal.put("articleCount", proposedCount);
 
-                // 7. 返回结果
-                StringBuilder resultBuilder = new StringBuilder();
-                resultBuilder.append("✅ 自动分类打标完成！共处理 ").append(posts.size()).append(" 篇文章。\n");
-                if (totalUpdated > 0) {
-                    resultBuilder.append("成功：").append(totalUpdated).append(" 篇");
-                    resultBuilder.append(detail.toString());
-                }
-                if (totalFailed > 0) {
-                    resultBuilder.append("\n失败：").append(totalFailed).append(" 篇");
-                }
-                return resultBuilder.toString();
+                PendingActionService pas = SpringContextBridge.getBean(PendingActionService.class);
+                String summary = "AI 已生成 " + safeGroups.size() + " 个标签组，拟修改 "
+                        + proposedCount + " 篇文章的标签。";
+                var pending = pas.create("autoTagArticles", "全站文章自动打标确认",
+                        summary, RiskLevel.HIGH, proposal);
+                return "⚠️ 需要确认操作\n\n"
+                        + "**待确认操作**\n\n"
+                        + "**操作：** 全站文章自动打标确认\n"
+                        + "**摘要：** " + summary + "\n"
+                        + "**风险等级：** HIGH\n\n"
+                        + "**确认ID：** `" + pending.getConfirmationId() + "`\n\n"
+                        + "确认后将仅执行上述已固化提案。";
 
             } catch (Exception e) {
                 log.error("自动分类打标失败", e);
                 return "自动分类打标失败: " + CreateArticleTool.rootMessage(e);
             }
+        }
+
+        /** 仅由服务端确认执行器调用，严格执行已固化的分类提案。 */
+        public String executeInternal(JsonNode proposal) {
+            JsonNode groups = proposal.path("groups");
+            if (!groups.isArray() || groups.isEmpty()) {
+                return "自动分类打标失败：确认提案为空";
+            }
+            int totalUpdated = 0;
+            int totalFailed = 0;
+            StringBuilder detail = new StringBuilder();
+            for (JsonNode group : groups) {
+                String tag = group.path("tag").asText("").trim();
+                JsonNode ids = group.path("articleIds");
+                if (tag.isBlank() || !ids.isArray()) continue;
+                int groupSuccess = 0;
+                for (JsonNode idNode : ids) {
+                    String id = idNode.asText("").trim();
+                    if (id.isBlank()) continue;
+                    try {
+                        Post post = client.get(Post.class, id).block();
+                        if (post == null || post.getSpec() == null) {
+                            totalFailed++;
+                            continue;
+                        }
+                        post.getSpec().setTags(List.of(tag));
+                        client.update(post).block();
+                        groupSuccess++;
+                        totalUpdated++;
+                    } catch (Exception e) {
+                        totalFailed++;
+                        log.warn("更新文章 {} 标签失败: {}", id, e.getMessage());
+                    }
+                }
+                if (groupSuccess > 0) {
+                    detail.append("\n- 【").append(tag).append("】：").append(groupSuccess).append(" 篇");
+                }
+            }
+            return "✅ 自动分类打标完成：成功 " + totalUpdated + " 篇，失败 "
+                    + totalFailed + " 篇。" + detail;
         }
 
         private String callAiApi(String endpoint, String apiKey, String model, String prompt, Integer maxTokens) {

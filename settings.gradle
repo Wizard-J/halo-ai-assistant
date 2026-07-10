@@ -4,4 +4,4 @@ pluginManagement {
         mavenCentral()
     }
 }
-rootProject.name = 'halo-ai-assistant'
+rootProject.name = 'wizardj-ai-assistant'

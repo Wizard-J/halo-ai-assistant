@@ -7,10 +7,10 @@ export default definePlugin({
     "plugin:self:tabs:create": () => {
       return [
         {
-          id: "ai-assistant-chat",
+          id: "wizardj-ai-assistant-chat",
           label: "老巫师",
           component: markRaw(AiAssistantTab),
-          permissions: [],
+          permissions: ["*"],
         },
       ];
     },

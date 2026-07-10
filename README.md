@@ -33,16 +33,20 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew clean build
 JAVA_HOME=/path/to/jdk-21 ./gradlew test
 ```
 
-产物：`build/libs/halo-ai-assistant-2.24.0.jar`
+产物：`build/libs/wizardj-ai-assistant-2.24.0.jar`
 
 > 测试：20 个单元测试（PersonaUtils 12 + AutoOps 7），覆盖 token 估算、压缩逻辑、Reactor 异常处理、RSS 解析等。
 > 注：PersonaService 集成测试需在 Halo 运行时验证（`ReactiveExtensionClient` 为 compileOnly）。
 
 ## 安装
 
+> 市场版插件 ID 为 `wizardj-ai-assistant`。早期私有版 `ai-assistant` 与本版在 Halo 中是两个不同插件，不能直接覆盖升级。迁移前请先导出/备份旧配置、Persona 和对话数据。
+
+旧插件仍安装时，新插件会一次性复制旧 ConfigMap、Persona、Conversation/ConvRef 和自动运维状态，并写入 `wizardj-ai-assistant-migration-state` 标记。迁移不会删除旧资源；验证新插件后再停用旧插件。
+
 1. 登录 Halo 管理后台 → 插件 → 上传 JAR → 启用
 2. 打开插件设置，配置 API Key、模型、页面标题/图标/欢迎语等
-3. 聊天页面：`https://你的域名/api/ai-assistant/chat-page`
+3. 聊天页面：`https://你的域名/apis/console.api.wizardj-ai-assistant.plugin.halo.run/v1alpha1/chat-page`
 
 
 ### 热部署
@@ -58,7 +62,7 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew test
 | 模型名称 | Chat 模型 | `deepseek-v4-flash` |
 | 最大 Token | 单次输出上限 | `16384` |
 | 页面标题 | 浏览器标签页 + 顶部品牌名 | `老巫师` |
-| 页面图标 | 左上角图标（Emoji / Remix 类名 / 图片 URL） | `🧙` |
+| 页面图标 | 通过 Halo Iconify 选择器保存的 Data URL（无外部 CDN） | 内置 Logo |
 | 欢迎语 | 页面打开时显示的标题 | `你好，我是老巫师，巫师前沿站的AI助手` |
 
 ## Persona 系统
@@ -98,7 +102,7 @@ description: 简短描述
 ## 部署到服务器
 
 1. 本地构建：`JAVA_HOME=/path/to/jdk-21 ./gradlew clean build`
-2. 产物：`build/libs/halo-ai-assistant-2.24.0.jar`
+2. 产物：`build/libs/wizardj-ai-assistant-2.24.0.jar`
 3. 通过 **1Panel 后台 → 插件 → 上传 JAR** 上传部署
 4. Halo 自动热加载，无需重启容器
 
@@ -140,18 +144,18 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew test
 
 | API | 方法 | 说明 |
 |-----|------|------|
-| `/api/ai-assistant/persona/{id}/context/download?sessionId=xxx` | GET | 导出：自动提炼 + 返回合并后的 AGENTS.md |
-| `/api/ai-assistant/persona/{id}/context/refine?sessionId=xxx` | POST | 仅提炼，不下 |
-| `/api/ai-assistant/persona/{id}/context` | POST | 上传 AGENTS.md |
+| `/apis/console.api.wizardj-ai-assistant.plugin.halo.run/v1alpha1/persona/{id}/context/download` | GET | 纯读取导出当前 AGENTS.md |
+| `/apis/console.api.wizardj-ai-assistant.plugin.halo.run/v1alpha1/persona/{id}/context/refine?sessionId=xxx` | POST | 提炼并更新上下文 |
+| `/apis/console.api.wizardj-ai-assistant.plugin.halo.run/v1alpha1/persona/{id}/context` | POST | 上传 AGENTS.md |
 
-导出流程：点击导出 → 自动提炼（新对话 AI 合并到 AGENTS.md）→ 只返回合并后的 AGENTS.md（不追加原始对话）。
+导出是纯读取操作。如需将新对话提炼到 AGENTS.md，请先显式调用 POST 提炼接口。
 ---
 
 ## 权限说明
 
 > ⚠️ **本插件仅支持 Halo 超级管理员使用**。
 >
-> 聊天页面 `/api/ai-assistant/chat-page` 需要管理员登录才能访问。所有涉及文章创建/更新/删除、分类/标签管理、评论审核/删除、自动生成草稿/发布的功能，均以当前登录管理员的身份执行。
+> 聊天页面使用 Halo Console Custom API，默认仅超级管理员可访问。文章创建/更新/删除、批量标签和自动生成均会先创建服务端待确认项，确认后才执行。
 >
 > 这不是公开的访客聊天工具，普通访客无法看到或使用此插件提供的任何功能。
 
@@ -167,7 +171,7 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew test
    - **API Key**：你的模型密钥
    - **模型名称**：如 `deepseek-v4-flash`、`gpt-4o-mini` 等
    - 可选：页面标题、图标、欢迎语
-3. 保存设置后，通过 `https://你的域名/api/ai-assistant/chat-page` 访问聊天页面
+3. 保存设置后，从插件 Console 页签点击“完整对话”访问聊天页面
 
 ### 第二步：智能对话
 
@@ -196,7 +200,7 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew test
 在插件设置 → **自动运维** 选项卡中：
 1. 开启对应人物（巫师前沿站 / 书虫漫步 / 技术猎手）
 2. 配置 RSS 源和发布时间
-3. 插件会在每日设定时间自动拉取 RSS → AI 筛选 → 生成文章 → 发布
+3. 插件会在每日设定时间自动拉取 RSS → AI 筛选 → 生成待确认文章提案
 
 > 此功能适合希望保持站点每日更新的站长。
 
@@ -207,7 +211,7 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew test
 | 功能 | 访问路径 |
 |------|---------|
 | 插件设置 | Halo 后台 → 插件 → AI 智能助手 → 设置 |
-| 聊天页面 | `https://你的域名/api/ai-assistant/chat-page` |
+| 聊天页面 | Halo Console 插件页签 → 完整对话 |
 | 角色管理 | 聊天页 → 右上角切换按钮 → 管理 Persona |
 | 自动运维配置 | 插件设置 → 自动运维选项卡 |
 
@@ -219,7 +223,7 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew test
 
 | 数据类型 | 用途 | 存储位置 | 保存期限 |
 |---------|------|---------|---------|
-| 对话上下文（用户输入 + AI 回复） | 维持多轮对话连贯性 | Halo 数据库（MySQL/PostgreSQL） | 直到用户删除对话或卸载插件 |
+| 对话上下文（用户输入 + AI 回复） | 维持多轮对话连贯性 | Halo 数据库（MySQL/PostgreSQL） | 直到管理员删除相关扩展数据；卸载不保证自动清理 |
 | 文章标题/内容摘要 | AI 分析后执行管理操作（创建/更新/打标签等） | 不额外存储，操作后仅保留文章本身 | — |
 | 分类/标签/评论数据 | AI 读取后供用户管理 | 不额外存储 | — |
 | 上传的 SKILL.md | 自定义角色定义 | Halo 数据库 | 直到用户删除角色或卸载插件 |
@@ -229,20 +233,21 @@ JAVA_HOME=/path/to/jdk-21 ./gradlew test
 | 第三方服务 | 发送的数据 | 用途 | 配置入口 | 关闭方式 |
 |-----------|-----------|------|---------|---------|
 | OpenAI / DeepSeek 等模型 API | 用户输入的对话消息、系统提示词、文章标题/摘要 | AI 生成回复和操作指令 | 插件设置 → Base URL + API Key | 清空 API Key 字段并保存 |
+| AnySearch / DuckDuckGo | 联网搜索查询词 | 获取外部搜索摘要和来源 | 聊天中使用联网搜索 | 不发起联网搜索请求 |
 | RSS 源（如 Hacker News、Ars Technica 等） | 无（插件主动拉取，不发送） | 获取资讯内容用于自动发布 | 插件设置 → 自动运维 → RSS 来源 | 关闭对应人物的"启用"开关 |
 | Server酱 / PushPlus | 每日文章摘要 | 推送到用户微信 | 插件设置 → 每日推送 → Token | 清空 Token 字段或关闭推送 |
 
 ### 3. 数据控制权
 
 - **查看数据**：所有对话记录保存在 Halo 数据库中，可通过数据库管理工具查看
-- **删除数据**：在聊天页面删除对话，或卸载插件后所有相关数据一并清理
+- **删除数据**：可在聊天页面删除单条对话或角色；卸载插件不保证自动删除已持久化的扩展数据
 - **撤销授权**：清空 API Key 并保存即可停止向模型服务发送数据
 - **导出数据**：支持通过 Persona 管理面板导出上下文 AGENTS.md
 
 ### 4. 数据安全
 
 - 对话数据仅存储在用户自己的 Halo 数据库中，不会上传到除模型 API 外的任何第三方
-- API Key 存储在 Halo 的 ConfigMap 中（加密存储由 Halo 平台保证）
+- API Key 存储在 Halo 插件配置 ConfigMap 中；请由部署方保障数据库、备份和管理员账号安全
 - 插件本身不包含任何遥测或分析 SDK
 
 ---

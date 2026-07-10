@@ -108,12 +108,16 @@ public class AgentService {
      * 如果 messages 第一条是 role=system，使用它作为 system prompt，否则使用默认配置
      */
     public Flux<String> chat(List<ChatMessage> messages) {
+        return chat(messages, "system");
+    }
+
+    public Flux<String> chat(List<ChatMessage> messages, String requester) {
         return Flux.defer(() -> {
             String configError = validateSetting();
             if (configError != null) {
                 return Flux.just(configError);
             }
-            return doChat(messages, 0, null);
+            return doChat(messages, 0, null, requester);
         });
     }
 
@@ -121,12 +125,17 @@ public class AgentService {
      * 发送对话消息，但只暴露并执行指定工具。用于限制 Persona 的能力边界。
      */
     public Flux<String> chatWithTools(List<ChatMessage> messages, Set<String> allowedToolNames) {
+        return chatWithTools(messages, allowedToolNames, "system");
+    }
+
+    public Flux<String> chatWithTools(List<ChatMessage> messages, Set<String> allowedToolNames,
+                                      String requester) {
         return Flux.defer(() -> {
             String configError = validateSetting();
             if (configError != null) {
                 return Flux.just(configError);
             }
-            return doChat(messages, 0, allowedToolNames);
+            return doChat(messages, 0, allowedToolNames, requester);
         });
     }
 
@@ -145,7 +154,8 @@ public class AgentService {
 
     // ========== 流式对话主路径 ==========
 
-    private Flux<String> doChat(List<ChatMessage> messages, int depth, Set<String> allowedToolNames) {
+    private Flux<String> doChat(List<ChatMessage> messages, int depth, Set<String> allowedToolNames,
+                                String requester) {
         if (depth > MAX_TOOL_DEPTH) {
             return Flux.just("[系统] 工具调用次数过多，请简化指令");
         }
@@ -160,7 +170,7 @@ public class AgentService {
         return contentStream.concatWith(Flux.defer(() -> {
             // 流结束后处理工具调用或空内容
             if (state.hasToolCalls()) {
-                return continueAfterToolCalls(messages, state, depth, allowedToolNames);
+                return continueAfterToolCalls(messages, state, depth, allowedToolNames, requester);
             }
             if (state.content.length() == 0 && state.refusal != null && !state.refusal.isBlank()) {
                 return Flux.just("[AI 拒绝回答] " + state.refusal);
@@ -176,7 +186,7 @@ public class AgentService {
             // 尝试检测是否因 stream: true 不被支持，回退非流式
             if (error.statusCode == 400 && extractErrorMessage(error.responseBody).toLowerCase().contains("stream")) {
                 log.warn("当前模型服务可能不支持 stream，回退到非流式调用");
-                return doChatNonStreaming(messages, depth, allowedToolNames)
+                return doChatNonStreaming(messages, depth, allowedToolNames, requester)
                         .onErrorResume(AiApiException.class, fallbackError -> {
                             log.warn("非流式 fallback 请求失败，状态码: {}，响应: {}",
                                     fallbackError.statusCode, abbreviate(fallbackError.responseBody, 1000));
@@ -421,7 +431,7 @@ public class AgentService {
      * 流结束后发现有 tool_calls，执行工具并递归继续对话。
      */
     private Flux<String> continueAfterToolCalls(List<ChatMessage> messages, StreamState state, int depth,
-                                                Set<String> allowedToolNames) {
+                                                Set<String> allowedToolNames, String requester) {
         ArrayNode toolCalls = buildToolCallsNode(state);
         if (toolCalls.size() == 0) {
             return Flux.just("[错误] AI 期望调用工具，但调用格式不完整");
@@ -451,7 +461,10 @@ public class AgentService {
                                 if (tool != null) {
                                     try {
                                         JsonNode argsJson = objectMapper.readTree(args);
-                                        log.info("调用工具: {} args={}", name, args);
+                                        if (argsJson instanceof ObjectNode objectArgs) {
+                                            objectArgs.put("_requester", requester);
+                                        }
+                                        log.info("调用工具: {}", name);
                                         return tool.execute(argsJson);
                                     } catch (Exception e) {
                                         log.error("工具执行失败: {}", name, e);
@@ -472,7 +485,7 @@ public class AgentService {
                         newMessages.add(new ChatMessage("tool",
                                 (String) r[2], (String) r[0], (String) r[1]));
                     }
-                    return doChat(newMessages, depth + 1, allowedToolNames);
+                    return doChat(newMessages, depth + 1, allowedToolNames, requester);
                 });
         return statusEvents.concatWith(resultFlow);
     }
@@ -482,7 +495,8 @@ public class AgentService {
     /**
      * 不支持 stream 的模型回退到非流式调用（代码从原 doChat 抽取）。
      */
-    private Flux<String> doChatNonStreaming(List<ChatMessage> messages, int depth, Set<String> allowedToolNames) {
+    private Flux<String> doChatNonStreaming(List<ChatMessage> messages, int depth,
+                                            Set<String> allowedToolNames, String requester) {
         if (depth > MAX_TOOL_DEPTH) {
             return Flux.just("[系统] 工具调用次数过多，请简化指令");
         }
@@ -539,7 +553,10 @@ public class AgentService {
                                                                 if (tool != null) {
                                                                     try {
                                                                         JsonNode argsJson = objectMapper.readTree(args);
-                                                                        log.info("调用工具: {} args={}", name, args);
+                                                                        if (argsJson instanceof ObjectNode objectArgs) {
+                                                                            objectArgs.put("_requester", requester);
+                                                                        }
+                                                                        log.info("调用工具: {}", name);
                                                                         return tool.execute(argsJson);
                                                                     } catch (Exception e) {
                                                                         log.error("工具执行失败: {}", name, e);
@@ -560,7 +577,8 @@ public class AgentService {
                                                         newMessages.add(new ChatMessage("tool",
                                                                 (String) r[2], (String) r[0], (String) r[1]));
                                                     }
-                                                    return doChatNonStreaming(newMessages, depth + 1, allowedToolNames);
+                                                    return doChatNonStreaming(newMessages, depth + 1,
+                                                            allowedToolNames, requester);
                                                 });
                                         return statusEvents.concatWith(resultFlow);
                                     }));
@@ -697,14 +715,14 @@ public class AgentService {
             systemMsg.put("role", "system");
             systemMsg.put("content", currentSetting.getSystemPrompt()
                     + "\n\n【硬性规则 - 违者任务失败】\n"
-                    + "- 分类/打标签：你的第一句回复必须包含 autoTagArticles 工具调用。不许先说废话，直接调！\n"
+                    + "- 只有当管理员明确要求全站自动分类/打标时才调用 autoTagArticles。它只生成变更提案，必须经管理员确认后才会写入。\n"
                     + "- 查询未发布/草稿文章：必须调用 listArticles，并传 status=draft；不要用发布时间是否为空来猜。\n"
                     + "- 查询已发布文章：必须调用 listArticles，并传 status=published。\n"
                     + "- 展示文章列表时必须使用编号列表，不要使用 Markdown 表格，不要分页追问。\n"
                     + "- 需要最新/当前/外部事实时，可调用 webSearch；每次只查一个具体问题，limit 默认 3，不要连续重复搜索。\n"
                     + "- 需要引用本站旧文章或历史内容时，优先调用 searchSiteArticles；它是只读检索工具。\n"
                     + "- 使用 webSearch 或 searchSiteArticles 的结果陈述事实时，必须在正文用 [1]、[2] 标注来源。\n"
-                    + "- 创建文章：直接调 createArticle。不反问、不确认、不商量。\n"
+                    + "- 创建或更新文章时调用对应工具生成待确认操作；不得声称已执行，必须等待管理员确认。\n"
                     + "- 永远不说「我先看看」「让我检查」「我发现了一个工具」等废话。直接行动。\n"
                     + "- 回复上限 3 句话。超过就是违规。\n"
                     + "- 当用户要求发布“第一篇/第 N 篇/这篇/刚才那篇”时，必须根据最近一次 listArticles 返回的序号和 ID 找到对应文章，调用 updateArticle 并传 id=对应ID 且 publish=true；不要只复述列表。\n"

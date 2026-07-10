@@ -1,7 +1,7 @@
 apiVersion: v1alpha1
 kind: Setting
 metadata:
-  name: ai-assistant-settings
+  name: wizardj-ai-assistant-settings
 spec:
   forms:
     - group: basic
@@ -42,11 +42,12 @@ spec:
           label: 页面标题
           value: "老巫师"
           help: "浏览器标签页和页面顶部的品牌名称"
-        - $formkit: text
+        - $formkit: iconify
           name: pageIcon
           label: 页面图标
-          value: "ri-sparkling-2-fill"
-          help: "左上角品牌图标，Emoji 或 Remix 图标类名（如 ri-sparkling-2-fill）"
+          format: dataurl
+          value-only: true
+          help: "使用 Halo Iconify 选择器保存为 Data URL，无需依赖外部图标 CDN"
         - $formkit: text
           name: greeting
           label: 欢迎语
@@ -105,9 +106,9 @@ spec:
         # ═══ 第一人物：巫师前沿站 ═══
         - $formkit: switch
           name: autoPublish
-          label: 巫师前沿站 - 自动发布
+          label: 巫师前沿站 - 提案为发布状态
           value: false
-          help: "⚠️ 默认创建草稿，开启后创作完成时直接发布。建议先预览确认后再启用"
+          help: "默认生成草稿提案；开启后生成发布提案。两种状态都必须由管理员在服务端确认后才会写入。"
         - $formkit: text
           name: authorName
           label: 巫师前沿站 - 作者昵称

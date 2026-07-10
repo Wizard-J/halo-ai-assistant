@@ -19,6 +19,7 @@ class ArticleToolTest {
         assertEquals("draft", ArticleTool.normalizeStatus("unpublished"));
         assertEquals("published", ArticleTool.normalizeStatus("已发布"));
         assertEquals("trash", ArticleTool.normalizeStatus("回收站"));
+        assertEquals("", ArticleTool.normalizeStatus("unknown"));
     }
 
     @Test
@@ -33,6 +34,9 @@ class ArticleToolTest {
         assertFalse(ArticleTool.matchesStatus(trashedDraft, "draft"));
         assertTrue(ArticleTool.matchesStatus(published, "published"));
         assertTrue(ArticleTool.matchesStatus(trashedDraft, "trash"));
+        assertTrue(ArticleTool.matchesStatus(post(true, true), "trash"));
+        assertFalse(ArticleTool.matchesStatus(post(true, true), "published"));
+        assertTrue(ArticleTool.matchesStatus(draft, ""));
     }
 
     private Post post(boolean published, boolean deleted) {

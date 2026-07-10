@@ -3,6 +3,8 @@ package io.codex.haloaiassistant.autoops;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.codex.haloaiassistant.agent.AgentService;
+import io.codex.haloaiassistant.agent.confirmation.PendingActionService;
+import io.codex.haloaiassistant.agent.confirmation.RiskLevel;
 import io.codex.haloaiassistant.agent.tools.ArticleTool;
 import io.codex.haloaiassistant.config.AiAssistantSetting;
 import io.codex.haloaiassistant.config.AutoOpsSetting;
@@ -47,7 +49,7 @@ import run.halo.app.plugin.ReactiveSettingFetcher;
 @Component
 @RequiredArgsConstructor
 public class AutoOpsService {
-    private static final String STATE_NAME = "ai-assistant-auto-ops-state";
+    private static final String STATE_NAME = "wizardj-ai-assistant-auto-ops-state";
     private static final String LAST_RUN_KEY = "lastRunTime";
     private static final String PROCESSED_KEY = "processedUrls";
 
@@ -55,15 +57,13 @@ public class AutoOpsService {
     private final ReactiveExtensionClient client;
     private final AgentService agentService;
     private final ArticleTool.CreateArticleTool createArticleTool;
+    private final PendingActionService pendingActionService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final AtomicBoolean running = new AtomicBoolean(false);
-
-    private boolean anySucceeded = false;
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 15_000)
     public void tick() {
         if (!running.compareAndSet(false, true)) return;
-        anySucceeded = false;
         settingFetcher.fetch("autoOps", AutoOpsSetting.class)
                 .defaultIfEmpty(new AutoOpsSetting())
                 .onErrorResume(e -> { log.error("tick 配置失败", e); return Mono.just(new AutoOpsSetting()); })
@@ -91,33 +91,18 @@ public class AutoOpsService {
             if (!lastRunTime.isBefore(todayRunTime)) return;
         }
         if (now.toLocalTime().isBefore(runTime)) return;
+        if (pendingActionService.hasPendingType("autoOpsScheduled")) return;
 
-        try {
-            runPrimaryPipeline(auto, basic, state, now, false);
-            anySucceeded = true;
-        } catch (Exception e) {
-            log.error("巫师前沿站失败", e);
-        }
-        if (Boolean.TRUE.equals(auto.getSecondaryEnabled()))
-            try {
-                runSecondaryPipeline(auto, basic, state, now, false);
-                anySucceeded = true;
-            } catch (Exception e) {
-                log.error("书虫漫步失败", e);
-            }
-        if (Boolean.TRUE.equals(auto.getTertiaryEnabled()))
-            try {
-                runTertiaryPipeline(auto, basic, state, now, false);
-                anySucceeded = true;
-            } catch (Exception e) {
-                log.error("技术猎手失败", e);
-            }
-        if (anySucceeded) {
-            state.getData().put(LAST_RUN_KEY, now.toString());
-            saveStateWithRetry(state);
-        } else {
-            log.warn("自动运维今日所有管线均失败，未写入 {}", LAST_RUN_KEY);
-        }
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("mode", "scheduled");
+        payload.put("scheduledAt", now.toString());
+        var pending = pendingActionService.create(
+                "autoOpsScheduled",
+                "每日自动运维执行确认",
+                "已到达计划时间。确认后才会抓取 RSS、调用 AI、必要时创建禁止登录的专用作者，并生成内容提案。",
+                RiskLevel.HIGH,
+                payload);
+        log.info("自动运维已生成待确认项: {}", pending.getConfirmationId());
     }
 
     private void saveStateWithRetry(ConfigMap state) {
@@ -139,6 +124,10 @@ public class AutoOpsService {
     }
 
     public Mono<Map<String, Object>> testNow() {
+        return testNow("system");
+    }
+
+    public Mono<Map<String, Object>> testNow(String requester) {
         return Mono.zip(
                         settingFetcher.fetch("autoOps", AutoOpsSetting.class).defaultIfEmpty(new AutoOpsSetting()),
                         settingFetcher.fetch("basic", AiAssistantSetting.class).defaultIfEmpty(new AiAssistantSetting()))
@@ -151,14 +140,14 @@ public class AutoOpsService {
                     ConfigMap state = getOrCreateState();
 
                     List<String> started = new ArrayList<>();
-                    fireInBackground("巫师前沿站", () -> runPrimaryPipeline(auto, basic, state, now, true));
+                    fireInBackground("巫师前沿站", () -> runPrimaryPipeline(auto, basic, state, now, true, requester));
                     started.add("巫师前沿站");
                     if (Boolean.TRUE.equals(auto.getSecondaryEnabled())) {
-                        fireInBackground("书虫漫步", () -> runSecondaryPipeline(auto, basic, state, now, true));
+                        fireInBackground("书虫漫步", () -> runSecondaryPipeline(auto, basic, state, now, true, requester));
                         started.add("书虫漫步");
                     }
                     if (Boolean.TRUE.equals(auto.getTertiaryEnabled())) {
-                        fireInBackground("技术猎手", () -> runTertiaryPipeline(auto, basic, state, now, true));
+                        fireInBackground("技术猎手", () -> runTertiaryPipeline(auto, basic, state, now, true, requester));
                         started.add("技术猎手");
                     }
                     Map<String, Object> resp = new LinkedHashMap<>();
@@ -166,6 +155,43 @@ public class AutoOpsService {
                     resp.put("message", "自动运维已启动: " + String.join(", ", started) + "，请查看文章列表确认结果");
                     resp.put("personas", started);
                     return Mono.just(resp);
+                })
+                .onErrorResume(e -> Mono.just(Map.of("success", false, "error", rootMessage(e))));
+    }
+
+    /** 由服务端待确认执行器调用，确认后才启动正式计划管线。 */
+    public Mono<Map<String, Object>> runConfirmedScheduled() {
+        return runConfirmedScheduled("system");
+    }
+
+    public Mono<Map<String, Object>> runConfirmedScheduled(String requester) {
+        return Mono.zip(
+                        settingFetcher.fetch("autoOps", AutoOpsSetting.class).defaultIfEmpty(new AutoOpsSetting()),
+                        settingFetcher.fetch("basic", AiAssistantSetting.class).defaultIfEmpty(new AiAssistantSetting()))
+                .publishOn(Schedulers.boundedElastic())
+                .flatMap(tuple -> {
+                    AutoOpsSetting auto = tuple.getT1();
+                    AiAssistantSetting basic = tuple.getT2();
+                    ZoneId zone = ZoneId.of(defaultText(auto.getTimezone(), "Asia/Shanghai"));
+                    ZonedDateTime now = ZonedDateTime.now(zone);
+                    ConfigMap state = getOrCreateState();
+                    state.getData().put(LAST_RUN_KEY, now.toString());
+                    saveStateWithRetry(state);
+                    List<String> started = new ArrayList<>();
+                    fireInBackground("巫师前沿站", () -> runPrimaryPipeline(auto, basic, state, now, false, requester));
+                    started.add("巫师前沿站");
+                    if (Boolean.TRUE.equals(auto.getSecondaryEnabled())) {
+                        fireInBackground("书虫漫步", () -> runSecondaryPipeline(auto, basic, state, now, false, requester));
+                        started.add("书虫漫步");
+                    }
+                    if (Boolean.TRUE.equals(auto.getTertiaryEnabled())) {
+                        fireInBackground("技术猎手", () -> runTertiaryPipeline(auto, basic, state, now, false, requester));
+                        started.add("技术猎手");
+                    }
+                    return Mono.just(Map.<String, Object>of(
+                            "success", true,
+                            "message", "自动运维已启动：" + String.join("、", started),
+                            "personas", started));
                 })
                 .onErrorResume(e -> Mono.just(Map.of("success", false, "error", rootMessage(e))));
     }
@@ -183,7 +209,7 @@ public class AutoOpsService {
     // ═══════════════════════════════════════════
 
     private Map<String, Object> runPrimaryPipeline(AutoOpsSetting auto, AiAssistantSetting basic,
-                             ConfigMap state, ZonedDateTime now, boolean testMode) {
+                             ConfigMap state, ZonedDateTime now, boolean testMode, String requester) {
         if (basic.getApiKey() == null || basic.getApiKey().isBlank())
             throw new IllegalStateException("未配置 API Key");
         ensureAuthor(defaultText(auto.getAuthorName(), "巫师前沿站"),
@@ -212,7 +238,7 @@ public class AutoOpsService {
         String result = publishArticle(article.title(), article.content(),
                 defaultText(auto.getDefaultTags(), "AI前沿"),
                 defaultText(auto.getAuthorUsername(), "wizard-frontier"),
-                now, !testMode && Boolean.TRUE.equals(auto.getAutoPublish()));
+                now, !testMode && Boolean.TRUE.equals(auto.getAutoPublish()), requester);
 
         if (!testMode) {
             Instant ts = Instant.now();
@@ -225,7 +251,7 @@ public class AutoOpsService {
     }
 
     private Map<String, Object> runSecondaryPipeline(AutoOpsSetting auto, AiAssistantSetting basic,
-                             ConfigMap state, ZonedDateTime now, boolean testMode) {
+                             ConfigMap state, ZonedDateTime now, boolean testMode, String requester) {
         if (basic.getApiKey() == null || basic.getApiKey().isBlank())
             throw new IllegalStateException("未配置 API Key");
         ensureAuthor(defaultText(auto.getSecondaryAuthorName(), "书虫漫步"),
@@ -262,7 +288,7 @@ public class AutoOpsService {
         String result = publishArticle(article.title(), article.content(),
                 defaultText(auto.getSecondaryTags(), "知识卡片, 好书快读"),
                 defaultText(auto.getSecondaryAuthorUsername(), "bookworm-wanderer"),
-                now, !testMode && Boolean.TRUE.equals(auto.getAutoPublish()));
+                now, !testMode && Boolean.TRUE.equals(auto.getAutoPublish()), requester);
 
         if (!testMode) {
             Instant ts = Instant.now();
@@ -275,7 +301,7 @@ public class AutoOpsService {
     }
 
     private Map<String, Object> runTertiaryPipeline(AutoOpsSetting auto, AiAssistantSetting basic,
-                             ConfigMap state, ZonedDateTime now, boolean testMode) {
+                             ConfigMap state, ZonedDateTime now, boolean testMode, String requester) {
         if (basic.getApiKey() == null || basic.getApiKey().isBlank())
             throw new IllegalStateException("未配置 API Key");
         ensureAuthor(defaultText(auto.getTertiaryAuthorName(), "技术猎手"),
@@ -312,7 +338,7 @@ public class AutoOpsService {
         String result = publishArticle(article.title(), article.content(),
                 defaultText(auto.getTertiaryTags(), "技术干货, 优质译文"),
                 defaultText(auto.getTertiaryAuthorUsername(), "tech-hunter"),
-                now, !testMode && Boolean.TRUE.equals(auto.getAutoPublish()));
+                now, !testMode && Boolean.TRUE.equals(auto.getAutoPublish()), requester);
 
         if (!testMode) {
             Instant ts = Instant.now();
@@ -327,7 +353,7 @@ public class AutoOpsService {
     // ═══ 共享工具 ═══
 
     private String publishArticle(String title, String content, String tags,
-            String authorUsername, ZonedDateTime now, boolean publish) {
+            String authorUsername, ZonedDateTime now, boolean publish, String requester) {
         ArticleQuality quality = checkArticleQuality(title, content);
         boolean finalPublish = publish && quality.passed();
         String finalContent = quality.passed()
@@ -341,9 +367,11 @@ public class AutoOpsService {
         args.put("owner", authorUsername);
         args.put("publishTime", now.toInstant().toString());
         args.put("tags", tags);
-        String result = createArticleTool.executeInternal(args);
+        args.put("_requester", requester == null || requester.isBlank() ? "system" : requester);
+        String result = createArticleTool.execute(args);
         if (!quality.passed()) {
-            result += "\n质量检查：未通过，已降级为草稿。" + String.join("；", quality.issues());
+            result += "\n质量检查：未通过，已降级为待确认草稿提案。"
+                    + String.join("；", quality.issues());
         }
         return result;
     }

@@ -16,6 +16,7 @@ public class PendingAction {
     private RiskLevel riskLevel;
     private String sessionId;
     private String personaId;
+    private String requester;
     private JsonNode payload;
     private Instant createdAt;
     private Instant expiresAt;
@@ -40,6 +41,9 @@ public class PendingAction {
 
     public String getPersonaId() { return personaId; }
     public void setPersonaId(String personaId) { this.personaId = personaId; }
+
+    public String getRequester() { return requester; }
+    public void setRequester(String requester) { this.requester = requester; }
 
     public JsonNode getPayload() { return payload; }
     public void setPayload(JsonNode payload) { this.payload = payload; }

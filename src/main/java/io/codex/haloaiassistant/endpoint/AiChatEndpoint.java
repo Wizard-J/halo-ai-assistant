@@ -8,6 +8,7 @@ import io.codex.haloaiassistant.agent.AgentService;
 import io.codex.haloaiassistant.agent.ToolRegistry;
 import io.codex.haloaiassistant.agent.confirmation.PendingAction;
 import io.codex.haloaiassistant.agent.confirmation.PendingActionService;
+import io.codex.haloaiassistant.agent.confirmation.RiskLevel;
 import io.codex.haloaiassistant.autoops.AutoOpsService;
 import io.codex.haloaiassistant.config.AiAssistantSetting;
 import io.codex.haloaiassistant.persona.ConversationRef;
@@ -34,6 +35,8 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import run.halo.app.core.extension.endpoint.CustomEndpoint;
+import run.halo.app.extension.GroupVersion;
 import org.springframework.web.reactive.function.BodyInserters;
 import org.springframework.web.reactive.function.server.RouterFunction;
 import org.springframework.web.reactive.function.server.RouterFunctions;
@@ -52,7 +55,11 @@ import run.halo.app.plugin.ReactiveSettingFetcher;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class AiChatEndpoint {
+public class AiChatEndpoint implements CustomEndpoint {
+
+    public static final GroupVersion API_VERSION = new GroupVersion(
+            "console.api.wizardj-ai-assistant.plugin.halo.run", "v1alpha1");
+    public static final String PUBLIC_API_BASE = "/apis/" + API_VERSION;
 
     private final SettingFetcher settingFetcher;
     private final ReactiveSettingFetcher reactiveSettingFetcher;
@@ -66,25 +73,38 @@ public class AiChatEndpoint {
     private static final Pattern CLIENT_EVENT_LINE = Pattern.compile(
             "(?m)^\\s*" + Pattern.quote(AgentService.CLIENT_EVENT_PREFIX) + ".*(?:\\R|$)");
 
+    @Override
     public RouterFunction<ServerResponse> endpoint() {
         return RouterFunctions.route()
-                .POST("/api/ai-assistant/chat", this::handleChat)
-                .GET("/api/ai-assistant/tools", this::handleGetTools)
-                .GET("/api/ai-assistant/me", this::handleGetMe)
-                .GET("/api/ai-assistant/chat-page", this::handleChatPage)
-                .GET("/api/ai-assistant/auto-ops/test", this::handleAutoOpsTest)
-                .GET("/api/ai-assistant/", this::handleChatPageRedirect)
-                .GET("/api/ai-assistant/config-check", this::handleConfigCheck)
-                .GET("/api/ai-assistant/daily-push", this::handleDailyPush)
-                .POST("/api/ai-assistant/pending-actions/{id}/confirm", this::handleConfirmAction)
-                .POST("/api/ai-assistant/pending-actions/{id}/cancel", this::handleCancelAction)
-                .GET("/api/ai-assistant/pending-actions/{id}", this::handleGetPendingAction)
+                .POST("/chat", this::handleChat)
+                .GET("/tools", this::handleGetTools)
+                .GET("/me", this::handleGetMe)
+                .GET("/chat-page", this::handleChatPage)
+                .POST("/auto-ops/test", this::handleAutoOpsTest)
+                .GET("/", this::handleChatPageRedirect)
+                .GET("/config-check", this::handleConfigCheck)
+                .POST("/daily-push", this::handleDailyPush)
+                .GET("/pending-actions", this::handleListPendingActions)
+                .POST("/pending-actions/{id}/confirm", this::handleConfirmAction)
+                .POST("/pending-actions/{id}/cancel", this::handleCancelAction)
+                .GET("/pending-actions/{id}", this::handleGetPendingAction)
                 .build();
+    }
+
+    @Override
+    public GroupVersion groupVersion() {
+        return API_VERSION;
     }
 
     // ========== AI 对话（Persona 感知） ==========
 
     private Mono<ServerResponse> handleChat(ServerRequest request) {
+        return request.principal()
+                .flatMap(principal -> handleAuthenticatedChat(request, principal.getName()))
+                .switchIfEmpty(ServerResponse.status(401).bodyValue(Map.of("error", "请先登录 Halo Console")));
+    }
+
+    private Mono<ServerResponse> handleAuthenticatedChat(ServerRequest request, String requester) {
         // 先异步加载 AI 配置，再处理请求
         return loadAiSetting()
                 .then(request.bodyToMono(String.class))
@@ -115,7 +135,7 @@ public class AiChatEndpoint {
                     // 如果指定了 persona，加载其 system prompt 并管理上下文
                     if (sessionId != null && !sessionId.isBlank()) {
                         return chatWithPersona(sessionId, personaId, overrideSystemPrompt,
-                                history, body);
+                                history, body, requester);
                     }
 
                     // 向后兼容：无 persona 参数时使用默认行为
@@ -123,7 +143,7 @@ public class AiChatEndpoint {
                             .header("Content-Type", "text/event-stream; charset=utf-8")
                             .header("Cache-Control", "no-cache")
                             .body(BodyInserters.fromProducer(
-                                    agentService.chat(history), String.class));
+                                    agentService.chat(history, requester), String.class));
                 })
                 .onErrorResume(e -> {
                     log.error("Chat API 内部错误", e);
@@ -149,7 +169,7 @@ public class AiChatEndpoint {
     private Mono<ServerResponse> chatWithPersona(String sessionId, String personaId,
                                                   String overrideSystemPrompt,
                                                   List<AgentService.ChatMessage> history,
-                                                  JsonNode body) {
+                                                  JsonNode body, String requester) {
         // 加载 Persona 定义，使用硬编码兜底
         Mono<PersonaDefinition> personaMono = personaService.getPersona(personaId)
                 .onErrorResume(e -> {
@@ -266,8 +286,9 @@ public class AiChatEndpoint {
                                 "user", history.get(history.size() - 1).content(), Instant.now().toString()));
                         // 流式返回 + 结束时一次性保存用户消息 + AI 回复
                         Flux<String> chatStream = blogOpsEnabled
-                                ? agentService.chat(fullHistory)
-                                : agentService.chatWithTools(fullHistory, Set.of("webSearch", "searchSiteArticles"));
+                                ? agentService.chat(fullHistory, requester)
+                                : agentService.chatWithTools(fullHistory,
+                                        Set.of("webSearch", "searchSiteArticles"), requester);
                         StringBuilder assistantResponse = new StringBuilder();
 
                         // 准备需要持久化的消息（用户输入）
@@ -382,14 +403,14 @@ public class AiChatEndpoint {
         private Mono<ServerResponse> handleChatPage(ServerRequest request) {
         return Mono.fromCallable(() -> {
                     String title = "AI 智能助手";
-                    String icon = "\uD83E\uDDE0";
+                    String icon = "/plugins/wizardj-ai-assistant/assets/logo.png";
                     String greeting = "你好，我是 Halo AI 智能助手";
                     try {
                         java.util.Optional<AiAssistantSetting> opt = settingFetcher.fetch("basic", AiAssistantSetting.class);
                         if (opt.isPresent()) {
                             AiAssistantSetting s = opt.get();
                             if (s.getPageTitle() != null && !s.getPageTitle().isBlank()) title = s.getPageTitle();
-                            if (s.getPageIcon() != null && !s.getPageIcon().isBlank()) icon = s.getPageIcon();
+                            if (isSafePageIcon(s.getPageIcon())) icon = s.getPageIcon();
                             if (s.getGreeting() != null && !s.getGreeting().isBlank()) greeting = s.getGreeting();
                         }
                     } catch (Exception e) {
@@ -400,11 +421,12 @@ public class AiChatEndpoint {
                     // 不在页面渲染时 block，避免扩展未就绪时出错
 
                     String html = CHAT_PAGE_HTML
+                            .replace("__API_BASE__", PUBLIC_API_BASE)
                             .replace("<title>AI 智能助手</title>", "<title>" + escapeHtml(title) + "</title>")
                             .replace("你好，我是 Halo AI 智能助手",
                                     escapeHtml(greeting))
                             .replace("AI 智能助手", escapeHtml(title))
-                            .replace("__PAGE_ICON__", icon);
+                            .replace("__PAGE_ICON__", escapeHtml(icon));
                     return ServerResponse.ok()
                             .header("Content-Type", "text/html; charset=utf-8")
                             .bodyValue(html);
@@ -418,16 +440,31 @@ public class AiChatEndpoint {
                 });
     }
 
+    static boolean isSafePageIcon(String icon) {
+        if (icon == null || icon.isBlank() || icon.length() > 400_000) return false;
+        return icon.matches("^data:image/(?:png|jpeg|webp|svg\\+xml);base64,[A-Za-z0-9+/=]+$");
+    }
+
     // ========== 原有路由保持不变 ==========    // ========== 原有路由保持不变 ==========
 
     private Mono<ServerResponse> handleAutoOpsTest(ServerRequest request) {
-        return autoOpsService.testNow()
-                .flatMap(result -> ServerResponse.ok().bodyValue(result));
+        return request.principal().flatMap(principal -> {
+            ObjectNode payload = objectMapper.createObjectNode();
+            payload.put("mode", "test");
+            payload.put("_requester", principal.getName());
+            var pending = pendingActionService.create(
+                    "autoOpsTest",
+                    "自动运维测试确认",
+                    "将抓取已配置的 RSS、调用 AI 生成内容，必要时创建禁止登录的专用作者，并生成待二次确认的草稿提案。",
+                    RiskLevel.HIGH,
+                    payload);
+            return ServerResponse.ok().bodyValue(pending);
+        });
     }
 
 
     private Mono<ServerResponse> handleChatPageRedirect(ServerRequest request) {
-        return ServerResponse.permanentRedirect(URI.create("/api/ai-assistant/chat-page")).build();
+        return ServerResponse.permanentRedirect(URI.create(PUBLIC_API_BASE + "/chat-page")).build();
     }
 
 
@@ -456,9 +493,10 @@ public class AiChatEndpoint {
     }
 
     private Mono<ServerResponse> handleDailyPush(ServerRequest request) {
-        String secret = request.queryParam("secret").orElse("");
-        String channel = request.queryParam("channel").orElse("");
-        return pushDailySummary(secret, channel)
+        return request.bodyToMono(JsonNode.class)
+                .defaultIfEmpty(objectMapper.createObjectNode())
+                .flatMap(body -> pushDailySummary(
+                        body.path("secret").asText(""), body.path("channel").asText("")))
                 .flatMap(result -> ServerResponse.ok().bodyValue(result));
     }
 
@@ -688,26 +726,39 @@ public class AiChatEndpoint {
 
     private Mono<ServerResponse> handleGetPendingAction(ServerRequest request) {
         String id = request.pathVariable("id");
-        PendingAction action = pendingActionService.get(id);
-        if (action == null) {
+        return request.principal().flatMap(principal -> {
+            PendingAction action = pendingActionService.get(id, principal.getName());
+            if (action == null) {
+                return ServerResponse.status(404).bodyValue(Map.of(
+                        "found", false, "error", "操作不存在、已过期或不属于当前管理员"));
+            }
             return ServerResponse.ok().bodyValue(Map.of(
-                    "found", false, "error", "操作不存在或已过期"));
-        }
-        return ServerResponse.ok().bodyValue(Map.of(
-                "found", true,
-                "id", action.getId(),
-                "type", action.getType(),
-                "title", action.getTitle(),
-                "summary", action.getSummary(),
-                "riskLevel", action.getRiskLevel().name().toLowerCase(),
-                "createdAt", action.getCreatedAt().toString(),
-                "expiresAt", action.getExpiresAt().toString()
-        ));
+                    "found", true, "id", action.getId(), "type", action.getType(),
+                    "title", action.getTitle(), "summary", action.getSummary(),
+                    "riskLevel", action.getRiskLevel().name().toLowerCase(),
+                    "createdAt", action.getCreatedAt().toString(),
+                    "expiresAt", action.getExpiresAt().toString()));
+        });
+    }
+
+    private Mono<ServerResponse> handleListPendingActions(ServerRequest request) {
+        return request.principal().flatMap(principal -> {
+            List<Map<String, Object>> actions = pendingActionService.listPending(principal.getName()).stream()
+                    .map(action -> Map.<String, Object>of(
+                            "id", action.getId(), "type", action.getType(),
+                            "title", action.getTitle(), "summary", action.getSummary(),
+                            "riskLevel", action.getRiskLevel().name().toLowerCase(),
+                            "createdAt", action.getCreatedAt().toString(),
+                            "expiresAt", action.getExpiresAt().toString()))
+                    .toList();
+            return ServerResponse.ok().bodyValue(Map.of("actions", actions));
+        });
     }
 
     private Mono<ServerResponse> handleConfirmAction(ServerRequest request) {
         String id = request.pathVariable("id");
-        return Mono.fromCallable(() -> pendingActionService.confirmAndExecute(id))
+        return request.principal().flatMap(principal -> Mono.fromCallable(
+                        () -> pendingActionService.confirmAndExecute(id, principal.getName()))
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(result -> {
                     if (result == null) {
@@ -724,17 +775,19 @@ public class AiChatEndpoint {
                             "type", result.path("type").asText(""),
                             "result", result
                     ));
-                });
+                }));
     }
 
     private Mono<ServerResponse> handleCancelAction(ServerRequest request) {
         String id = request.pathVariable("id");
-        boolean cancelled = pendingActionService.cancel(id);
-        if (!cancelled) {
+        return request.principal().flatMap(principal -> {
+            boolean cancelled = pendingActionService.cancel(id, principal.getName());
+            if (!cancelled) {
+                return ServerResponse.status(404).bodyValue(Map.of(
+                        "success", false, "error", "操作不存在、已过期或不属于当前管理员"));
+            }
             return ServerResponse.ok().bodyValue(Map.of(
-                    "success", false, "error", "操作不存在或已过期"));
-        }
-        return ServerResponse.ok().bodyValue(Map.of(
-                "success", true, "message", "操作已取消"));
+                    "success", true, "message", "操作已取消"));
+        });
     }
 }

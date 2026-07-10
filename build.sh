@@ -59,7 +59,7 @@ echo "🔨 构建插件..."
 VERSION=$(grep "^version=" gradle.properties | cut -d= -f2)
 echo ""
 echo "✅ 构建完成！"
-echo "   插件文件: build/libs/halo-ai-assistant-${VERSION}.jar"
+echo "   插件文件: build/libs/wizardj-ai-assistant-${VERSION}.jar"
 echo ""
 echo "📤 部署到 1Panel:"
 echo "   1Panel → HALO → 插件 → 上传安装"

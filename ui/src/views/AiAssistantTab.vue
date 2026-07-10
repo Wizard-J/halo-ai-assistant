@@ -39,24 +39,57 @@ const messagePane = ref<HTMLElement | null>(null);
 let abortController: AbortController | null = null;
 let streamBuffer = "";
 let streamMode: "unknown" | "sse" | "raw" = "unknown";
-const sessionId = ref(localStorage.getItem("ai-assistant-session") || "console-" + Date.now());
+const SESSION_KEY = "wizardj-ai-assistant-session";
+const legacySession = localStorage.getItem("ai-assistant-session");
+const sessionId = ref(localStorage.getItem(SESSION_KEY) || legacySession || "console-" + Date.now());
+if (legacySession && !localStorage.getItem(SESSION_KEY)) {
+  localStorage.setItem(SESSION_KEY, legacySession);
+}
 const assistantName = "老巫师";
-const assistantAvatar = "/plugins/ai-assistant/assets/logo.png";
+const API_BASE = "/apis/console.api.wizardj-ai-assistant.plugin.halo.run/v1alpha1";
+const assistantAvatar = "/plugins/wizardj-ai-assistant/assets/logo.png";
 const confirmationInputPattern = /^(确认|确认执行|执行|同意|好的|好|yes|ok)$/i;
 const clientEventPattern = /\n?\u001EAI_ASSISTANT_EVENT:([^\n]+)\n?/g;
 
 onMounted(async () => {
   try {
-    const resp = await fetch("/api/ai-assistant/me");
+    const resp = await fetch(API_BASE + "/me");
     const data = await resp.json();
     if (data.sessionId) {
       sessionId.value = data.sessionId;
-      localStorage.setItem("ai-assistant-session", data.sessionId);
+      localStorage.setItem(SESSION_KEY, data.sessionId);
     }
   } catch (e) {
     // Keep the generated session id when Console user info is unavailable.
   }
+  await loadPendingActions();
 });
+
+async function loadPendingActions() {
+  try {
+    const resp = await fetch(API_BASE + "/pending-actions");
+    if (resp.ok) {
+      const data = await resp.json();
+      const existing = new Set(messages.value.map(message => message.confirmation?.id).filter(Boolean));
+      for (const action of data.actions || []) {
+        if (existing.has(action.id)) continue;
+        messages.value.push({
+          role: "assistant",
+          content: "",
+          confirmation: {
+            id: action.id,
+            title: action.title,
+            summary: action.summary,
+            riskLevel: String(action.riskLevel || "high").toUpperCase(),
+            status: "pending",
+          },
+        });
+      }
+    }
+  } catch (e) {
+    // Pending actions are supplementary; chat remains available if loading fails.
+  }
+}
 
 function scrollToBottom() {
   nextTick(() => {
@@ -596,7 +629,7 @@ async function readError(response: Response) {
 async function cancelConfirmation(msg: ChatMessage) {
   if (!msg.confirmation) return;
   try {
-    const resp = await fetch("/api/ai-assistant/pending-actions/" + msg.confirmation.id + "/cancel", { method: "POST" });
+    const resp = await fetch(API_BASE + "/pending-actions/" + msg.confirmation.id + "/cancel", { method: "POST" });
     const data = await readJsonSafely(resp);
     msg.confirmation.status = data.success ? "cancelled" : "failed";
     msg.confirmation.result = data.success ? "操作已取消" : "取消失败：" + (data.error || data.message || "未知错误");
@@ -609,15 +642,24 @@ async function cancelConfirmation(msg: ChatMessage) {
 async function confirmAction(msg: ChatMessage) {
   if (!msg.confirmation) return;
   try {
-    const resp = await fetch("/api/ai-assistant/pending-actions/" + msg.confirmation.id + "/confirm", { method: "POST" });
+    const resp = await fetch(API_BASE + "/pending-actions/" + msg.confirmation.id + "/confirm", { method: "POST" });
     const data = await readJsonSafely(resp);
     msg.confirmation.status = data.success ? "confirmed" : "failed";
     msg.confirmation.result = data.success
       ? (data.message || "操作已执行")
       : "确认失败：" + (data.error || data.message || "未知错误");
+    if (data.success && String(data.type || "").startsWith("autoOps")) pollPendingActions();
+    else if (data.success) window.setTimeout(loadPendingActions, 1200);
   } catch (e: any) {
     msg.confirmation.status = "failed";
     msg.confirmation.result = "执行失败: " + e.message;
+  }
+}
+
+function pollPendingActions(remaining = 60) {
+  loadPendingActions();
+  if (remaining > 1) {
+    window.setTimeout(() => pollPendingActions(remaining - 1), 2000);
   }
 }
 
@@ -665,7 +707,7 @@ async function sendMessage() {
   const assistantMsg: ChatMessage = { role: "assistant", content: "" };
 
   try {
-    const resp = await fetch("/api/ai-assistant/chat", {
+    const resp = await fetch(API_BASE + "/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -725,7 +767,7 @@ async function sendMessage() {
 }
 
 function goToImmersive() {
-  window.open("/api/ai-assistant/chat-page", "_blank");
+  window.open(API_BASE + "/chat-page", "_blank", "noopener,noreferrer");
 }
 </script>
 

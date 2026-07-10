@@ -12,7 +12,7 @@
 | **JDK** | `/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home` (JDK 17.0.9 JBR) |
 | **Gradle** | `./gradlew` (wrapper), 配置 `build.gradle` |
 | **构建** | `JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build` |
-| **产物** | `build/libs/halo-ai-assistant-<version>.jar` |
+| **产物** | `build/libs/wizardj-ai-assistant-<version>.jar` |
 | **Halo 版本** | 2.22.5+ |
 | **部署** | ⚠️ 不推荐自动部署，见下方「⚠️ 部署方式说明」 |
 
@@ -32,14 +32,14 @@ halo-ai-assistant/
 │
 ├── src/main/
 │   ├── resources/
-│   │   ├── plugin.yaml                          # 插件元数据 name=ai-assistant
+│   │   ├── plugin.yaml                          # 插件元数据 name=wizardj-ai-assistant
 │   │   ├── extensions/settings.yaml             # 3 个配置组: basic/push/autoOps（三人物全部字段合并在 autoOps 组）
 │   │   └── chat-page.html                       # 聊天页面（SSE 流式）
 │   │
 │   └── java/io/codex/haloaiassistant/
 │       ├── HaloAiAssistantPlugin.java           # start()/stop() 生命周期
 │       ├── config/
-│       │   ├── PluginConfiguration.java         # Spring Bean：注册 RouterFunction + Tools
+│       │   ├── PluginConfiguration.java         # Spring Bean：注册 Tools（API 由 CustomEndpoint 自动注册）
 │       │   ├── AiAssistantSetting.java          # basic 组：API Key / 模型 / 页面标题/图标/问候语
 │       │   └── AutoOpsSetting.java              # autoOps 组：三个人物的全部字段（含 secondaryEnabled/tertiaryEnabled）
 │       ├── agent/
@@ -67,9 +67,9 @@ halo-ai-assistant/
 ## 核心架构
 
 ```
-┌─ 聊天页面 /api/ai-assistant/chat-page
+┌─ 聊天页面 /apis/console.api.wizardj-ai-assistant.plugin.halo.run/v1alpha1/chat-page
 │   ├── 标题/图标/欢迎语 可配置（AiAssistantSetting.pageTitle/pageIcon/greeting）
-│   └── POST /api/ai-assistant/chat → AgentService.chat() → SSE 流式
+│   └── POST /apis/console.api.wizardj-ai-assistant.plugin.halo.run/v1alpha1/chat → AgentService.chat() → SSE 流式
 │
 ├─ 自动运维（三人物管线）
 │   ├── @Scheduled(fixedDelay=60s) → tick() → runIfDue()
@@ -77,11 +77,9 @@ halo-ai-assistant/
 │   │   ├── 【条件执行】书虫漫步 → secondaryRssSources → 标签 "知识卡片, 好书快读"
 │   │   └── 【条件执行】技术猎手 → tertiaryRssSources → 标签 "技术干货, 优质译文"
 │   │
-│   └── POST /api/ai-assistant/auto-ops/test → testNow()
-│       ├── 纯异步：fireInBackground() 立即返回，不阻塞 HTTP
-│       └── 仅对 enabled 的 Persona 启动后台任务
+│   └── POST .../auto-ops/test → 先创建服务端待确认项 → 确认后 testNow()
 │
-└─ 每日推送 GET /api/ai-assistant/daily-push → 推送今日/昨日文章摘要
+└─ 每日推送 POST .../daily-push → 推送今日/昨日文章摘要
 ```
 
 ### 三人物管线详细
@@ -151,7 +149,7 @@ if (tertiaryEnabled) fireInBackground("技术猎手", () -> runTertiaryPipeline(
 | **Halo 版本** | halohub/halo-pro:2.22.8 |
 | **Docker 容器** | `1Panel-halo-GOvD` |
 | **插件目录** | `/root/.halo2/plugins/` |
-| **JAR 命名** | `ai-assistant-2.24.jar` |
+| **JAR 命名** | `wizardj-ai-assistant-2.24.18.jar` |
 | **SSH** | `root@wizardj.cn`（密钥 `~/.ssh/id_ed25519`） |
 
 ### 构建（本地 macOS）
@@ -161,11 +159,11 @@ cd /Users/zhangjianmin/project/halo-ai-assistant && \
 JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build -x test
 ```
 
-产物：`build/libs/halo-ai-assistant-2.24.0.jar`
+产物：`build/libs/wizardj-ai-assistant-2.24.18.jar`
 
 ### 部署（手动）
 
-1. 构建后得到 `halo-ai-assistant-2.24.0.jar`
+1. 构建后得到 `wizardj-ai-assistant-2.24.18.jar`
 2. 登录 1Panel → 插件 → 上传 JAR 文件
 3. Halo 自动热加载，无需重启
 
@@ -184,8 +182,8 @@ cd /Users/zhangjianmin/project/halo-ai-assistant
 
 HALO_PAT=$(cat .halo-pat)
 VERSION="$(sed -n 's/^version=//p' gradle.properties)"
-JAR="build/libs/halo-ai-assistant-${VERSION}.jar"
-PLUGIN_NAME="ai-assistant"
+JAR="build/libs/wizardj-ai-assistant-${VERSION}.jar"
+PLUGIN_NAME="wizardj-ai-assistant"
 HALO_BASE_URL="https://wizardj.cn"
 
 JAVA_HOME=/Users/zhangjianmin/.cache/codex-jdks/corretto-21/Contents/Home ./gradlew clean build
@@ -213,7 +211,7 @@ curl -fsS \
   | jq '{name: .metadata.name, enabled: .spec.enabled, version: .status.version, phase: .status.phase}'
 ```
 
-如果 API 返回 401/403，说明 `HALO_PAT` 权限不足或过期；如果升级端点返回 404，先确认 `PLUGIN_NAME=ai-assistant` 是否已安装，未安装时改用 `plugins/install` 端点。
+如果 API 返回 401/403，说明 `HALO_PAT` 权限不足或过期。`wizardj-ai-assistant` 是独立市场 ID，不得用它覆盖升级旧 `ai-assistant`；首次安装必须用 `plugins/install`。
 
 ### 验证日志
 ```bash
