@@ -562,11 +562,19 @@ function renderSourceCards(content: string) {
 }
 
 function renderInline(value: string) {
-  return escapeHtml(value)
+  return autolinkBareUrls(escapeHtml(value)
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\[([^\]]+)]\((https?:\/\/[^\s)]+)\)/g, "<a href=\"$2\" target=\"_blank\" rel=\"noopener noreferrer\">$1</a>")
-    .replace(/\[([^\]]+)]\(((?:[\w-]+\.)+[\w-]+\/[^\s)]+)\)/g, "<a href=\"https://$2\" target=\"_blank\" rel=\"noopener noreferrer\">$1</a>");
+    .replace(/\[([^\]]+)]\(((?:[\w-]+\.)+[\w-]+\/[^\s)]+)\)/g, "<a href=\"https://$2\" target=\"_blank\" rel=\"noopener noreferrer\">$1</a>"));
+}
+
+function autolinkBareUrls(html: string) {
+  return html.replace(/(^|[^"'>=])(https?:\/\/[^\s<]+)/g, (_match, prefix, url) => {
+    const cleanUrl = url.replace(/[，。；、,.!?)）]+$/, "");
+    const suffix = url.slice(cleanUrl.length);
+    return prefix + "<a href=\"" + cleanUrl + "\" target=\"_blank\" rel=\"noopener noreferrer\">" + cleanUrl + "</a>" + suffix;
+  });
 }
 
 function isLoginResponse(response: Response) {
