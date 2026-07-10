@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -62,6 +63,8 @@ public class AiChatEndpoint {
     private final PersonaService personaService;
     private final PendingActionService pendingActionService;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final Pattern CLIENT_EVENT_LINE = Pattern.compile(
+            "(?m)^\\s*" + Pattern.quote(AgentService.CLIENT_EVENT_PREFIX) + ".*(?:\\R|$)");
 
     public RouterFunction<ServerResponse> endpoint() {
         return RouterFunctions.route()
@@ -193,7 +196,7 @@ public class AiChatEndpoint {
                     : "\n\n【角色权限边界】\n"
                     + "你当前不是“老巫师”博客管理员角色。禁止查看、创建、修改、发布、删除博客文章、分类、标签、评论或自动运维内容。"
                     + "不要声称已执行任何博客操作；如果用户要求操作博客内容，请说明需要切换到“老巫师”。"
-                    + "你只能依据当前角色的 system prompt、上传的 SKILL.md/上下文、对话历史以及 webSearch 的压缩联网摘要进行问答。"
+                    + "你只能依据当前角色的 system prompt、上传的 SKILL.md/上下文、对话历史、searchSiteArticles 的只读站内摘要以及 webSearch 的压缩联网摘要进行问答。"
                     + "需要最新、当前或外部公开事实时，可调用 webSearch；每次只查一个具体问题，limit 默认 3。"
                     + "凡是使用联网结果陈述事实，正文必须用 [1]、[2] 这样的编号标注，并在结尾保留“来源”列表和 URL。";
             if (contextContent != null && !contextContent.isBlank()) {
@@ -264,14 +267,14 @@ public class AiChatEndpoint {
                         // 流式返回 + 结束时一次性保存用户消息 + AI 回复
                         Flux<String> chatStream = blogOpsEnabled
                                 ? agentService.chat(fullHistory)
-                                : agentService.chatWithTools(fullHistory, Set.of("webSearch"));
+                                : agentService.chatWithTools(fullHistory, Set.of("webSearch", "searchSiteArticles"));
                         StringBuilder assistantResponse = new StringBuilder();
 
                         // 准备需要持久化的消息（用户输入）
                         ArrayNode allMessagesToSave = messagesJson;
 
                         Flux<String> savingStream = chatStream
-                                .doOnNext(chunk -> assistantResponse.append(chunk))
+                                .doOnNext(chunk -> assistantResponse.append(stripClientEvents(chunk)))
                                 .doOnComplete(() -> {
                                     String reply = assistantResponse.toString();
                                     if (!reply.isBlank()) {
@@ -333,6 +336,13 @@ public class AiChatEndpoint {
             msgNode.put("timestamp", timestamp);
         }
         return msgNode;
+    }
+
+    private static String stripClientEvents(String chunk) {
+        if (chunk == null || chunk.isBlank()) {
+            return "";
+        }
+        return CLIENT_EVENT_LINE.matcher(chunk).replaceAll("");
     }
 
     private boolean isBlogOpsPersona(String personaId) {

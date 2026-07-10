@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 import javax.xml.parsers.DocumentBuilderFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -327,14 +328,56 @@ public class AutoOpsService {
 
     private String publishArticle(String title, String content, String tags,
             String authorUsername, ZonedDateTime now, boolean publish) {
+        ArticleQuality quality = checkArticleQuality(title, content);
+        boolean finalPublish = publish && quality.passed();
+        String finalContent = quality.passed()
+                ? content
+                : "> 自动质量检查未通过，已强制保存为草稿，待人工复核："
+                + String.join("；", quality.issues()) + "\n\n" + content;
         ObjectNode args = objectMapper.createObjectNode();
         args.put("title", title);
-        args.put("content", content);
-        args.put("status", publish ? "published" : "draft");
+        args.put("content", finalContent);
+        args.put("status", finalPublish ? "published" : "draft");
         args.put("owner", authorUsername);
         args.put("publishTime", now.toInstant().toString());
         args.put("tags", tags);
-        return createArticleTool.executeInternal(args);
+        String result = createArticleTool.executeInternal(args);
+        if (!quality.passed()) {
+            result += "\n质量检查：未通过，已降级为草稿。" + String.join("；", quality.issues());
+        }
+        return result;
+    }
+
+    private ArticleQuality checkArticleQuality(String title, String content) {
+        List<String> issues = new ArrayList<>();
+        String safeTitle = title == null ? "" : title.trim();
+        String safeContent = content == null ? "" : content.trim();
+        if (safeTitle.length() < 4) {
+            issues.add("标题过短");
+        }
+        if (safeContent.length() < 300) {
+            issues.add("正文过短");
+        }
+        long fenceCount = safeContent.lines().filter(line -> line.trim().startsWith("```")).count();
+        if (fenceCount % 2 != 0) {
+            issues.add("代码围栏未闭合");
+        }
+        if (safeContent.contains("|") && safeContent.lines().anyMatch(line -> line.matches("^\\s*\\|?\\s*:?-{3,}:?.*"))) {
+            long tableRows = safeContent.lines().filter(line -> line.contains("|")).count();
+            if (tableRows < 3) {
+                issues.add("疑似 Markdown 表格不完整");
+            }
+        }
+        long links = Pattern.compile("https?://\\S+").matcher(safeContent).results().count();
+        boolean mentionsFacts = safeContent.contains("事实") || safeContent.contains("来源")
+                || safeContent.contains("新闻") || safeContent.contains("发布");
+        if (mentionsFacts && links == 0) {
+            issues.add("事实类内容缺少来源链接");
+        }
+        if (safeContent.matches("(?s).*[\\[{]来源[\\]}].*")) {
+            issues.add("正文疑似残留模板占位符");
+        }
+        return new ArticleQuality(issues.isEmpty(), issues);
     }
 
     private Map<String, Object> personaResult(String persona, boolean testMode,
@@ -609,4 +652,5 @@ public class AutoOpsService {
     private record NewsItem(String title, String link, String summary, Instant publishedAt) { }
     private record ScoredNewsItem(String title, String link, String summary, Instant publishedAt, boolean primary) { }
     private record GeneratedArticle(String title, String content) { }
+    private record ArticleQuality(boolean passed, List<String> issues) { }
 }

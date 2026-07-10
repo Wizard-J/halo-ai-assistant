@@ -376,9 +376,28 @@
         }
 
         .message-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
             margin-bottom: 6px;
             color: var(--text-faint);
             font-size: 12px;
+        }
+
+        .raw-toggle {
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: var(--text-muted);
+            font: inherit;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .raw-toggle:hover {
+            color: var(--accent);
+            text-decoration: underline;
+            text-underline-offset: 3px;
         }
 
         .user-bubble {
@@ -602,6 +621,65 @@
             background: var(--surface-subtle);
             color: var(--text-muted);
             font-weight: 650;
+        }
+
+        .assistant-content .source-cards {
+            display: grid;
+            gap: 8px;
+            margin: 14px 0 4px;
+        }
+
+        .assistant-content .source-card {
+            display: grid;
+            gap: 5px;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface);
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .assistant-content .source-card:hover {
+            border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+            background: var(--surface-subtle);
+        }
+
+        .assistant-content .source-card-title {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            min-width: 0;
+            color: var(--text);
+            font-weight: 680;
+            line-height: 1.4;
+        }
+
+        .assistant-content .source-card-index {
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 800;
+            white-space: nowrap;
+        }
+
+        .assistant-content .source-card-domain,
+        .assistant-content .source-card-summary {
+            color: var(--text-muted);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .assistant-content .markdown-raw {
+            overflow-x: auto;
+            max-width: min(820px, 100%);
+            margin: 0;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--surface-subtle);
+            color: var(--text);
+            white-space: pre-wrap;
+            word-break: break-word;
         }
 
         @media (max-width: 720px) {
@@ -1420,6 +1498,34 @@
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+    .persona-menu-copy {
+        display: grid;
+        min-width: 0;
+        gap: 4px;
+        flex: 1;
+    }
+    .persona-menu-copy span {
+        flex: initial;
+    }
+    .persona-menu-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .persona-capabilities {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    .persona-capabilities b {
+        padding: 1px 5px;
+        border-radius: 999px;
+        background: var(--surface-subtle);
+        color: var(--text-muted);
+        font-size: 11px;
+        font-weight: 650;
+        line-height: 1.4;
+    }
     /* Persona 菜单容器保证垂直排列 */
     #personaList {
         display: flex;
@@ -1595,6 +1701,7 @@
     const messagesElement = document.getElementById('messages');
     const welcomeElement = document.getElementById('welcome');
     const activityElement = document.getElementById('activity');
+    const activityTextElement = activityElement ? activityElement.querySelector('span:last-child') : null;
     const composer = document.getElementById('composer');
     const input = document.getElementById('input');
     const sendButton = document.getElementById('sendButton');
@@ -1609,6 +1716,7 @@
     const drawerBackdrop = document.getElementById('drawerBackdrop');
     const closeHistoryButton = document.getElementById('closeHistoryButton');
     const confirmationInputPattern = /^(确认|确认执行|执行|同意|好的|好|yes|ok)$/i;
+    const CLIENT_EVENT_PREFIX = '\u001EAI_ASSISTANT_EVENT:';
 
     let activePersona = { id: 'default', displayName: 'AI 智能助手', iconUrl: null, brandColor: '#2563eb', greeting: '你好，我是 Halo AI 智能助手', thinkingPhrases: '[]' };
     let personas = [];
@@ -1792,8 +1900,95 @@
                 + `<span class="article-result-title">${renderInline(item.title)}</span>`
                 + '<span class="article-result-meta">'
                 + `<span>${renderInline(item.status)}</span><span>${renderInline(item.time)}</span>`
-                + '</span></div>').join('')
+            + '</span></div>').join('')
             + '</div></div>';
+    }
+
+    function extractSourceCards(content) {
+        const lines = String(content || '').split('\n');
+        const sources = [];
+        let current = null;
+
+        function pushCurrent() {
+            if (!current || !current.url) return;
+            if (sources.some(source => source.url === current.url)) return;
+            sources.push({
+                index: current.index || String(sources.length + 1),
+                title: current.title || domainFromUrl(current.url),
+                url: current.url,
+                summary: current.summary || ''
+            });
+        }
+
+        lines.forEach(raw => {
+            const line = raw.trim();
+            if (!line) return;
+            const header = line.match(/^\[(\d+)]\s*(.+)$/);
+            if (header && !/^https?:\/\//i.test(header[2])) {
+                pushCurrent();
+                current = { index: header[1], title: header[2].replace(/^[：:\-\s]+/, '').trim() };
+                return;
+            }
+            const source = line.match(/^(?:来源|链接|URL|Source)\s*[：:]\s*(https?:\/\/\S+)/i);
+            if (source) {
+                current = current || { index: String(sources.length + 1), title: '' };
+                current.url = source[1].replace(/[，。),）]+$/, '');
+                return;
+            }
+            const summary = line.match(/^(?:摘要|Snippet)\s*[：:]\s*(.+)$/i);
+            if (summary && current) {
+                current.summary = summary[1].trim();
+                return;
+            }
+            const markdown = line.match(/^(?:[-*]|\d+[.)])?\s*\[?(\d+)]?\s*[\-.、]?\s*\[([^\]]+)]\((https?:\/\/[^\s)]+)\)/);
+            if (markdown) {
+                pushCurrent();
+                current = {
+                    index: markdown[1],
+                    title: markdown[2].trim(),
+                    url: markdown[3].replace(/[，。),）]+$/, ''),
+                    summary: ''
+                };
+                pushCurrent();
+                current = null;
+                return;
+            }
+            const inlineUrl = line.match(/^\[(\d+)]\s*(.+?)\s+(https?:\/\/\S+)$/);
+            if (inlineUrl) {
+                pushCurrent();
+                current = {
+                    index: inlineUrl[1],
+                    title: inlineUrl[2].trim(),
+                    url: inlineUrl[3].replace(/[，。),）]+$/, ''),
+                    summary: ''
+                };
+                pushCurrent();
+                current = null;
+            }
+        });
+        pushCurrent();
+        return sources.slice(0, 8);
+    }
+
+    function domainFromUrl(url) {
+        try {
+            return new URL(url).hostname.replace(/^www\./, '');
+        } catch (e) {
+            return url;
+        }
+    }
+
+    function renderSourceCards(content) {
+        const sources = extractSourceCards(content);
+        if (!sources.length) return '';
+        return '<div class="source-cards" aria-label="联网引用来源">'
+            + sources.map(source => '<a class="source-card" href="' + escapeHtml(source.url) + '" target="_blank" rel="noopener noreferrer">'
+                + '<span class="source-card-title"><span class="source-card-index">[' + escapeHtml(source.index) + ']</span>'
+                + '<span>' + renderInline(source.title) + '</span></span>'
+                + '<span class="source-card-domain">' + escapeHtml(domainFromUrl(source.url)) + '</span>'
+                + (source.summary ? '<span class="source-card-summary">' + renderInline(source.summary) + '</span>' : '')
+                + '</a>').join('')
+            + '</div>';
     }
 
     function normalizeAssistantContent(source) {
@@ -2006,7 +2201,7 @@
         if (inCode) {
             html.push(`<pre><code>${escapeHtml(codeLines.join('\n'))}</code></pre>`);
         }
-        return html.join('');
+        return html.join('') + renderSourceCards(normalized);
     }
 
     function normalizeTimestamp(timestamp, fallback = Date.now()) {
@@ -2046,6 +2241,42 @@
         requestAnimationFrame(() => scrollArea.scrollTo({ top: scrollArea.scrollHeight, behavior }));
     }
 
+    function renderAssistantContent(element, content, rawMode = false) {
+        element.dataset.rawContent = content || '';
+        element.dataset.rawMode = rawMode ? 'true' : 'false';
+        if (rawMode) {
+            element.innerHTML = `<pre class="markdown-raw">${escapeHtml(content || '')}</pre>`;
+        } else {
+            element.innerHTML = renderMarkdown(content || '');
+        }
+    }
+
+    function setActivity(message) {
+        if (!activityElement) return;
+        if (message) {
+            if (activityTextElement) activityTextElement.textContent = message;
+            activityElement.hidden = false;
+        } else {
+            activityElement.hidden = true;
+        }
+    }
+
+    function handleClientEvent(event) {
+        if (!event || event.type !== 'tool_status') return;
+        setActivity(event.label || '正在执行工具…');
+    }
+
+    function consumeClientEvents(text) {
+        return String(text || '').replace(/\n?\u001EAI_ASSISTANT_EVENT:([^\n]+)\n?/g, (full, payload) => {
+            try {
+                handleClientEvent(JSON.parse(payload));
+            } catch (e) {
+                console.warn('解析工具状态事件失败', e);
+            }
+            return '\n';
+        });
+    }
+
     function createMessage(role, content, options = {}) {
         const row = document.createElement('article');
         row.className = `message-row ${role}`;
@@ -2063,7 +2294,9 @@
         const meta = document.createElement('div');
         meta.className = 'message-meta';
         const timestamp = options.timestamp || currentTimestamp();
-        meta.textContent = role === 'assistant' ? `${activePersona.displayName} · ${formatTime(timestamp)}` : formatTime(timestamp);
+        const metaLabel = document.createElement('span');
+        metaLabel.textContent = role === 'assistant' ? `${activePersona.displayName} · ${formatTime(timestamp)}` : formatTime(timestamp);
+        meta.appendChild(metaLabel);
         const contentElement = document.createElement('div');
 
         if (role === 'user') {
@@ -2077,7 +2310,18 @@
             renderConfirmationCard(contentElement, content, { archived: Boolean(options.historical) });
         } else {
             contentElement.className = 'assistant-content';
-            contentElement.innerHTML = renderMarkdown(content);
+            renderAssistantContent(contentElement, content);
+            const rawToggle = document.createElement('button');
+            rawToggle.type = 'button';
+            rawToggle.className = 'raw-toggle';
+            rawToggle.textContent = '原文';
+            rawToggle.addEventListener('click', () => {
+                const rawMode = contentElement.dataset.rawMode !== 'true';
+                renderAssistantContent(contentElement, contentElement.dataset.rawContent || '', rawMode);
+                rawToggle.textContent = rawMode ? '渲染' : '原文';
+                scrollToBottom('auto');
+            });
+            meta.appendChild(rawToggle);
         }
 
         body.append(meta, contentElement);
@@ -2294,12 +2538,14 @@
                     const parsed = parseSseEvent(event);
                     if (parsed && parsed !== '[DONE]') {
                         content += parsed;
+                        content = consumeClientEvents(content);
                         onContent(normalizeAssistantContent(content));
                     }
                 });
             } else if (buffer) {
                 content += buffer;
                 buffer = '';
+                content = consumeClientEvents(content);
                 onContent(normalizeAssistantContent(content));
             }
 
@@ -2310,10 +2556,11 @@
             const parsed = isEventStream ? parseSseEvent(buffer) : buffer;
             if (parsed && parsed !== '[DONE]') {
                 content += parsed;
+                content = consumeClientEvents(content);
                 onContent(normalizeAssistantContent(content));
             }
         }
-        return normalizeAssistantContent(content);
+        return normalizeAssistantContent(consumeClientEvents(content));
     }
 
     function isLoginResponse(response) {
@@ -2650,21 +2897,23 @@
             const assistantTimestamp = currentTimestamp();
             assistantElement = createMessage('assistant', '', { timestamp: assistantTimestamp });
             assistantElement.classList.add('typing');
-            activityElement.hidden = true;
+            setActivity('正在连接 AI 服务…');
             fullContent = await readStream(response, content => {
                 if (hasConfirmation(content)) {
                     assistantElement.classList.remove('typing');
                     renderConfirmationCard(assistantElement, content);
                 } else {
-                    assistantElement.innerHTML = renderMarkdown(content);
+                    renderAssistantContent(assistantElement, content, assistantElement.dataset.rawMode === 'true');
                 }
                 scrollToBottom('auto');
             });
             if (!fullContent.trim()) {
                 fullContent = '[错误] AI 服务没有返回内容，请稍后重试。';
-                assistantElement.innerHTML = renderMarkdown(fullContent);
+                renderAssistantContent(assistantElement, fullContent);
             } else if (hasConfirmation(fullContent)) {
                 renderConfirmationCard(assistantElement, fullContent);
+            } else {
+                renderAssistantContent(assistantElement, fullContent, assistantElement.dataset.rawMode === 'true');
             }
 
             assistantElement.classList.remove('typing');
@@ -2865,7 +3114,9 @@
             const item = document.createElement('button');
             item.type = 'button';
             item.className = 'persona-menu-item' + (p.id === activePersona.id ? ' active' : '');
-            item.innerHTML = getPersonaIconHtml(p) + '<span>' + escapeHtml(p.displayName || p.id) + '</span>'
+            item.innerHTML = getPersonaIconHtml(p)
+                + '<span class="persona-menu-copy"><span class="persona-menu-name">' + escapeHtml(p.displayName || p.id) + '</span>'
+                + '<span class="persona-capabilities">' + personaCapabilities(p).map(cap => '<b>' + escapeHtml(cap) + '</b>').join('') + '</span></span>'
                 + (p.id === activePersona.id ? '<span class="pi-check"><i class="ri-check-line"></i></span>' : '');
             item.addEventListener('click', () => {
                 switchPersona(p);
@@ -2873,6 +3124,12 @@
             });
             list.appendChild(item);
         });
+    }
+
+    function personaCapabilities(persona) {
+        const caps = persona.id === 'default' ? ['博客管理', '联网', '站内检索'] : ['Skill 问答', '联网', '站内检索'];
+        if (persona.contextContent) caps.push('上下文');
+        return caps;
     }
 
     function switchPersona(persona) {

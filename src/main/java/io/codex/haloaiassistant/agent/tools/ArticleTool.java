@@ -34,9 +34,11 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -602,6 +604,157 @@ public class ArticleTool implements Tool {
                 log.error("获取文章详情失败", e);
                 return "获取文章详情失败: " + CreateArticleTool.rootMessage(e);
             }
+        }
+    }
+
+    @Component
+    public static class SearchSiteArticlesTool implements Tool {
+
+        private static final int MAX_QUERY_LENGTH = 80;
+        private static final int MAX_RESULTS = 6;
+        private final ReactiveExtensionClient client;
+        private final PostContentService postContentService;
+        private final ObjectMapper objectMapper = new ObjectMapper();
+
+        public SearchSiteArticlesTool(ReactiveExtensionClient client, PostContentService postContentService) {
+            this.client = client;
+            this.postContentService = postContentService;
+        }
+
+        @Override
+        public String getName() {
+            return "searchSiteArticles";
+        }
+
+        @Override
+        public String getDescription() {
+            return "搜索本站已发布/草稿文章的标题和正文片段，用于回答站内知识、引用历史文章或查找旧内容；只返回少量摘要和文章 ID。";
+        }
+
+        @Override
+        public String getParametersJsonSchema() {
+            ObjectNode schema = objectMapper.createObjectNode();
+            schema.put("type", "object");
+            ObjectNode props = schema.putObject("properties");
+            ObjectNode query = props.putObject("query");
+            query.put("type", "string");
+            query.put("description", "站内搜索关键词，最多 80 字");
+            ObjectNode limit = props.putObject("limit");
+            limit.put("type", "integer");
+            limit.put("minimum", 1);
+            limit.put("maximum", MAX_RESULTS);
+            limit.put("default", 4);
+            ObjectNode includeDrafts = props.putObject("includeDrafts");
+            includeDrafts.put("type", "boolean");
+            includeDrafts.put("description", "是否包含草稿；默认 false");
+            includeDrafts.put("default", false);
+            schema.putArray("required").add("query");
+            return schema.toPrettyString();
+        }
+
+        @Override
+        public String execute(JsonNode args) {
+            String query = args.path("query").asText("").replaceAll("\\s+", " ").trim();
+            if (query.isBlank()) {
+                return "站内搜索失败：query 不能为空。";
+            }
+            if (query.length() > MAX_QUERY_LENGTH) {
+                query = query.substring(0, MAX_QUERY_LENGTH);
+            }
+            int limit = Math.max(1, Math.min(args.path("limit").asInt(4), MAX_RESULTS));
+            boolean includeDrafts = args.path("includeDrafts").asBoolean(false);
+            try {
+                String normalizedQuery = query.toLowerCase(Locale.ROOT);
+                List<ArticleHit> hits = listAllPosts().stream()
+                        .filter(post -> includeDrafts || isPublished(post))
+                        .map(post -> scorePost(post, normalizedQuery))
+                        .filter(hit -> hit.score() > 0)
+                        .sorted(Comparator.comparingInt(ArticleHit::score).reversed()
+                                .thenComparing(ArticleHit::publishedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                        .limit(limit)
+                        .toList();
+                if (hits.isEmpty()) {
+                    return "站内搜索未找到相关文章。关键词：" + query;
+                }
+                StringBuilder out = new StringBuilder("站内文章搜索结果（已压缩；关键词：")
+                        .append(query).append("）\n");
+                for (int i = 0; i < hits.size(); i++) {
+                    ArticleHit hit = hits.get(i);
+                    out.append("\n[").append(i + 1).append("] ").append(hit.title()).append("\n")
+                            .append("文章ID：").append(hit.id()).append("\n")
+                            .append("状态：").append(hit.status()).append("\n");
+                    if (hit.publishedAt() != null) {
+                        out.append("时间：").append(hit.publishedAt()).append("\n");
+                    }
+                    if (!hit.snippet().isBlank()) {
+                        out.append("摘要：").append(hit.snippet()).append("\n");
+                    }
+                }
+                out.append("\n引用要求：回答中引用本站文章时使用 [1]、[2] 编号，并保留文章 ID。");
+                return out.toString();
+            } catch (Exception e) {
+                log.error("站内搜索失败", e);
+                return "站内搜索失败: " + CreateArticleTool.rootMessage(e);
+            }
+        }
+
+        private ArticleHit scorePost(Post post, String query) {
+            String id = post.getMetadata() != null ? post.getMetadata().getName() : "";
+            String title = post.getSpec() != null && post.getSpec().getTitle() != null
+                    ? post.getSpec().getTitle() : "无标题";
+            Instant publishedAt = post.getSpec() != null ? post.getSpec().getPublishTime() : null;
+            String status = isPublished(post) ? "已发布" : "草稿";
+            String raw = "";
+            try {
+                ContentWrapper content = postContentService.getHeadContent(id).block();
+                raw = content == null ? "" : content.getRaw();
+            } catch (Exception e) {
+                log.debug("读取文章正文失败: {}", id, e);
+            }
+            String haystack = (title + "\n" + raw).toLowerCase(Locale.ROOT);
+            int score = 0;
+            if (title.toLowerCase(Locale.ROOT).contains(query)) score += 8;
+            if (haystack.contains(query)) score += 3;
+            for (String term : query.split("\\s+")) {
+                if (term.length() < 2) continue;
+                if (title.toLowerCase(Locale.ROOT).contains(term)) score += 3;
+                if (haystack.contains(term)) score += 1;
+            }
+            return new ArticleHit(id, title, status, publishedAt, score, snippet(raw, query));
+        }
+
+        private List<Post> listAllPosts() {
+            int page = 0;
+            int size = 300;
+            List<Post> posts = new ArrayList<>();
+            long total = Long.MAX_VALUE;
+            while (posts.size() < total) {
+                ListResult<Post> result = client.list(Post.class, null, null, page, size).block();
+                if (result == null) break;
+                posts.addAll(result.getItems());
+                total = result.getTotal();
+                if (result.getItems().isEmpty()) break;
+                page++;
+            }
+            return posts;
+        }
+
+        private static String snippet(String raw, String query) {
+            if (raw == null || raw.isBlank()) return "";
+            String cleaned = raw.replaceAll("(?s)<[^>]+>", " ")
+                    .replaceAll("\\s+", " ")
+                    .trim();
+            String lower = cleaned.toLowerCase(Locale.ROOT);
+            int idx = lower.indexOf(query);
+            if (idx < 0) idx = 0;
+            int start = Math.max(0, idx - 70);
+            int end = Math.min(cleaned.length(), idx + 170);
+            String result = cleaned.substring(start, end).trim();
+            return (start > 0 ? "…" : "") + result + (end < cleaned.length() ? "…" : "");
+        }
+
+        private record ArticleHit(String id, String title, String status, Instant publishedAt,
+                                  int score, String snippet) {
         }
     }
 

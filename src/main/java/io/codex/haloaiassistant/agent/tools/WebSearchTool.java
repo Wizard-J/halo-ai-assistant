@@ -8,9 +8,12 @@ import java.net.URI;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
@@ -37,6 +40,8 @@ public class WebSearchTool implements Tool {
     private static final int MAX_TITLE_LENGTH = 120;
     private static final int MAX_OUTPUT_LENGTH = 2200;
     private static final int MAX_RESPONSE_BYTES = 256 * 1024;
+    private static final int DAILY_SEARCH_LIMIT = 80;
+    private static final int MINUTE_SEARCH_LIMIT = 12;
     private static final String ANYSEARCH_ENDPOINT = "https://api.anysearch.com/mcp";
     private static final String[] AVAILABLE_DOMAINS = {
             "general", "resource", "social_media", "finance", "academic", "legal", "health",
@@ -53,6 +58,10 @@ public class WebSearchTool implements Tool {
 
     private final WebClient webClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final AtomicInteger dailySearchCount = new AtomicInteger();
+    private static final AtomicInteger minuteSearchCount = new AtomicInteger();
+    private static volatile LocalDate currentSearchDay = LocalDate.now();
+    private static volatile LocalDateTime currentSearchMinute = LocalDateTime.now().withSecond(0).withNano(0);
 
     public WebSearchTool() {
         HttpClient httpClient = HttpClient.create()
@@ -121,6 +130,10 @@ public class WebSearchTool implements Tool {
         String query = normalizeQuery(args.path("query").asText(""));
         if (query.isBlank()) {
             return "联网搜索失败：query 不能为空。";
+        }
+        String budgetError = consumeSearchBudget();
+        if (!budgetError.isBlank()) {
+            return budgetError;
         }
         int limit = Math.max(1, Math.min(args.path("limit").asInt(DEFAULT_LIMIT), MAX_LIMIT));
         String domain = normalizeDomain(args.path("domain").asText(""));
@@ -401,6 +414,28 @@ public class WebSearchTool implements Tool {
         if (!property.isBlank()) return property.trim();
         String env = System.getenv("ANYSEARCH_API_KEY");
         return env == null ? "" : env.trim();
+    }
+
+    private static synchronized String consumeSearchBudget() {
+        LocalDate today = LocalDate.now();
+        if (!today.equals(currentSearchDay)) {
+            currentSearchDay = today;
+            dailySearchCount.set(0);
+        }
+        LocalDateTime minute = LocalDateTime.now().withSecond(0).withNano(0);
+        if (!minute.equals(currentSearchMinute)) {
+            currentSearchMinute = minute;
+            minuteSearchCount.set(0);
+        }
+        if (dailySearchCount.get() >= DAILY_SEARCH_LIMIT) {
+            return "联网搜索已达到今日预算上限（" + DAILY_SEARCH_LIMIT + " 次）。请稍后再试或改用站内搜索。";
+        }
+        if (minuteSearchCount.get() >= MINUTE_SEARCH_LIMIT) {
+            return "联网搜索过于频繁，已触发每分钟预算限制。请稍后再试。";
+        }
+        dailySearchCount.incrementAndGet();
+        minuteSearchCount.incrementAndGet();
+        return "";
     }
 
     private static String cleanHtml(String html) {

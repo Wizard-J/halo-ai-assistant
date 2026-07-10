@@ -12,6 +12,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
@@ -30,6 +32,8 @@ public class AgentService {
     private AiAssistantSetting currentSetting;
 
     private static final int MAX_TOOL_DEPTH = 30;
+    public static final String CLIENT_EVENT_PREFIX = "\u001EAI_ASSISTANT_EVENT:";
+    private static final Pattern QUERY_ARG_PATTERN = Pattern.compile("\"query\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"");
 
     public AgentService(ToolRegistry toolRegistry) {
         this.toolRegistry = toolRegistry;
@@ -427,8 +431,13 @@ public class AgentService {
         // 添加 assistant message（content 可能是空的）
         newMessages.add(new ChatMessage("assistant", state.content.toString(), toolCalls));
 
+        Flux<String> statusEvents = Flux.fromIterable(toolCalls)
+                .map(tc -> toolStatusEvent(tc.path("function").path("name").asText(),
+                        tc.path("function").path("arguments").asText()))
+                .filter(event -> !event.isBlank());
+
         // 执行每个工具并收集结果（在 boundedElastic 上执行，不阻塞 reactor 线程）
-        return Flux.fromIterable(toolCalls)
+        Flux<String> resultFlow = Flux.fromIterable(toolCalls)
                 .flatMap(tc -> {
                     String id = tc.path("id").asText();
                     String name = tc.path("function").path("name").asText();
@@ -465,6 +474,7 @@ public class AgentService {
                     }
                     return doChat(newMessages, depth + 1, allowedToolNames);
                 });
+        return statusEvents.concatWith(resultFlow);
     }
 
     // ========== 非流式 fallback ==========
@@ -511,7 +521,11 @@ public class AgentService {
                                         List<ChatMessage> newMessages = new ArrayList<>(messages);
                                         newMessages.add(new ChatMessage("assistant",
                                                 message.path("content").asText(), toolCalls));
-                                        return Flux.fromIterable(toolCalls)
+                                        Flux<String> statusEvents = Flux.fromIterable(toolCalls)
+                                                .map(tc -> toolStatusEvent(tc.path("function").path("name").asText(),
+                                                        tc.path("function").path("arguments").asText()))
+                                                .filter(event -> !event.isBlank());
+                                        Flux<String> resultFlow = Flux.fromIterable(toolCalls)
                                                 .flatMap(tc -> {
                                                     String id = tc.path("id").asText();
                                                     String name = tc.path("function").path("name").asText();
@@ -548,6 +562,7 @@ public class AgentService {
                                                     }
                                                     return doChatNonStreaming(newMessages, depth + 1, allowedToolNames);
                                                 });
+                                        return statusEvents.concatWith(resultFlow);
                                     }));
                         }
 
@@ -629,6 +644,36 @@ public class AgentService {
         return Flux.just(result);
     }
 
+    private String toolStatusEvent(String toolName, String args) {
+        if (!"webSearch".equals(toolName)) {
+            return "";
+        }
+        String query = extractQueryArg(args);
+        ObjectNode event = objectMapper.createObjectNode();
+        event.put("type", "tool_status");
+        event.put("tool", toolName);
+        event.put("status", "start");
+        event.put("label", query.isBlank() ? "正在联网查询" : "正在联网查询：" + query);
+        if (!query.isBlank()) {
+            event.put("query", query);
+        }
+        return "\n" + CLIENT_EVENT_PREFIX + event.toString() + "\n";
+    }
+
+    private static String extractQueryArg(String args) {
+        if (args == null || args.isBlank()) {
+            return "";
+        }
+        Matcher matcher = QUERY_ARG_PATTERN.matcher(args);
+        if (!matcher.find()) {
+            return "";
+        }
+        return matcher.group(1)
+                .replace("\\\"", "\"")
+                .replace("\\\\", "\\")
+                .trim();
+    }
+
     // ========== 请求体构造 ==========
 
     /**
@@ -657,6 +702,8 @@ public class AgentService {
                     + "- 查询已发布文章：必须调用 listArticles，并传 status=published。\n"
                     + "- 展示文章列表时必须使用编号列表，不要使用 Markdown 表格，不要分页追问。\n"
                     + "- 需要最新/当前/外部事实时，可调用 webSearch；每次只查一个具体问题，limit 默认 3，不要连续重复搜索。\n"
+                    + "- 需要引用本站旧文章或历史内容时，优先调用 searchSiteArticles；它是只读检索工具。\n"
+                    + "- 使用 webSearch 或 searchSiteArticles 的结果陈述事实时，必须在正文用 [1]、[2] 标注来源。\n"
                     + "- 创建文章：直接调 createArticle。不反问、不确认、不商量。\n"
                     + "- 永远不说「我先看看」「让我检查」「我发现了一个工具」等废话。直接行动。\n"
                     + "- 回复上限 3 句话。超过就是违规。\n"

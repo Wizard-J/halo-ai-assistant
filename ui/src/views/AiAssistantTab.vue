@@ -14,6 +14,7 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   confirmation?: ConfirmationInfo;
+  showRaw?: boolean;
 }
 
 interface ArticleResultItem {
@@ -32,6 +33,7 @@ interface ArticleResult {
 const messages = ref<ChatMessage[]>([]);
 const inputText = ref("");
 const isStreaming = ref(false);
+const activityText = ref("");
 const history = ref<{ role: string; content: string }[]>([]);
 const messagePane = ref<HTMLElement | null>(null);
 let abortController: AbortController | null = null;
@@ -41,6 +43,7 @@ const sessionId = ref(localStorage.getItem("ai-assistant-session") || "console-"
 const assistantName = "老巫师";
 const assistantAvatar = "/plugins/ai-assistant/assets/logo.png";
 const confirmationInputPattern = /^(确认|确认执行|执行|同意|好的|好|yes|ok)$/i;
+const clientEventPattern = /\n?\u001EAI_ASSISTANT_EVENT:([^\n]+)\n?/g;
 
 onMounted(async () => {
   try {
@@ -59,6 +62,22 @@ function scrollToBottom() {
   nextTick(() => {
     if (!messagePane.value) return;
     messagePane.value.scrollTop = messagePane.value.scrollHeight;
+  });
+}
+
+function handleClientEvent(event: any) {
+  if (!event || event.type !== "tool_status") return;
+  activityText.value = event.label || "正在执行工具...";
+}
+
+function consumeClientEvents(content: string) {
+  return content.replace(clientEventPattern, (_full, payload) => {
+    try {
+      handleClientEvent(JSON.parse(payload));
+    } catch (e) {
+      console.warn("解析工具状态事件失败", e);
+    }
+    return "\n";
   });
 }
 
@@ -395,7 +414,7 @@ function renderMarkdown(content: string) {
   }
 
   closeList();
-  return html.join("");
+  return html.join("") + renderSourceCards(normalized);
 }
 
 function parseArticleResult(content: string): ArticleResult | null {
@@ -448,6 +467,98 @@ function renderArticleResult(result: ArticleResult) {
       + "<span class=\"article-result-meta\"><span>" + renderInline(item.status) + "</span><span>" + renderInline(item.time) + "</span></span>"
       + "</div>").join("")
     + "</div></div>";
+}
+
+interface SourceCard {
+  index: string;
+  title: string;
+  url: string;
+  summary: string;
+}
+
+function domainFromUrl(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch (e) {
+    return url;
+  }
+}
+
+function extractSourceCards(content: string) {
+  const sources: SourceCard[] = [];
+  let current: Partial<SourceCard> | null = null;
+  const pushCurrent = () => {
+    if (!current?.url) return;
+    if (sources.some(source => source.url === current?.url)) return;
+    sources.push({
+      index: current.index || String(sources.length + 1),
+      title: current.title || domainFromUrl(current.url),
+      url: current.url,
+      summary: current.summary || "",
+    });
+  };
+
+  content.split(/\n/).forEach(raw => {
+    const line = raw.trim();
+    if (!line) return;
+    const header = line.match(/^\[(\d+)]\s*(.+)$/);
+    if (header && !/^https?:\/\//i.test(header[2])) {
+      pushCurrent();
+      current = { index: header[1], title: header[2].replace(/^[：:\-\s]+/, "").trim() };
+      return;
+    }
+    const source = line.match(/^(?:来源|链接|URL|Source)\s*[：:]\s*(https?:\/\/\S+)/i);
+    if (source) {
+      current = current || { index: String(sources.length + 1), title: "" };
+      current.url = source[1].replace(/[，。),）]+$/, "");
+      return;
+    }
+    const summary = line.match(/^(?:摘要|Snippet)\s*[：:]\s*(.+)$/i);
+    if (summary && current) {
+      current.summary = summary[1].trim();
+      return;
+    }
+    const markdown = line.match(/^(?:[-*]|\d+[.)])?\s*\[?(\d+)]?\s*[\-.、]?\s*\[([^\]]+)]\((https?:\/\/[^\s)]+)\)/);
+    if (markdown) {
+      pushCurrent();
+      current = {
+        index: markdown[1],
+        title: markdown[2].trim(),
+        url: markdown[3].replace(/[，。),）]+$/, ""),
+        summary: "",
+      };
+      pushCurrent();
+      current = null;
+      return;
+    }
+    const inlineUrl = line.match(/^\[(\d+)]\s*(.+?)\s+(https?:\/\/\S+)$/);
+    if (inlineUrl) {
+      pushCurrent();
+      current = {
+        index: inlineUrl[1],
+        title: inlineUrl[2].trim(),
+        url: inlineUrl[3].replace(/[，。),）]+$/, ""),
+        summary: "",
+      };
+      pushCurrent();
+      current = null;
+    }
+  });
+  pushCurrent();
+  return sources.slice(0, 8);
+}
+
+function renderSourceCards(content: string) {
+  const sources = extractSourceCards(content);
+  if (!sources.length) return "";
+  return "<div class=\"source-cards\" aria-label=\"联网引用来源\">"
+    + sources.map(source => "<a class=\"source-card\" href=\"" + escapeHtml(source.url) + "\" target=\"_blank\" rel=\"noopener noreferrer\">"
+      + "<span class=\"source-card-title\"><span class=\"source-card-index\">[" + escapeHtml(source.index) + "]</span>"
+      + "<span>" + renderInline(source.title) + "</span></span>"
+      + "<span class=\"source-card-domain\">" + escapeHtml(domainFromUrl(source.url)) + "</span>"
+      + (source.summary ? "<span class=\"source-card-summary\">" + renderInline(source.summary) + "</span>" : "")
+      + "</a>").join("")
+    + "</div>";
 }
 
 function renderInline(value: string) {
@@ -537,6 +648,7 @@ async function sendMessage() {
   history.value.push({ role: "user", content: text });
   inputText.value = "";
   isStreaming.value = true;
+  activityText.value = "正在连接 AI 服务...";
   streamBuffer = "";
   streamMode = "unknown";
   abortController = new AbortController();
@@ -572,12 +684,13 @@ async function sendMessage() {
     while (true) {
       const { done, value } = await reader.read();
       const chunk = decoder.decode(value || new Uint8Array(), { stream: !done });
-      const parsed = parseStreamChunk(chunk, done);
-      if (parsed) {
-        rawContent += parsed;
-        assistantMsg.content = normalizeAssistantContent(rawContent);
-        const conf = parseConfirmation(assistantMsg.content);
-        if (conf) assistantMsg.confirmation = conf;
+    const parsed = parseStreamChunk(chunk, done);
+    if (parsed) {
+      rawContent += parsed;
+      rawContent = consumeClientEvents(rawContent);
+      assistantMsg.content = normalizeAssistantContent(rawContent);
+      const conf = parseConfirmation(assistantMsg.content);
+      if (conf) assistantMsg.confirmation = conf;
         scrollToBottom();
       }
       if (done) break;
@@ -596,6 +709,7 @@ async function sendMessage() {
     }
   } finally {
     isStreaming.value = false;
+    activityText.value = "";
     abortController = null;
     streamBuffer = "";
     scrollToBottom();
@@ -615,6 +729,12 @@ function goToImmersive() {
         <div>
           <h2>{{ assistantName }}</h2>
           <p>Console 内容工作台</p>
+          <div class="capability-strip" aria-label="角色能力">
+            <span>博客管理</span>
+            <span>联网</span>
+            <span>站内检索</span>
+            <span>确认保护</span>
+          </div>
         </div>
       </div>
       <button class="ghost-button" type="button" @click="goToImmersive">
@@ -627,6 +747,11 @@ function goToImmersive() {
         <img class="welcome-mark" :src="assistantAvatar" alt="" aria-hidden="true" />
         <h3>今天要让老巫师处理什么？</h3>
         <p>可以查看文章、管理分类标签，或处理待审核评论。</p>
+      </div>
+
+      <div v-if="activityText" class="activity-line">
+        <span class="activity-dot" aria-hidden="true"></span>
+        <span>{{ activityText }}</span>
       </div>
 
       <article
@@ -647,7 +772,13 @@ function goToImmersive() {
         >
           <span v-if="msg.role === 'assistant' && !msg.content" class="typing">正在思考...</span>
           <span v-else-if="msg.role === 'user'">{{ msg.content }}</span>
-          <span v-else v-html="renderMarkdown(msg.content)"></span>
+          <template v-else>
+            <button class="raw-toggle" type="button" @click="msg.showRaw = !msg.showRaw">
+              {{ msg.showRaw ? "渲染" : "原文" }}
+            </button>
+            <pre v-if="msg.showRaw" class="markdown-raw">{{ msg.content }}</pre>
+            <span v-else v-html="renderMarkdown(msg.content)"></span>
+          </template>
         </div>
 
         <div v-else class="confirmation-card" :class="msg.confirmation.status">
@@ -737,6 +868,23 @@ function goToImmersive() {
   color: #6b7280;
   font-size: 13px;
   line-height: 1.35;
+}
+
+.capability-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.capability-strip span {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.5;
 }
 
 .ghost-button,
@@ -859,6 +1007,66 @@ function goToImmersive() {
   border-color: #2563eb;
   background: #2563eb;
   color: #ffffff;
+}
+
+.activity-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: center;
+  padding: 7px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.activity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #2563eb;
+  animation: pulse 900ms ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% { opacity: 0.35; }
+}
+
+.raw-toggle {
+  float: right;
+  margin: -2px 0 6px 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.raw-toggle:hover {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.markdown-raw {
+  clear: both;
+  overflow-x: auto;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #111827;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .message-bubble.markdown :deep(p) {
@@ -999,6 +1207,50 @@ function goToImmersive() {
   background: #f1f5f9;
   color: #475569;
   font-weight: 650;
+}
+
+.message-bubble.markdown :deep(.source-cards) {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0 2px;
+  clear: both;
+}
+
+.message-bubble.markdown :deep(.source-card) {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #ffffff;
+  color: inherit;
+  text-decoration: none;
+}
+
+.message-bubble.markdown :deep(.source-card:hover) {
+  border-color: #bfdbfe;
+  background: #f8fbff;
+}
+
+.message-bubble.markdown :deep(.source-card-title) {
+  display: flex;
+  gap: 7px;
+  color: #111827;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.message-bubble.markdown :deep(.source-card-index) {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.message-bubble.markdown :deep(.source-card-domain),
+.message-bubble.markdown :deep(.source-card-summary) {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .message-bubble.markdown :deep(ul),
