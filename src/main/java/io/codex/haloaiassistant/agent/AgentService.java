@@ -104,16 +104,24 @@ public class AgentService {
      */
     public Flux<String> chat(List<ChatMessage> messages) {
         return Flux.defer(() -> {
-            if (currentSetting == null || currentSetting.getApiKey() == null || currentSetting.getApiKey().isBlank()) {
-                return Flux.just("[错误] 请先在插件配置中填写 API Key");
-            }
-            if (currentSetting.getApiEndpoint() == null || currentSetting.getApiEndpoint().isBlank()) {
-                return Flux.just("[错误] 请先在插件配置中填写 Base URL");
-            }
-            if (currentSetting.getModel() == null || currentSetting.getModel().isBlank()) {
-                return Flux.just("[错误] 请先在插件配置中填写模型名称");
+            String configError = validateSetting();
+            if (configError != null) {
+                return Flux.just(configError);
             }
             return doChat(messages, 0);
+        });
+    }
+
+    /**
+     * 发送普通对话消息，不暴露博客管理工具。用于非老巫师 Persona。
+     */
+    public Flux<String> chatWithoutTools(List<ChatMessage> messages) {
+        return Flux.defer(() -> {
+            String configError = validateSetting();
+            if (configError != null) {
+                return Flux.just(configError);
+            }
+            return doPlainChat(messages);
         });
     }
 
@@ -166,6 +174,44 @@ public class AgentService {
             return Flux.just("[错误] 无法连接 AI API：" + safeMessage(error)
                     + "\n请检查 Base URL 及服务器网络。");
         });
+    }
+
+    private Flux<String> doPlainChat(List<ChatMessage> messages) {
+        String endpoint = normalizeEndpoint(currentSetting.getApiEndpoint());
+        String requestBody = buildRequestBody(messages, null, true);
+        StreamState state = new StreamState();
+
+        return streamChatCompletion(endpoint, requestBody, state)
+                .concatWith(Flux.defer(() -> {
+                    if (state.content.length() == 0 && state.refusal != null && !state.refusal.isBlank()) {
+                        return Flux.just("[AI 拒绝回答] " + state.refusal);
+                    }
+                    if (state.content.length() == 0) {
+                        String reasonHint = state.finishReason != null && !state.finishReason.isBlank()
+                                ? "（finish_reason: " + state.finishReason + "）" : "";
+                        return Flux.just("[错误] AI 服务返回了空内容" + reasonHint);
+                    }
+                    return Flux.empty();
+                }))
+                .onErrorResume(AiApiException.class, error -> {
+                    if (error.statusCode == 400 && extractErrorMessage(error.responseBody).toLowerCase().contains("stream")) {
+                        log.warn("当前模型服务可能不支持 stream，非工具对话回退到非流式调用");
+                        return doPlainChatNonStreaming(messages)
+                                .onErrorResume(AiApiException.class, fallbackError -> {
+                                    log.warn("非工具非流式 fallback 请求失败，状态码: {}，响应: {}",
+                                            fallbackError.statusCode, abbreviate(fallbackError.responseBody, 1000));
+                                    return Flux.just(formatApiError(fallbackError));
+                                });
+                    }
+                    log.warn("非工具 AI API 请求失败，状态码: {}，响应: {}",
+                            error.statusCode, abbreviate(error.responseBody, 1000));
+                    return Flux.just(formatApiError(error));
+                })
+                .onErrorResume(error -> {
+                    log.error("调用非工具 AI API 失败", error);
+                    return Flux.just("[错误] 无法连接 AI API：" + safeMessage(error)
+                            + "\n请检查 Base URL 及服务器网络。");
+                });
     }
 
     // ========== 流式 SSE 处理 ==========
@@ -502,6 +548,42 @@ public class AgentService {
                 });
     }
 
+    private Flux<String> doPlainChatNonStreaming(List<ChatMessage> messages) {
+        String endpoint = normalizeEndpoint(currentSetting.getApiEndpoint());
+
+        return WebClient.create()
+                .post()
+                .uri(URI.create(endpoint + "/chat/completions"))
+                .header("Authorization", "Bearer " + currentSetting.getApiKey())
+                .header("Content-Type", "application/json")
+                .bodyValue(buildRequestBody(messages, null, false))
+                .exchangeToMono(response -> response.bodyToMono(String.class)
+                        .defaultIfEmpty("")
+                        .flatMap(body -> {
+                            if (response.statusCode().isError()) {
+                                return Mono.error(new AiApiException(response.statusCode().value(), body));
+                            }
+                            return Mono.just(body);
+                        }))
+                .flatMapMany(body -> {
+                    try {
+                        JsonNode message = objectMapper.readTree(body).path("choices").path(0).path("message");
+                        String content = message.path("content").asText("");
+                        String refusal = message.path("refusal").asText("");
+                        if (!content.isBlank()) {
+                            return Flux.just(content);
+                        }
+                        if (!refusal.isBlank()) {
+                            return Flux.just("[AI 拒绝回答] " + refusal);
+                        }
+                        return Flux.just("[错误] AI 服务返回了空内容");
+                    } catch (Exception e) {
+                        log.warn("解析非工具非流式响应失败: {}", abbreviate(body, 1000), e);
+                        return Flux.just("[错误] 解析 AI 响应失败：" + e.getMessage());
+                    }
+                });
+    }
+
     private boolean shouldReturnToolResultDirectly(List<Object[]> results) {
         return !results.isEmpty()
                 && results.stream().allMatch(result -> "listArticles".equals(result[1]));
@@ -576,16 +658,31 @@ public class AgentService {
 
         root.put("max_tokens", currentSetting.getMaxTokens());
 
-        try {
-            root.set("tools", objectMapper.readTree(toolsJson));
-        } catch (Exception e) {
-            log.warn("解析 tools JSON 失败", e);
+        if (toolsJson != null && !toolsJson.isBlank()) {
+            try {
+                root.set("tools", objectMapper.readTree(toolsJson));
+            } catch (Exception e) {
+                log.warn("解析 tools JSON 失败", e);
+            }
         }
 
         return root.toPrettyString();
     }
 
     // ========== 辅助方法 ==========
+
+    private String validateSetting() {
+        if (currentSetting == null || currentSetting.getApiKey() == null || currentSetting.getApiKey().isBlank()) {
+            return "[错误] 请先在插件配置中填写 API Key";
+        }
+        if (currentSetting.getApiEndpoint() == null || currentSetting.getApiEndpoint().isBlank()) {
+            return "[错误] 请先在插件配置中填写 Base URL";
+        }
+        if (currentSetting.getModel() == null || currentSetting.getModel().isBlank()) {
+            return "[错误] 请先在插件配置中填写模型名称";
+        }
+        return null;
+    }
 
     private String normalizeEndpoint(String apiEndpoint) {
         String endpoint = apiEndpoint.replaceAll("/+$", "");

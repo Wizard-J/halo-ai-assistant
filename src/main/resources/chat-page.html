@@ -331,6 +331,18 @@
             padding-left: 20%;
         }
 
+        .message-row.user .message-avatar {
+            border: 1px solid var(--border);
+            background: #f8fafc;
+            color: var(--accent);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .message-row.user .avatar-emoji {
+            font-size: 12px;
+        }
+
         .message-row.assistant {
             padding-right: 8%;
         }
@@ -1601,6 +1613,7 @@
     // 会话 ID：优先用服务端登录用户，无登录时回退到 localStorage
     let serverSessionId = null;
     let serverFetchDone = false;
+    let currentUserName = '';
 
     let sessionId = getOrCreateSessionId();
     let isStreaming = false;
@@ -1630,6 +1643,7 @@
                 const data = await resp.json();
                 if (data.authenticated && data.sessionId) {
                     serverSessionId = data.sessionId;
+                    currentUserName = data.username || '';
                     // 持久化到 localStorage，刷新页面时优先使用（即使服务端还没响应）
                     try { localStorage.setItem(SESSION_KEY, serverSessionId); } catch(e) {}
                 }
@@ -2041,9 +2055,22 @@
 
         body.append(meta, contentElement);
         row.appendChild(body);
+        if (role === 'user') {
+            const avatar = document.createElement('span');
+            avatar.className = 'message-avatar';
+            avatar.setAttribute('aria-hidden', 'true');
+            avatar.innerHTML = renderUserAvatar();
+            row.appendChild(avatar);
+        }
         messagesElement.appendChild(row);
         scrollToBottom(options.instant ? 'auto' : 'smooth');
         return contentElement;
+    }
+
+    function renderUserAvatar() {
+        const name = String(currentUserName || '').trim();
+        const label = name ? Array.from(name)[0].toUpperCase() : '我';
+        return '<span class="avatar-emoji">' + escapeHtml(label) + '</span>';
     }
 
     function renderPersonaAvatar(persona) {

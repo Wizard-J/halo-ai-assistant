@@ -183,10 +183,15 @@ public class AiChatEndpoint {
             final String finalSystemPrompt;
             String contextContent = persona.getSpec() != null
                     ? persona.getSpec().getContextContent() : null;
+            boolean blogOpsEnabled = isBlogOpsPersona(personaId);
+            String personaGuard = blogOpsEnabled ? "" : "\n\n【角色权限边界】\n"
+                    + "你当前不是“老巫师”博客管理员角色。禁止查看、创建、修改、发布、删除博客文章、分类、标签、评论或自动运维内容。"
+                    + "不要声称已执行任何博客操作；如果用户要求操作博客内容，请说明需要切换到“老巫师”。"
+                    + "你只能依据当前角色的 system prompt、上传的 SKILL.md/上下文和对话历史进行问答。";
             if (contextContent != null && !contextContent.isBlank()) {
-                finalSystemPrompt = systemPrompt + "\n\n【上下文信息】\n" + contextContent;
+                finalSystemPrompt = systemPrompt + personaGuard + "\n\n【上下文信息】\n" + contextContent;
             } else {
-                finalSystemPrompt = systemPrompt;
+                finalSystemPrompt = systemPrompt + personaGuard;
             }
 
             // 加载服务端对话历史 + 压缩
@@ -249,7 +254,9 @@ public class AiChatEndpoint {
                         messagesJson.add(toPersistentMessageNode(
                                 "user", history.get(history.size() - 1).content(), Instant.now().toString()));
                         // 流式返回 + 结束时一次性保存用户消息 + AI 回复
-                        Flux<String> chatStream = agentService.chat(fullHistory);
+                        Flux<String> chatStream = blogOpsEnabled
+                                ? agentService.chat(fullHistory)
+                                : agentService.chatWithoutTools(fullHistory);
                         StringBuilder assistantResponse = new StringBuilder();
 
                         // 准备需要持久化的消息（用户输入）
@@ -318,6 +325,10 @@ public class AiChatEndpoint {
             msgNode.put("timestamp", timestamp);
         }
         return msgNode;
+    }
+
+    private boolean isBlogOpsPersona(String personaId) {
+        return personaId == null || personaId.isBlank() || "default".equals(personaId);
     }
 
     /**
