@@ -1789,7 +1789,7 @@
             .replace(/(^|[\n|])data:\s*/g, '$1')
             .replace(/([^\n])(\s*#{1,3}\s+)/g, '$1\n\n$2')
             .replace(/([^\n|])(\s+---+\s*)(?=\n|$)/g, '$1\n\n---\n')
-            .replace(/([^\n])(\s*[-*]\s+(?:\*\*|[\u{1F300}-\u{1FAFF}]))/gu, '$1\n$2')
+            .replace(/([^\n])(\s*[-]\s+(?:\*\*|[\u{1F300}-\u{1FAFF}]))/gu, '$1\n$2')
             .replace(/\n{3,}/g, '\n\n')
             .trimStart();
         return normalizeBrokenTableSeparators(normalized);
