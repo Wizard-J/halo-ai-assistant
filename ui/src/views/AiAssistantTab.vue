@@ -160,9 +160,10 @@ function normalizeBrokenTableSeparators(content: string) {
   const lines = content.split(/\n/);
   const out: string[] = [];
 
+  const isMarkdownHr = (line: string) => /^(?:-{3,}|\*{3,}|_{3,})$/.test(line.trim());
   const isSeparatorFragment = (line: string) => {
     const text = line.trim();
-    return text.length > 0 && /^[|:\-\s]+$/.test(text);
+    return text.length > 0 && !isMarkdownHr(text) && /^[|:\-\s]+$/.test(text);
   };
   const isPipeRow = (line: string) => {
     if (isSeparatorFragment(line)) return false;
@@ -198,6 +199,7 @@ function normalizeBrokenTableSeparators(content: string) {
         i = cursor - 1;
         continue;
       }
+      out.push(line);
       continue;
     }
 
@@ -262,9 +264,10 @@ function renderMarkdown(content: string) {
   };
 
   const splitTableRow = (line: string) => line.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim());
+  const isMarkdownHr = (line: string) => /^(?:-{3,}|\*{3,}|_{3,})$/.test(line.trim());
   const isSeparatorFragment = (line: string) => {
     const text = line.trim();
-    return text.length > 0 && /^[|:\-\s]+$/.test(text);
+    return text.length > 0 && !isMarkdownHr(text) && /^[|:\-\s]+$/.test(text);
   };
   const isPipeRow = (line: string) => {
     if (isSeparatorFragment(line)) return false;
@@ -307,6 +310,13 @@ function renderMarkdown(content: string) {
     const line = rawLine.trimEnd();
     if (!line.trim()) {
       closeList();
+      index += 1;
+      continue;
+    }
+
+    if (isMarkdownHr(line)) {
+      closeList();
+      html.push("<hr>");
       index += 1;
       continue;
     }
@@ -355,7 +365,7 @@ function renderMarkdown(content: string) {
       continue;
     }
 
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
       closeList();
       const level = Math.min(heading[1].length + 2, 4);
@@ -443,7 +453,9 @@ function renderArticleResult(result: ArticleResult) {
 function renderInline(value: string) {
   return escapeHtml(value)
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>");
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\[([^\]]+)]\((https?:\/\/[^\s)]+)\)/g, "<a href=\"$2\" target=\"_blank\" rel=\"noopener noreferrer\">$1</a>")
+    .replace(/\[([^\]]+)]\(((?:[\w-]+\.)+[\w-]+\/[^\s)]+)\)/g, "<a href=\"https://$2\" target=\"_blank\" rel=\"noopener noreferrer\">$1</a>");
 }
 
 function isLoginResponse(response: Response) {
@@ -555,13 +567,15 @@ async function sendMessage() {
 
     const reader = resp.body!.getReader();
     const decoder = new TextDecoder();
+    let rawContent = "";
 
     while (true) {
       const { done, value } = await reader.read();
       const chunk = decoder.decode(value || new Uint8Array(), { stream: !done });
       const parsed = parseStreamChunk(chunk, done);
       if (parsed) {
-        assistantMsg.content = normalizeAssistantContent(assistantMsg.content + parsed);
+        rawContent += parsed;
+        assistantMsg.content = normalizeAssistantContent(rawContent);
         const conf = parseConfirmation(assistantMsg.content);
         if (conf) assistantMsg.confirmation = conf;
         scrollToBottom();
@@ -902,6 +916,13 @@ function goToImmersive() {
 
 .message-bubble.markdown :deep(tr:last-child td) {
   border-bottom: 0;
+}
+
+.message-bubble.markdown :deep(hr) {
+  height: 1px;
+  margin: 10px 0;
+  border: 0;
+  background: #e5e7eb;
 }
 
 .message-bubble.markdown :deep(.table-fallback-list) {

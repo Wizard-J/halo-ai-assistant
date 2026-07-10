@@ -521,6 +521,13 @@
             border-bottom: 0;
         }
 
+        .assistant-content hr {
+            height: 1px;
+            margin: 12px 0;
+            border: 0;
+            background: var(--border);
+        }
+
         .assistant-content .table-fallback-list {
             margin: 12px 0;
             padding: 10px 12px;
@@ -1681,16 +1688,22 @@
         return escapeHtml(value)
             .replace(/`([^`]+)`/g, '<code>$1</code>')
             .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-            .replace(/\[([^\]]+)]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+            .replace(/\[([^\]]+)]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+            .replace(/\[([^\]]+)]\(((?:[\w-]+\.)+[\w-]+\/[^\s)]+)\)/g, '<a href="https://$2" target="_blank" rel="noopener noreferrer">$1</a>');
     }
 
     function splitTableRow(line) {
         return line.trim().replace(/^\||\|$/g, '').split('|').map(cell => cell.trim());
     }
 
+    function isMarkdownHr(line) {
+        const text = line.trim();
+        return /^(?:-{3,}|\*{3,}|_{3,})$/.test(text);
+    }
+
     function isSeparatorFragment(line) {
         const text = line.trim();
-        return text.length > 0 && /^[|:\-\s]+$/.test(text);
+        return text.length > 0 && !isMarkdownHr(text) && /^[|:\-\s]+$/.test(text);
     }
 
     function isPipeTableRow(line) {
@@ -1835,6 +1848,7 @@
                     i = cursor - 1;
                     continue;
                 }
+                out.push(line);
                 continue;
             }
 
@@ -1905,7 +1919,20 @@
                 continue;
             }
 
-            if (!line.trim() || isSeparatorFragment(line)) {
+            if (!line.trim()) {
+                closeList();
+                index += 1;
+                continue;
+            }
+
+            if (isMarkdownHr(line)) {
+                closeList();
+                html.push('<hr>');
+                index += 1;
+                continue;
+            }
+
+            if (isSeparatorFragment(line)) {
                 closeList();
                 index += 1;
                 continue;
@@ -1945,17 +1972,17 @@
                 continue;
             }
 
-            const heading = line.match(/^(#{1,3})\s+(.+)$/);
+            const heading = line.match(/^(#{1,6})\s+(.+)$/);
             if (heading) {
                 closeList();
-                const level = heading[1].length;
+                const level = Math.min(heading[1].length, 4);
                 html.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
                 index += 1;
                 continue;
             }
 
             const unordered = line.match(/^\s*[-*]\s+(.+)$/);
-            const ordered = line.match(/^\s*\d+\.\s+(.+)$/);
+            const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
             if (unordered || ordered) {
                 const desiredList = unordered ? 'ul' : 'ol';
                 if (listType !== desiredList) {
@@ -2266,14 +2293,14 @@
                 events.forEach(event => {
                     const parsed = parseSseEvent(event);
                     if (parsed && parsed !== '[DONE]') {
-                        content = normalizeAssistantContent(content + parsed);
-                        onContent(content);
+                        content += parsed;
+                        onContent(normalizeAssistantContent(content));
                     }
                 });
             } else if (buffer) {
                 content += buffer;
                 buffer = '';
-                onContent(content);
+                onContent(normalizeAssistantContent(content));
             }
 
             if (done) break;
@@ -2282,11 +2309,11 @@
         if (buffer.trim()) {
             const parsed = isEventStream ? parseSseEvent(buffer) : buffer;
             if (parsed && parsed !== '[DONE]') {
-                content = normalizeAssistantContent(content + parsed);
-                onContent(content);
+                content += parsed;
+                onContent(normalizeAssistantContent(content));
             }
         }
-        return content;
+        return normalizeAssistantContent(content);
     }
 
     function isLoginResponse(response) {
