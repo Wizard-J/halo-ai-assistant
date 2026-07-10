@@ -261,11 +261,13 @@
             min-height: 0;
         }
 
-        .scroll-area { flex: 1;
+        .scroll-area {
+            flex: 1;
             min-height: 0;
             overflow-y: auto;
             overscroll-behavior: contain;
             scrollbar-gutter: stable;
+            scroll-padding-block: 24px;
         }
 
         .content-column {
@@ -340,6 +342,32 @@
             display: flex;
             flex-direction: column;
             gap: 28px;
+        }
+
+        .history-window-notice {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin: -20px 0 4px;
+            color: var(--text-faint);
+            font-size: 12px;
+        }
+
+        .history-window-notice button {
+            padding: 6px 10px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: var(--surface);
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
+        }
+
+        .history-window-notice button:hover {
+            border-color: var(--border-strong);
+            background: var(--surface-subtle);
+            color: var(--text);
         }
 
         .message-row {
@@ -1740,6 +1768,7 @@
     const closeHistoryButton = document.getElementById('closeHistoryButton');
     const confirmationInputPattern = /^(确认|确认执行|执行|同意|好的|好|yes|ok)$/i;
     const CLIENT_EVENT_PREFIX = '\u001EAI_ASSISTANT_EVENT:';
+    const HISTORY_RENDER_BATCH_SIZE = 80;
 
     let activePersona = { id: 'default', displayName: 'AI 智能助手', iconUrl: null, brandColor: '#2563eb', greeting: '你好，我是 Halo AI 智能助手', thinkingPhrases: '[]' };
     let personas = [];
@@ -1752,6 +1781,7 @@
     let serverSessionId = null;
     let serverFetchDone = false;
     let currentUserName = '';
+    let renderedHistoryStart = 0;
 
     let sessionId = getOrCreateSessionId();
     let isStreaming = false;
@@ -2272,6 +2302,46 @@
         requestAnimationFrame(() => scrollArea.scrollTo({ top: scrollArea.scrollHeight, behavior }));
     }
 
+    function renderHistoryMessages(startIndex = Math.max(0, history.length - HISTORY_RENDER_BATCH_SIZE), preservePosition = false) {
+        const previousHeight = scrollArea.scrollHeight;
+        const previousTop = scrollArea.scrollTop;
+        renderedHistoryStart = Math.max(0, Math.min(startIndex, history.length));
+        messagesElement.replaceChildren();
+
+        if (renderedHistoryStart > 0) {
+            const notice = document.createElement('div');
+            notice.className = 'history-window-notice';
+            const label = document.createElement('span');
+            label.textContent = `较早的 ${renderedHistoryStart} 条消息已折叠，以保持页面流畅`;
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = '加载更早消息';
+            button.addEventListener('click', () => {
+                renderHistoryMessages(
+                    Math.max(0, renderedHistoryStart - HISTORY_RENDER_BATCH_SIZE),
+                    true
+                );
+            });
+            notice.append(label, button);
+            messagesElement.appendChild(notice);
+        }
+
+        history.slice(renderedHistoryStart).forEach(message => createMessage(message.role, message.content, {
+            instant: true,
+            historical: true,
+            noScroll: true,
+            timestamp: message.timestamp
+        }));
+
+        requestAnimationFrame(() => {
+            if (preservePosition) {
+                scrollArea.scrollTop = previousTop + (scrollArea.scrollHeight - previousHeight);
+            } else {
+                scrollArea.scrollTop = scrollArea.scrollHeight;
+            }
+        });
+    }
+
     function renderAssistantContent(element, content, rawMode = false) {
         element.dataset.rawContent = content || '';
         element.dataset.rawMode = rawMode ? 'true' : 'false';
@@ -2365,7 +2435,9 @@
             row.appendChild(avatar);
         }
         messagesElement.appendChild(row);
-        scrollToBottom(options.instant ? 'auto' : 'smooth');
+        if (!options.noScroll) {
+            scrollToBottom(options.instant ? 'auto' : 'smooth');
+        }
         return contentElement;
     }
 
@@ -2775,6 +2847,7 @@
     function resetConversation() {
         if (abortController) abortController.abort();
         history = [];
+        renderedHistoryStart = 0;
         conversationId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
         messagesElement.replaceChildren();
         welcomeElement.hidden = false;
@@ -2835,13 +2908,8 @@
         if (Array.isArray(conversation.messages) && conversation.messages.length > 0) {
             history = normalizeMessages(conversation.messages, conversation.updatedAt);
             conversationId = conversation.id;
-            messagesElement.replaceChildren();
             welcomeElement.hidden = history.length > 0;
-            history.forEach(message => createMessage(message.role, message.content, {
-                instant: true,
-                historical: true,
-                timestamp: message.timestamp
-            }));
+            renderHistoryMessages();
             closeHistory();
             input.focus();
             return;
@@ -2853,13 +2921,8 @@
                 const msgs = data.messages || [];
                 history = normalizeMessages(msgs, data.updatedAt || conversation.updatedAt);
                 conversationId = data.id || conversation.id;
-                messagesElement.replaceChildren();
                 welcomeElement.hidden = history.length > 0;
-                history.forEach(message => createMessage(message.role, message.content, {
-                    instant: true,
-                    historical: true,
-                    timestamp: message.timestamp
-                }));
+                renderHistoryMessages();
                 closeHistory();
                 input.focus();
             })
@@ -3148,6 +3211,7 @@
         try { localStorage.setItem(ACTIVE_PERSONA_KEY, persona.id); } catch(e) {}
         // 重置对话
         history = [];
+        renderedHistoryStart = 0;
         conversationId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
         messagesElement.replaceChildren();
         // 更新 UI
@@ -3206,13 +3270,8 @@
             if (msgs.length === 0) { welcomeElement.hidden = false; return; }
             history = normalizeMessages(msgs, data.updatedAt);
             conversationId = data.id;
-            messagesElement.replaceChildren();
             welcomeElement.hidden = false;
-            history.forEach(msg => createMessage(msg.role, msg.content, {
-                instant: true,
-                historical: true,
-                timestamp: msg.timestamp
-            }));
+            renderHistoryMessages();
             welcomeElement.hidden = true;
         } catch (e) {
             console.warn('加载对话历史失败', e);
@@ -3319,13 +3378,8 @@
             if (msgs.length === 0) return false;
             history = normalizeMessages(msgs, data.updatedAt);
             conversationId = data.id;
-            messagesElement.replaceChildren();
             welcomeElement.hidden = false;
-            history.forEach(msg => createMessage(msg.role, msg.content, {
-                instant: true,
-                historical: true,
-                timestamp: msg.timestamp
-            }));
+            renderHistoryMessages();
             welcomeElement.hidden = true;
             return true;
         } catch (e) {
