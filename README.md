@@ -17,6 +17,12 @@
 - **每日推送**：通过 Server酱/PushPlus 推送到微信
 - **对话历史**：按 Persona + session 持久化
 
+## ChatGPT 订阅接入（第一阶段）
+
+新增可选的 ChatGPT Pro/Plus 订阅接入，默认保留 API Key 方式。支持后台对话、只读文章查询和待确认草稿；授权及额度异常时不会自动回退收费 API。需要先在本机完成官方登录授权，再安全导入自托管服务器。
+
+详细步骤、功能边界及验收清单见 [ChatGPT 订阅接入](docs/CHATGPT_SUBSCRIPTION.md)。本机模拟测试不能代替真实账户和 Halo 实例验收。
+
 ## 环境要求
 
 - Halo `2.20.0+`（验证版本：`2.22.8`）

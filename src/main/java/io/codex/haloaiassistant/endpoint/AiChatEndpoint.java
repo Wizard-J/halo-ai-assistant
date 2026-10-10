@@ -678,6 +678,8 @@ public class AiChatEndpoint implements CustomEndpoint {
     private AiAssistantSetting loadPushSetting() {
         AiAssistantSetting setting = new AiAssistantSetting();
         settingFetcher.fetch("basic", AiAssistantSetting.class).ifPresent(s -> {
+            setting.setProvider(s.getProvider());
+            setting.setChatGptModel(s.getChatGptModel());
             setting.setApiEndpoint(s.getApiEndpoint());
             setting.setApiKey(s.getApiKey());
             setting.setModel(s.getModel());

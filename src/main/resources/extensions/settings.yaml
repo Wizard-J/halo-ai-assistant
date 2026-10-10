@@ -7,6 +7,20 @@ spec:
     - group: basic
       label: 基本配置
       formSchema:
+        - $formkit: select
+          name: provider
+          label: AI 接入方式
+          value: api
+          options:
+            - label: API Key（现有方式）
+              value: api
+            - label: ChatGPT 订阅（第一阶段）
+              value: chatgpt
+          help: "订阅方式需先运行仓库的本机授权助手，再将凭据安全导入 Halo 运行目录。不会自动回退到收费 API。"
+        - $formkit: text
+          name: chatGptModel
+          label: ChatGPT 订阅模型
+          help: "留空使用账户列表中第一个可用模型；可在对话页的订阅状态中查询模型标识。订阅模式仅支持对话、读取文章和待确认草稿，暂不支持自动运维。"
         - $formkit: text
           name: apiEndpoint
           label: Base URL（API 端点）

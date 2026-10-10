@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { nextTick, onMounted, ref } from "vue";
+import ChatGptConnection from "./ChatGptConnection.vue";
 
 interface ConfirmationInfo {
   id: string;
@@ -791,6 +792,8 @@ function goToImmersive() {
         完整对话
       </button>
     </header>
+
+    <ChatGptConnection />
 
     <div ref="messagePane" class="messages">
       <div v-if="messages.length === 0" class="welcome">

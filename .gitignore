@@ -16,3 +16,7 @@ node_modules/
 package.json
 package-lock.json
 .ai-bridge/
+.chatgpt/
+chatgpt-credentials*.json
+__pycache__/
+.venv/

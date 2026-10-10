@@ -42,3 +42,9 @@ halo {
 tasks.test {
     useJUnitPlatform()
 }
+
+tasks.processResources {
+    from("docs/CHATGPT_SUBSCRIPTION.md") {
+        into "docs"
+    }
+}

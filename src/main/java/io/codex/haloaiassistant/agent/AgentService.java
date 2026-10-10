@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.codex.haloaiassistant.config.AiAssistantSetting;
+import io.codex.haloaiassistant.chatgpt.ChatGptResponsesClient;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -18,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -28,6 +30,7 @@ import reactor.core.scheduler.Schedulers;
 public class AgentService {
 
     private final ToolRegistry toolRegistry;
+    private final ChatGptResponsesClient chatGpt;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private AiAssistantSetting currentSetting;
 
@@ -36,7 +39,13 @@ public class AgentService {
     private static final Pattern QUERY_ARG_PATTERN = Pattern.compile("\"query\"\\s*:\\s*\"((?:\\\\.|[^\"])*)\"");
 
     public AgentService(ToolRegistry toolRegistry) {
+        this(toolRegistry, null);
+    }
+
+    @Autowired
+    public AgentService(ToolRegistry toolRegistry, ChatGptResponsesClient chatGpt) {
         this.toolRegistry = toolRegistry;
+        this.chatGpt = chatGpt;
     }
 
     public void updateSetting(AiAssistantSetting setting) {
@@ -55,6 +64,9 @@ public class AgentService {
     /** Generate plain content without exposing blog tools. Used by background automation. */
     public Mono<String> generateText(AiAssistantSetting setting, String systemPrompt,
                                       String userPrompt, int maxTokens) {
+        if (setting.usesChatGptSubscription()) {
+            return Mono.error(new IllegalStateException("ChatGPT 订阅第一阶段不支持自动运维，请使用 API Key 模式"));
+        }
         String endpoint = normalizeEndpoint(setting.getApiEndpoint());
         String model = setting.getModel();
         int promptChars = (systemPrompt == null ? 0 : systemPrompt.length())
@@ -156,6 +168,9 @@ public class AgentService {
 
     private Flux<String> doChat(List<ChatMessage> messages, int depth, Set<String> allowedToolNames,
                                 String requester) {
+        if (getCurrentSetting().usesChatGptSubscription()) {
+            return chatGpt.chat(messages, getCurrentSetting(), allowedToolNames, requester);
+        }
         if (depth > MAX_TOOL_DEPTH) {
             return Flux.just("[系统] 工具调用次数过多，请简化指令");
         }
@@ -205,6 +220,9 @@ public class AgentService {
     }
 
     private Flux<String> doPlainChat(List<ChatMessage> messages) {
+        if (getCurrentSetting().usesChatGptSubscription()) {
+            return chatGpt.chat(messages, getCurrentSetting(), Set.of(), "system");
+        }
         String endpoint = normalizeEndpoint(currentSetting.getApiEndpoint());
         String requestBody = buildRequestBody(messages, null, true);
         StreamState state = new StreamState();
@@ -761,6 +779,9 @@ public class AgentService {
     // ========== 辅助方法 ==========
 
     private String validateSetting() {
+        if (currentSetting != null && currentSetting.usesChatGptSubscription()) {
+            return chatGpt == null ? "[错误] ChatGPT 订阅服务不可用" : null;
+        }
         if (currentSetting == null || currentSetting.getApiKey() == null || currentSetting.getApiKey().isBlank()) {
             return "[错误] 请先在插件配置中填写 API Key";
         }

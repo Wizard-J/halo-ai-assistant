@@ -5,11 +5,17 @@ import lombok.Data;
 @Data
 public class AiAssistantSetting {
     // AI 配置
+    private String provider = "api";
+    private String chatGptModel = "";
     private String apiEndpoint = "https://api.deepseek.com";
     private String apiKey = "";
     private String model = "deepseek-v4-flash";
     private Integer maxTokens = 32768;
     private String systemPrompt = "你是一个智能博客助手，可以帮助用户管理博客。";
+
+    public boolean usesChatGptSubscription() {
+        return "chatgpt".equals(provider);
+    }
 
     // 推送配置
     private String pushSecret = "";

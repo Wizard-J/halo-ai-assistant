@@ -1417,9 +1417,22 @@
                 padding: 0 14px;
             }
 
-            .brand-copy .connection,
             .button-label {
                 display: none;
+            }
+
+            .brand-copy {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 2px;
+            }
+
+            .brand-copy .connection {
+                display: block;
+                max-width: 42vw;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                font-size: 11px;
             }
 
             .content-column {
@@ -1653,7 +1666,7 @@
             <span class="brand-mark" aria-hidden="true"><img src="__PAGE_ICON__" alt=""></span>
             <div class="brand-copy">
                 <span class="brand-title">AI 智能助手</span>
-                <span class="connection"><span class="connection-dot"></span>AI 服务已连接</span>
+                <button class="connection" id="chatGptStatusButton" type="button" style="border:0;background:none;cursor:pointer">接入状态</button>
             </div>
         </div>
         <div class="header-actions">
@@ -3788,6 +3801,74 @@
     }
 
 </script>
+
+    <dialog id="chatGptConnectionDialog" style="max-width:min(640px,90vw);border:1px solid #cbd5e1;border-radius:12px;padding:24px;overflow-wrap:anywhere">
+        <h3>AI 接入状态</h3>
+        <p id="chatGptConnectionMessage" role="status">正在读取状态…</p>
+        <p>首次连接：在本机运行授权助手（Continue with ChatGPT），安全导入服务器后，在插件基本配置中选择“ChatGPT 订阅”。</p>
+        <p><a href="__API_BASE__/chatgpt/setup" target="_blank" rel="noopener noreferrer">授权说明</a> · <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener noreferrer">管理额度</a></p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="button" id="chatGptCheck" type="button">检查连接（消耗少量订阅额度）</button>
+            <button class="button" id="chatGptDisconnect" type="button">断开授权</button>
+            <button class="button" id="chatGptClose" type="button">关闭</button>
+        </div>
+        <pre id="chatGptModelList" style="max-height:180px;overflow:auto;white-space:pre-wrap"></pre>
+        <p>模型标识可填入插件基本配置的“ChatGPT 订阅模型”；留空使用账户列表中的第一个模型。第一阶段支持对话、读取文章和待确认草稿，不自动切换到收费 API。</p>
+    </dialog>
+    <script>
+    (() => {
+        const dialog = document.getElementById('chatGptConnectionDialog');
+        const message = document.getElementById('chatGptConnectionMessage');
+        const modelList = document.getElementById('chatGptModelList');
+        const statusButton = document.getElementById('chatGptStatusButton');
+        const check = document.getElementById('chatGptCheck');
+        const disconnect = document.getElementById('chatGptDisconnect');
+        let connected = false;
+        async function request(path, method = 'GET') {
+            const response = await fetch('__API_BASE__/chatgpt/' + path, { method, cache: 'no-store' });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || '读取接入状态失败');
+            return data;
+        }
+        async function refresh() {
+            try {
+                const data = await request('status');
+                connected = !!data.connected;
+                statusButton.textContent = data.provider === 'chatgpt' ? '正在使用 ChatGPT 订阅' : '正在使用 API Key';
+                message.textContent = (data.account ? data.account + ' · ' : '') + data.message;
+            } catch (error) { message.textContent = error.message; }
+            check.disabled = disconnect.disabled = !connected;
+        }
+        statusButton.addEventListener('click', () => { dialog.showModal(); refresh(); });
+        document.getElementById('chatGptClose').addEventListener('click', () => dialog.close());
+        check.addEventListener('click', async () => {
+            check.disabled = disconnect.disabled = true;
+            modelList.textContent = '';
+            message.textContent = '正在检查订阅请求…';
+            try {
+                const result = await request('check', 'POST');
+                message.textContent = result.message;
+                if (result.success) {
+                    const data = await request('models');
+                    modelList.textContent = data.models.map(m => m.display_name + '：' + m.slug).join('\n');
+                }
+            } catch (error) { message.textContent = error.message; }
+            finally { check.disabled = disconnect.disabled = !connected; }
+        });
+        disconnect.addEventListener('click', async () => {
+            if (!window.confirm('断开此服务器的 ChatGPT 授权？')) return;
+            check.disabled = disconnect.disabled = true;
+            try {
+                const data = await request('disconnect', 'POST');
+                message.textContent = data.message;
+                connected = false;
+                modelList.textContent = '';
+            } catch (error) { message.textContent = error.message; }
+            finally { check.disabled = disconnect.disabled = !connected; }
+        });
+        refresh();
+    })();
+    </script>
 
     <!-- Persona 管理面板 -->
     <div class="drawer-backdrop" id="personaManagerBackdrop" hidden></div>
