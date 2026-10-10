@@ -19,6 +19,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.reactive.JdkClientHttpConnector;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
@@ -39,8 +40,7 @@ public class ChatGptResponsesClient {
 
     @Autowired
     public ChatGptResponsesClient(ChatGptCredentials credentials, ToolRegistry registry) {
-        this(credentials, registry, WebClient.builder().baseUrl("https://api.openai.com/v1")
-                .codecs(c -> c.defaultCodecs().maxInMemorySize(4 * 1024 * 1024)).build());
+        this(credentials, registry, null);
     }
 
     ChatGptResponsesClient(ChatGptCredentials credentials, ToolRegistry registry, WebClient web) {
@@ -49,9 +49,16 @@ public class ChatGptResponsesClient {
         this.web = web;
     }
 
+    private WebClient web() {
+        if (web != null) return web;
+        return WebClient.builder().baseUrl("https://api.openai.com/v1")
+                .clientConnector(new JdkClientHttpConnector(credentials.httpClient()))
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(4 * 1024 * 1024)).build();
+    }
+
     public Mono<ArrayNode> models() {
         return Mono.fromCallable(credentials::accessToken).subscribeOn(Schedulers.boundedElastic())
-                .flatMap(token -> web.get().uri("/models").headers(h -> h.setBearerAuth(token))
+                .flatMap(token -> web().get().uri("/models").headers(h -> h.setBearerAuth(token))
                         .exchangeToMono(response -> {
                             if (response.statusCode().isError()) return Mono.error(httpError(response.statusCode().value()));
                             // Halo and PF4J can load different Jackson versions. Cross the codec boundary as text.
@@ -150,7 +157,7 @@ public class ChatGptResponsesClient {
         return Flux.defer(() -> {
             Round state = new Round();
             return Mono.fromCallable(credentials::accessToken).subscribeOn(Schedulers.boundedElastic())
-                    .flatMapMany(token -> web.post().uri("/responses").headers(h -> h.setBearerAuth(token))
+                    .flatMapMany(token -> web().post().uri("/responses").headers(h -> h.setBearerAuth(token))
                             .header("Accept", "text/event-stream").contentType(MediaType.APPLICATION_JSON)
                             .bodyValue(request.toString())
                             .exchangeToFlux(response -> {

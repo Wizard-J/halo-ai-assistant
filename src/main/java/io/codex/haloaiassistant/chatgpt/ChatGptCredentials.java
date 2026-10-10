@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.net.URI;
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -30,16 +32,43 @@ public class ChatGptCredentials {
 
     public ChatGptCredentials() {
         this(Path.of(System.getenv().getOrDefault("HALO_AI_CHATGPT_DIR",
-                System.getProperty("user.home") + "/.config/halo-ai-assistant/chatgpt")));
+                defaultDirectory())));
     }
 
     ChatGptCredentials(Path directory) {
-        this(directory, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build());
+        this(directory, null);
     }
 
     ChatGptCredentials(Path directory, HttpClient http) {
         this.directory = directory;
         this.http = http;
+    }
+
+    static String defaultDirectory() {
+        String workDir = System.getenv("HALO_WORK_DIR");
+        return (workDir == null || workDir.isBlank() ? System.getProperty("user.home") : workDir)
+                + "/.config/halo-ai-assistant/chatgpt";
+    }
+
+    /** Only subscription traffic uses this optional private HTTP CONNECT proxy. */
+    HttpClient httpClient() {
+        if (http != null) return http;
+        var builder = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15));
+        Path path = directory.resolve("proxy.json");
+        if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+            try {
+                requireProtectedFile(path);
+                JsonNode config = mapper.readTree(Files.readString(path));
+                String host = config.path("host").asText();
+                int port = config.path("port").asInt();
+                if (host.isBlank() || host.contains("/") || host.contains("@") || port < 1 || port > 65535)
+                    throw new IllegalArgumentException();
+                builder.proxy(ProxySelector.of(new InetSocketAddress(host, port)));
+            } catch (Exception e) {
+                throw new IllegalStateException("ChatGPT 专用代理配置无效或权限过宽，请检查 proxy.json");
+            }
+        }
+        return builder.build();
     }
 
     public synchronized Map<String, Object> status() {
@@ -108,7 +137,7 @@ public class ChatGptCredentials {
             HttpRequest discovery = HttpRequest.newBuilder(URI.create(
                     "https://auth.openai.com/.well-known/openid-configuration"))
                     .timeout(Duration.ofSeconds(20)).GET().build();
-            var response = http.send(discovery, HttpResponse.BodyHandlers.ofString());
+            var response = httpClient().send(discovery, HttpResponse.BodyHandlers.ofString());
             URI endpoint = URI.create(mapper.readTree(response.body()).path("revocation_endpoint").asText());
             if (!"https".equals(endpoint.getScheme()) || !"auth.openai.com".equals(endpoint.getHost())) {
                 throw new IllegalStateException("无效的撤销端点");
@@ -165,7 +194,7 @@ public class ChatGptCredentials {
             HttpRequest request = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(30))
                     .header("Content-Type", "application/x-www-form-urlencoded")
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
-            var response = http.send(request, HttpResponse.BodyHandlers.ofString());
+            var response = httpClient().send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) {
                 throw new IllegalStateException("ChatGPT 授权请求失败（HTTP " + response.statusCode()
                         + "），请检查网络或重新授权");

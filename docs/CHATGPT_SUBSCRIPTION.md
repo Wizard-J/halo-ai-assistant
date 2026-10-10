@@ -50,7 +50,7 @@ python3 -m venv .venv
 
 **本次代码实现不包含上传、安装或生产站变更。以下步骤需要在允许部署后再执行。**
 
-服务器运行目录由环境变量 `HALO_AI_CHATGPT_DIR` 指定。未指定时使用 Halo Java 进程的：
+服务器运行目录由环境变量 `HALO_AI_CHATGPT_DIR` 指定。未指定时优先使用 `HALO_WORK_DIR` 下的 `.config/halo-ai-assistant/chatgpt`（Halo 官方容器为持久工作目录）；无该变量时使用 Halo Java 进程的：
 
 ```text
 ${user.home}/.config/halo-ai-assistant/chatgpt/
@@ -113,3 +113,12 @@ JAVA_HOME=/path/to/jdk21 ./gradlew clean build
 - [模型列表与请求完成要求](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
 - [接口预览限制](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)
 - [续期、撤销和凭据保护](https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions)
+
+## 专用出站代理
+
+仅 ChatGPT 订阅支持可选 HTTP CONNECT 代理。在授权目录创建 `proxy.json`，内容为
+`{"host":"halo-chatgpt-proxy","port":7890}`，文件权限必须为 `0600`。
+它同时用于模型、对话、授权续期及撤销，不影响 API Key 方式；配置错误会停止订阅请求。
+配置按请求读取，无需重启插件。代理应处于仅 Halo 可访问的专用容器网络，不公开端口。
+此配置不支持代理认证；不要把密码嵌入 host，公网代理须通过受保护的本地出口接入。
+节点订阅、代理凭据和授权文件不得提交到仓库。生产环境只能由一个实例持有续期权。
