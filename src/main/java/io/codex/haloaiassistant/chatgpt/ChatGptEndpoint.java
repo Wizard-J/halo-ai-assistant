@@ -43,7 +43,8 @@ public class ChatGptEndpoint implements CustomEndpoint {
                 .GET("/chatgpt/status", request -> authenticated(request, () -> status()))
                 .GET("/chatgpt/models", request -> authenticated(request, () -> responses.models()
                         .flatMap(models -> ServerResponse.ok().header("Cache-Control", "no-store")
-                                .bodyValue(Map.of("models", models)))))
+                                .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
+                                .bodyValue("{\"models\":" + models + "}"))))
                 .POST("/chatgpt/check", request -> authenticated(request, () -> check()))
                 .POST("/chatgpt/disconnect", request -> authenticated(request, () -> Mono
                         .fromCallable(credentials::disconnect).subscribeOn(Schedulers.boundedElastic())

@@ -13,9 +13,12 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TreeMap;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.codec.ServerSentEvent;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
@@ -23,6 +26,7 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 @Service
+@Slf4j
 public class ChatGptResponsesClient {
     private static final Set<String> PHASE_ONE_TOOLS = Set.of(
             "listArticles", "getArticle", "searchSiteArticles", "createArticle");
@@ -50,7 +54,8 @@ public class ChatGptResponsesClient {
                 .flatMap(token -> web.get().uri("/models").headers(h -> h.setBearerAuth(token))
                         .exchangeToMono(response -> {
                             if (response.statusCode().isError()) return Mono.error(httpError(response.statusCode().value()));
-                            return response.bodyToMono(JsonNode.class);
+                            // Halo and PF4J can load different Jackson versions. Cross the codec boundary as text.
+                            return response.bodyToMono(String.class).map(this::parseJson);
                         })).timeout(Duration.ofSeconds(45))
                 .map(root -> {
                     ArrayNode models = mapper.createArrayNode();
@@ -63,6 +68,14 @@ public class ChatGptResponsesClient {
                     if (models.isEmpty()) throw new IllegalStateException("该账户没有可用的订阅模型，请检查授权权限");
                     return models;
                 });
+    }
+
+    private JsonNode parseJson(String text) {
+        try {
+            return mapper.readTree(text);
+        } catch (Exception e) {
+            throw new IllegalStateException("订阅服务返回无效 JSON，已停止请求");
+        }
     }
 
     public Flux<String> chat(List<ChatMessage> messages, AiAssistantSetting setting,
@@ -81,8 +94,12 @@ public class ChatGptResponsesClient {
                 request.put("model", model);
                 return round(request, allowed, requester, 0);
             });
-        }).onErrorResume(e -> Flux.just("[ChatGPT 订阅错误] " + ChatGptCredentials.safeError(e)
-                + "\n可在 ChatGPT 设置 → Usage 管理额度。未切换到 API Key。"));
+        }).onErrorResume(e -> {
+            log.warn("ChatGPT subscription request failed: type={}, causeType={}",
+                    e.getClass().getName(), e.getCause() == null ? "none" : e.getCause().getClass().getName());
+            return Flux.just("[ChatGPT 订阅错误] " + ChatGptCredentials.safeError(e)
+                    + "\n可在 ChatGPT 设置 → Usage 管理额度。未切换到 API Key。");
+        });
     }
 
     private ObjectNode initialRequest(List<ChatMessage> messages, AiAssistantSetting setting, Set<String> allowed) {
@@ -134,7 +151,8 @@ public class ChatGptResponsesClient {
             Round state = new Round();
             return Mono.fromCallable(credentials::accessToken).subscribeOn(Schedulers.boundedElastic())
                     .flatMapMany(token -> web.post().uri("/responses").headers(h -> h.setBearerAuth(token))
-                            .header("Accept", "text/event-stream").bodyValue(request)
+                            .header("Accept", "text/event-stream").contentType(MediaType.APPLICATION_JSON)
+                            .bodyValue(request.toString())
                             .exchangeToFlux(response -> {
                                 if (response.statusCode().isError()) return Flux.error(httpError(response.statusCode().value()));
                                 // Spring's SSE decoder preserves UTF-8 across arbitrary transport boundaries.
@@ -204,6 +222,16 @@ public class ChatGptResponsesClient {
                 return Flux.error(new IllegalStateException(reason));
             }
             if ("response.incomplete".equals(type)) return Flux.error(new IllegalStateException("订阅响应未完成；未执行本轮工具"));
+            if ("response.output_item.done".equals(type)) {
+                if (!event.path("output_index").canConvertToInt() || event.path("output_index").asInt() < 0
+                        || !event.path("item").isObject()) {
+                    return Flux.error(new IllegalStateException("订阅输出项无效，未执行工具"));
+                }
+                int index = event.path("output_index").asInt();
+                if (state.streamedOutput.putIfAbsent(index, event.path("item")) != null) {
+                    return Flux.error(new IllegalStateException("订阅输出项重复，未执行工具"));
+                }
+            }
             if ("response.completed".equals(type)) {
                 if (!"completed".equals(event.path("response").path("status").asText())
                         || !event.path("response").path("output").isArray()) {
@@ -211,6 +239,12 @@ public class ChatGptResponsesClient {
                 }
                 state.completed = true;
                 state.output = (ArrayNode) event.path("response").path("output");
+                // The subscription stream can return output only in output_item.done events,
+                // with an empty output array on response.completed. Still wait for completion.
+                if (state.output.isEmpty()) {
+                    state.output = mapper.createArrayNode();
+                    for (JsonNode item : state.streamedOutput.values()) state.output.add(item);
+                }
             }
             return Flux.empty();
         } catch (Exception e) {
@@ -247,5 +281,6 @@ public class ChatGptResponsesClient {
         boolean completed;
         boolean hasText;
         ArrayNode output;
+        final TreeMap<Integer, JsonNode> streamedOutput = new TreeMap<>();
     }
 }

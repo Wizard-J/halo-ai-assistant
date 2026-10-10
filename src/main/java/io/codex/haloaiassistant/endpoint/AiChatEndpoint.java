@@ -757,16 +757,12 @@ public class AiChatEndpoint implements CustomEndpoint {
         });
     }
 
-    private Mono<ServerResponse> handleConfirmAction(ServerRequest request) {
+    Mono<ServerResponse> handleConfirmAction(ServerRequest request) {
         String id = request.pathVariable("id");
         return request.principal().flatMap(principal -> Mono.fromCallable(
                         () -> pendingActionService.confirmAndExecute(id, principal.getName()))
                 .subscribeOn(Schedulers.boundedElastic())
                 .flatMap(result -> {
-                    if (result == null) {
-                        return ServerResponse.ok().bodyValue(Map.of(
-                                "success", false, "error", "操作不存在或已过期"));
-                    }
                     boolean success = result.path("success").asBoolean();
                     String message = success
                             ? result.path("result").asText("操作已执行")
@@ -777,7 +773,8 @@ public class AiChatEndpoint implements CustomEndpoint {
                             "type", result.path("type").asText(""),
                             "result", result
                     ));
-                }));
+                }).switchIfEmpty(ServerResponse.ok().bodyValue(Map.of(
+                        "success", false, "error", "操作不存在、已过期或已执行"))));
     }
 
     private Mono<ServerResponse> handleCancelAction(ServerRequest request) {

@@ -180,11 +180,43 @@ class ChatGptResponsesClientTest {
     }
 
     @Test
+    void worksWithoutJacksonInSharedHttpCodecs() throws Exception {
+        WebClient textOnly = WebClient.builder().clientConnector(new JdkClientHttpConnector())
+                .baseUrl("http://127.0.0.1:" + server.getAddress().getPort())
+                .codecs(c -> {
+                    c.registerDefaults(false);
+                    c.customCodecs().register(new org.springframework.http.codec.DecoderHttpMessageReader<>(
+                            org.springframework.core.codec.StringDecoder.allMimeTypes()));
+                    c.customCodecs().register(new org.springframework.http.codec.EncoderHttpMessageWriter<>(
+                            org.springframework.core.codec.CharSequenceEncoder.allMimeTypes()));
+                    c.customCodecs().register(new org.springframework.http.codec.ServerSentEventHttpMessageReader());
+                }).build();
+        client = new ChatGptResponsesClient(credentials, registry, textOnly);
+        streams.add(text("已连接") + completed(mapper.createArrayNode()));
+        assertEquals("已连接", chat(null));
+        assertEquals("subscription-model", requests.getFirst().path("model").asText());
+    }
+
+    @Test
+    void subscriptionTerminalCanOmitAlreadyStreamedToolOutput() throws Exception {
+        Tool tool = mockTool("getArticle");
+        when(tool.execute(any())).thenReturn("北斗松果731");
+        ObjectNode done = mapper.createObjectNode().put("type", "response.output_item.done")
+                .put("output_index", 0).set("item", call("getArticle", "{\"id\":\"source\"}"));
+        streams.add(event(done.toString()) + completed(mapper.createArrayNode()));
+        streams.add(text("北斗松果731") + completed(mapper.createArrayNode()));
+        assertEquals("北斗松果731", chat(null));
+        verify(tool, times(1)).execute(any());
+        assertEquals("function_call", requests.get(1).path("input").path(1).path("type").asText());
+    }
+
+    @Test
     void incompleteOrFailedStreamsNeverExecuteTools() throws Exception {
         Tool tool = mockTool("createArticle");
         for (String terminal : List.of("", event("{\"type\":\"response.incomplete\"}"),
                 event("{\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"subscription_sharing_usage_limit_exceeded\"}}}"))) {
             streams.add(event(mapper.createObjectNode().put("type", "response.output_item.done")
+                    .put("output_index", 0)
                     .set("item", call("createArticle", "{\"title\":\"x\",\"content\":\"x\"}")).toString()) + terminal);
             assertTrue(chat(null).contains("[ChatGPT 订阅错误]"));
         }
