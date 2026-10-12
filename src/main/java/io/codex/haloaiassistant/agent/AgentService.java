@@ -65,7 +65,7 @@ public class AgentService {
     public Mono<String> generateText(AiAssistantSetting setting, String systemPrompt,
                                       String userPrompt, int maxTokens) {
         if (setting.usesChatGptSubscription()) {
-            return Mono.error(new IllegalStateException("ChatGPT 订阅第一阶段不支持自动运维，请使用 API Key 模式"));
+            return chatGpt.generateText(setting, systemPrompt, userPrompt, maxTokens);
         }
         String endpoint = normalizeEndpoint(setting.getApiEndpoint());
         String model = setting.getModel();

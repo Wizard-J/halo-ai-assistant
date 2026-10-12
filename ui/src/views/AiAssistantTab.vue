@@ -68,7 +68,7 @@ onMounted(async () => {
 
 async function loadPendingActions() {
   try {
-    const resp = await fetch(API_BASE + "/pending-actions");
+    const resp = await fetch(API_BASE + "/pending-actions?persona=default");
     if (resp.ok) {
       const data = await resp.json();
       const existing = new Set(messages.value.map(message => message.confirmation?.id).filter(Boolean));
@@ -875,8 +875,9 @@ function goToImmersive() {
 <style scoped>
 .ai-assistant-tab {
   display: grid;
-  grid-template-rows: auto minmax(360px, 1fr) auto;
-  min-height: 620px;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  height: calc(100dvh - 220px);
+  min-height: min(620px, calc(100dvh - 220px));
   max-height: calc(100vh - 220px);
   overflow: hidden;
   border: 1px solid #e5e7eb;

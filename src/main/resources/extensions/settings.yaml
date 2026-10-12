@@ -14,13 +14,13 @@ spec:
           options:
             - label: API Key（现有方式）
               value: api
-            - label: ChatGPT 订阅（第一阶段）
+            - label: ChatGPT 订阅
               value: chatgpt
           help: "订阅方式需先运行仓库的本机授权助手，再将凭据安全导入 Halo 运行目录。不会自动回退到收费 API。"
         - $formkit: text
           name: chatGptModel
           label: ChatGPT 订阅模型
-          help: "留空使用账户列表中第一个可用模型；可在对话页的订阅状态中查询模型标识。订阅模式仅支持对话、读取文章和待确认草稿，暂不支持自动运维。"
+          help: "留空使用账户列表中第一个可用模型；可在对话页的订阅状态中查询模型标识。订阅模式支持对话、读取文章、待确认草稿及按配置自动执行的运维；授权或额度异常时停止，不切换到收费 API。"
         - $formkit: text
           name: apiEndpoint
           label: Base URL（API 端点）
@@ -107,7 +107,7 @@ spec:
           name: enabled
           label: 全局启用
           value: false
-          help: "关闭后所有 Persona 都不会执行"
+          help: "开启即授权按计划抓取 RSS、调用当前 AI 模式并写入文章；关闭后所有内容管线均停止。"
         - $formkit: text
           name: runTime
           label: 每日执行时间
@@ -120,9 +120,9 @@ spec:
         # ═══ 第一人物：巫师前沿站 ═══
         - $formkit: switch
           name: autoPublish
-          label: 巫师前沿站 - 提案为发布状态
+          label: 自动发布（所有已启用管线）
           value: false
-          help: "默认生成草稿提案；开启后生成发布提案。两种状态都必须由管理员在服务端确认后才会写入。"
+          help: "关闭时自动保存草稿；开启时质量检查通过后自动发布，不再逐次确认。检查未通过会保存为草稿供复核。"
         - $formkit: text
           name: authorName
           label: 巫师前沿站 - 作者昵称

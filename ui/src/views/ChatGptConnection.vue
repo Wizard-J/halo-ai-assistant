@@ -68,7 +68,7 @@ onMounted(refresh);
       <li v-for="model in models" :key="model.slug">{{ model.display_name }}：<code>{{ model.slug }}</code></li>
     </ul>
     <p v-if="models.length">可将模型标识填入插件基本配置的“ChatGPT 订阅模型”；留空使用列表中第一个模型。</p>
-    <p>第一阶段支持对话、文章读取和待确认草稿。授权或额度异常时会停止，不自动切换到收费 API。</p>
+    <p>支持对话、文章读取、待确认草稿及按配置自动执行的运维任务。授权或额度异常时会停止，不自动切换到收费 API。</p>
   </details>
 </template>
 

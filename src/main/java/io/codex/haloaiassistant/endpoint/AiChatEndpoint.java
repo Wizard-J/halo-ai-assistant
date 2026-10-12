@@ -104,7 +104,7 @@ public class AiChatEndpoint implements CustomEndpoint {
                 .switchIfEmpty(ServerResponse.status(401).bodyValue(Map.of("error", "请先登录 Halo Console")));
     }
 
-    private Mono<ServerResponse> handleAuthenticatedChat(ServerRequest request, String requester) {
+    Mono<ServerResponse> handleAuthenticatedChat(ServerRequest request, String requester) {
         // 先异步加载 AI 配置，再处理请求
         return loadAiSetting()
                 .then(request.bodyToMono(String.class))
@@ -133,8 +133,10 @@ public class AiChatEndpoint implements CustomEndpoint {
                     history.add(new AgentService.ChatMessage("user", message));
 
                     // 如果指定了 persona，加载其 system prompt 并管理上下文
-                    if (sessionId != null && !sessionId.isBlank()) {
-                        return chatWithPersona(sessionId, personaId, overrideSystemPrompt,
+                    if (!sessionId.isBlank() || !isBlogOpsPersona(personaId)) {
+                        // Missing client session IDs must never promote a chat persona to blog administrator.
+                        String scopedSession = sessionId.isBlank() ? "user-" + requester : sessionId;
+                        return chatWithPersona(scopedSession, personaId, overrideSystemPrompt,
                                 history, body, requester);
                     }
 
@@ -448,6 +450,9 @@ public class AiChatEndpoint implements CustomEndpoint {
     // ========== 原有路由保持不变 ==========    // ========== 原有路由保持不变 ==========
 
     private Mono<ServerResponse> handleAutoOpsTest(ServerRequest request) {
+        if (!isBlogOpsPersona(request.queryParam("persona").orElse("default"))) {
+            return ServerResponse.status(403).bodyValue(Map.of("success", false, "error", "当前角色仅支持聊天"));
+        }
         return request.principal().flatMap(principal -> {
             ObjectNode payload = objectMapper.createObjectNode();
             payload.put("mode", "test");
@@ -727,6 +732,9 @@ public class AiChatEndpoint implements CustomEndpoint {
     // ========== 待确认操作端点 ==========
 
     private Mono<ServerResponse> handleGetPendingAction(ServerRequest request) {
+        if (!isBlogOpsPersona(request.queryParam("persona").orElse("default"))) {
+            return ServerResponse.status(403).bodyValue(Map.of("success", false, "error", "当前角色仅支持聊天"));
+        }
         String id = request.pathVariable("id");
         return request.principal().flatMap(principal -> {
             PendingAction action = pendingActionService.get(id, principal.getName());
@@ -743,7 +751,10 @@ public class AiChatEndpoint implements CustomEndpoint {
         });
     }
 
-    private Mono<ServerResponse> handleListPendingActions(ServerRequest request) {
+    Mono<ServerResponse> handleListPendingActions(ServerRequest request) {
+        if (!isBlogOpsPersona(request.queryParam("persona").orElse("default"))) {
+            return ServerResponse.ok().bodyValue(Map.of("actions", List.of()));
+        }
         return request.principal().flatMap(principal -> {
             List<Map<String, Object>> actions = pendingActionService.listPending(principal.getName()).stream()
                     .map(action -> Map.<String, Object>of(
@@ -758,6 +769,9 @@ public class AiChatEndpoint implements CustomEndpoint {
     }
 
     Mono<ServerResponse> handleConfirmAction(ServerRequest request) {
+        if (!isBlogOpsPersona(request.queryParam("persona").orElse("default"))) {
+            return ServerResponse.status(403).bodyValue(Map.of("success", false, "error", "当前角色仅支持聊天"));
+        }
         String id = request.pathVariable("id");
         return request.principal().flatMap(principal -> Mono.fromCallable(
                         () -> pendingActionService.confirmAndExecute(id, principal.getName()))
@@ -778,6 +792,9 @@ public class AiChatEndpoint implements CustomEndpoint {
     }
 
     private Mono<ServerResponse> handleCancelAction(ServerRequest request) {
+        if (!isBlogOpsPersona(request.queryParam("persona").orElse("default"))) {
+            return ServerResponse.status(403).bodyValue(Map.of("success", false, "error", "当前角色仅支持聊天"));
+        }
         String id = request.pathVariable("id");
         return request.principal().flatMap(principal -> {
             boolean cancelled = pendingActionService.cancel(id, principal.getName());

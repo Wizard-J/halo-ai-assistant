@@ -296,7 +296,7 @@ public class ArticleTool implements Tool {
         }
 
         /**
-         * 内部执行方法——确认后直接创建文章，不走确认路径。
+         * 内部执行方法——用于已确认的交互操作或已配置授权的定时任务，不暴露给模型。
          */
         public String executeInternal(JsonNode args) {
             String title = args.path("title").asText("").trim();

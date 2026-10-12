@@ -83,6 +83,55 @@ class ChatGptResponsesClientTest {
     void stop() { server.stop(0); }
 
     @Test
+    void chatPersonaHasNoManagementInstructionsOrDraftTools() {
+        mockTool("searchSiteArticles");
+        mockTool("createArticle");
+        streams.add(text("你好") + completed(mapper.createArrayNode()));
+        assertEquals("你好", join(client.chat(List.of(new ChatMessage("user", "你好")),
+                setting, Set.of("searchSiteArticles"), "admin")));
+        JsonNode request = requests.getFirst();
+        assertTrue(request.path("instructions").asText().contains("仅进行聊天问答"));
+        assertFalse(request.path("instructions").asText().contains("待确认草稿"));
+        assertEquals(1, request.path("tools").path(0).path("tools").size());
+        assertEquals("searchSiteArticles", request.path("tools").path(0).path("tools").path(0).path("name").asText());
+    }
+
+    @Test
+    void backgroundGenerationUsesSubscriptionWithoutToolsOrApiKey() {
+        streams.add(text("{\"title\":\"订阅文章\"}") + completed(mapper.createArrayNode()));
+        AgentService agent = new AgentService(registry, client);
+        assertEquals("{\"title\":\"订阅文章\"}",
+                agent.generateText(setting, "编辑规则", "生成文章", 3000).block(Duration.ofSeconds(10)));
+        JsonNode request = requests.getFirst();
+        assertFalse(request.has("tools"));
+        assertFalse(request.has("max_output_tokens"));
+        assertFalse(request.has("max_tokens"));
+        assertTrue(request.path("instructions").asText().contains("编辑规则"));
+        assertFalse(request.path("instructions").asText().contains("不支持"));
+        assertEquals("subscription-model", request.path("model").asText());
+    }
+
+    @Test
+    void backgroundGenerationRejectsUnexpectedToolsBeforeExecutingAnything() {
+        Tool tool = mockTool("createArticle");
+        streams.add(text("partial content") + completed(mapper.createArrayNode().add(call("createArticle", "{}"))));
+        assertThrows(IllegalStateException.class,
+                () -> client.generateText(setting, "editor", "write article", 3000).block(Duration.ofSeconds(10)));
+        verify(tool, never()).execute(any());
+    }
+
+    @Test
+    void backgroundGenerationPropagatesQuotaAndIncompleteErrors() {
+        streams.add("data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"code\":\"subscription_sharing_usage_limit_exceeded\"}}}\n\n");
+        var error = assertThrows(IllegalStateException.class,
+                () -> client.generateText(setting, "编辑", "写文章", 3000).block(Duration.ofSeconds(10)));
+        assertTrue(error.getMessage().contains("额度"));
+        streams.add(text("半篇文章"));
+        assertThrows(IllegalStateException.class,
+                () -> client.generateText(setting, "编辑", "写文章", 3000).block(Duration.ofSeconds(10)));
+    }
+
+    @Test
     void subscriptionRoutingNeedsNoApiKeyAndPreservesUtf8() throws Exception {
         streams.add(text("你好，已连接。") + completed(mapper.createArrayNode()));
         AgentService agent = new AgentService(registry, client);
@@ -255,9 +304,8 @@ class ChatGptResponsesClientTest {
     }
 
     @Test
-    void automationIsBlockedAndApiModeStillRequiresApiKey() {
+    void apiModeStillRequiresApiKey() {
         AgentService agent = new AgentService(registry, client);
-        assertThrows(IllegalStateException.class, () -> agent.generateText(setting, "x", "y", 10).block());
         setting.setProvider("api");
         agent.updateSetting(setting);
         assertTrue(join(agent.chat(List.of(new ChatMessage("user", "hello")))).contains("填写 API Key"));

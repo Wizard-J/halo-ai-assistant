@@ -1768,7 +1768,7 @@
                             <button class="button button-icon" id="toolButton" type="button" aria-label="打开工具菜单" title="工具">
                                 <i class="ri-equalizer-2-line" aria-hidden="true"></i>
                             </button>
-                            <textarea id="input" rows="1" maxlength="4000" placeholder="输入你的需求，例如：创建文章、管理分类、查看评论…" aria-label="输入你的需求"></textarea>
+                            <textarea id="input" rows="1" maxlength="4000" placeholder="输入消息…" aria-label="输入你的需求"></textarea>
                             <button class="send-button" id="sendButton" type="submit" aria-label="发送消息" title="发送">
                                 <i class="ri-send-plane-2-fill" aria-hidden="true"></i>
                             </button>
@@ -2457,6 +2457,10 @@
     }
 
     function createMessage(role, content, options = {}) {
+        // Old management confirmations must never appear under a chat persona's identity.
+        if (role === 'assistant' && activePersona.id !== 'default' && hasConfirmation(content)) {
+            return document.createElement('div');
+        }
         const row = document.createElement('article');
         row.className = `message-row ${role}`;
 
@@ -2543,6 +2547,10 @@
     }
 
     function renderConfirmationCard(container, content, options = {}) {
+        if (activePersona.id !== 'default') {
+            container.replaceChildren();
+            return;
+        }
         // 从 Markdown 中提取确认信息
         const idMatch =
             content.match(/确认\s*ID\s*[：:]?\s*(?:\*\*)?\s*`?(confirm_[a-z0-9]+)`?/i)
@@ -2594,7 +2602,7 @@
         cancelBtn.textContent = '取消';
         cancelBtn.onclick = async () => {
             try {
-                const resp = await fetch('__API_BASE__/pending-actions/' + confirmationId + '/cancel', { method: 'POST' });
+                const resp = await fetch('__API_BASE__/pending-actions/' + confirmationId + '/cancel?persona=' + encodeURIComponent(activePersona.id), { method: 'POST' });
                 const data = await readJsonSafely(resp);
                 if (data.success) {
                     card.dataset.confirmationStatus = 'cancelled';
@@ -2615,7 +2623,7 @@
         confirmBtn.textContent = '确认执行';
         confirmBtn.onclick = async () => {
             try {
-                const resp = await fetch('__API_BASE__/pending-actions/' + confirmationId + '/confirm', { method: 'POST' });
+                const resp = await fetch('__API_BASE__/pending-actions/' + confirmationId + '/confirm?persona=' + encodeURIComponent(activePersona.id), { method: 'POST' });
                 const data = await readJsonSafely(resp);
                 if (data.success) {
                     card.dataset.confirmationStatus = 'confirmed';
@@ -2624,7 +2632,7 @@
                     card.innerHTML = '<div class="confirmation-card-result success"><i class="ri-check-line"></i><span>' + escapeHtml(message) + '</span></div>';
                     replaceConfirmationInHistory(confirmationId, message);
                     saveConversation();
-                    if (String(result.type || '').startsWith('autoOps')) pollPendingActions();
+                    if (String(data.type || '').startsWith('autoOps')) pollPendingActions();
                     else setTimeout(loadPendingActions, 1200);
                 } else {
                     showConfirmationFailure(card, '确认失败：' + (data.error || data.message || '未知错误'));
@@ -2677,7 +2685,7 @@
     }
 
     function confirmLatestPendingFromInput(text) {
-        if (!confirmationInputPattern.test(text)) return false;
+        if (activePersona.id !== 'default' || !confirmationInputPattern.test(text)) return false;
         const cards = Array.from(messagesElement.querySelectorAll('.confirmation-card[data-confirmation-status="pending"]'));
         const card = cards[cards.length - 1];
         if (!card) return false;
@@ -3150,11 +3158,12 @@
     });
 
     autoOpsTestButton.addEventListener('click', async () => {
+        if (activePersona.id !== 'default') return;
         const original = autoOpsTestButton.innerHTML;
         autoOpsTestButton.disabled = true;
         autoOpsTestButton.innerHTML = '<i class="ri-loader-4-line ri-spin"></i><span class="button-label">测试中…</span>';
         try {
-            const response = await fetch('__API_BASE__/auto-ops/test', { method: 'POST' });
+            const response = await fetch('__API_BASE__/auto-ops/test?persona=default', { method: 'POST' });
             const result = await response.json();
             if (!response.ok || !result.requiresConfirmation) throw new Error(result.error || `HTTP ${response.status}`);
             const confirmationText = '⚠️ 需要确认操作\n\n'
@@ -3297,7 +3306,7 @@
         // 更新 UI
         updatePersonaUI();
         // 加载该 persona 的历史
-        loadPersonaConversations();
+        loadPersonaConversations().then(loadPendingActions);
         // 更新 persona 菜单
         renderPersonaMenu();
     }
@@ -3317,6 +3326,10 @@
         if (welcomeTitle) welcomeTitle.textContent = activePersona.greeting || ('你好，我是 ' + (activePersona.displayName || 'AI 助手'));
         // 博客管理功能（建议按钮、工具菜单、自动运维）仅对老巫师（default）可见
         const isDefault = activePersona.id === 'default';
+        input.placeholder = isDefault ? '输入你的需求，例如：创建文章、管理分类、查看评论…' : '输入消息…';
+        if (!isDefault) {
+            messagesElement.querySelectorAll('.confirmation-card').forEach(card => card.closest('.message-row')?.remove());
+        }
         const autoOpsBtn = document.getElementById('autoOpsTestButton');
         if (autoOpsBtn) autoOpsBtn.style.display = isDefault ? '' : 'none';
         const suggestions = document.querySelector('.suggestions');
@@ -3340,12 +3353,14 @@
     }
 
     async function loadPersonaConversations() {
+        const personaId = activePersona.id;
         try {
             const resp = await fetch('__API_BASE__/persona/'
-                + encodeURIComponent(activePersona.id)
+                + encodeURIComponent(personaId)
                 + '/conversations/current?sessionId=' + encodeURIComponent(sessionId));
             if (!resp.ok) return;
             const data = await resp.json();
+            if (activePersona.id !== personaId) return;
             const msgs = data.messages || [];
             if (msgs.length === 0) { welcomeElement.hidden = false; return; }
             history = normalizeMessages(msgs, data.updatedAt);
@@ -3408,7 +3423,6 @@
 
     // Init
     document.addEventListener('DOMContentLoaded', () => {
-        loadPendingActions();
         // 先获取登录用户的 session
         fetchServerSession().then(() => {
             // 如果服务端有 session，替换之前 localStorage 生成的 sessionId
@@ -3426,10 +3440,12 @@
     });
 
     async function loadPendingActions() {
+        if (activePersona.id !== 'default') return;
         try {
-            const resp = await fetch('__API_BASE__/pending-actions');
+            const resp = await fetch('__API_BASE__/pending-actions?persona=default');
             if (!resp.ok) return;
             const data = await resp.json();
+            if (activePersona.id !== 'default') return;
             for (const action of (data.actions || [])) {
                 const existing = document.querySelector('[data-confirmation-id="' + CSS.escape(action.id) + '"]');
                 if (existing?.dataset.confirmationStatus === 'pending') continue;
@@ -3456,12 +3472,14 @@
     }
 
     async function loadServerConversation() {
+        const personaId = activePersona.id;
         try {
             const resp = await fetch('__API_BASE__/persona/'
-                + encodeURIComponent(activePersona.id)
+                + encodeURIComponent(personaId)
                 + '/conversations/current?sessionId=' + encodeURIComponent(sessionId));
             if (!resp.ok) return false;
             const data = await resp.json();
+            if (activePersona.id !== personaId) return;
             const msgs = data.messages || [];
             if (msgs.length === 0) return false;
             history = normalizeMessages(msgs, data.updatedAt);
@@ -3813,7 +3831,7 @@
             <button class="button" id="chatGptClose" type="button">关闭</button>
         </div>
         <pre id="chatGptModelList" style="max-height:180px;overflow:auto;white-space:pre-wrap"></pre>
-        <p>模型标识可填入插件基本配置的“ChatGPT 订阅模型”；留空使用账户列表中的第一个模型。第一阶段支持对话、读取文章和待确认草稿，不自动切换到收费 API。</p>
+        <p>模型标识可填入插件基本配置的“ChatGPT 订阅模型”；留空使用账户列表中的第一个模型。支持对话、读取文章、待确认草稿及按配置执行的自动运维；不自动切换到收费 API。</p>
     </dialog>
     <script>
     (() => {

@@ -16,6 +16,43 @@ import org.junit.jupiter.api.Test;
 class AiChatEndpointTest {
 
     @Test
+    void chatPersonaWithoutSessionStillUsesRestrictedToolsAndAuthenticatedSession() {
+        var settings = mock(run.halo.app.plugin.ReactiveSettingFetcher.class);
+        when(settings.fetch("basic", io.codex.haloaiassistant.config.AiAssistantSetting.class))
+                .thenReturn(Mono.just(new io.codex.haloaiassistant.config.AiAssistantSetting()));
+        var agent = mock(io.codex.haloaiassistant.agent.AgentService.class);
+        var personas = mock(io.codex.haloaiassistant.persona.PersonaService.class);
+        var persona = new io.codex.haloaiassistant.persona.PersonaDefinition();
+        var spec = new io.codex.haloaiassistant.persona.PersonaDefinition.PersonaSpec();
+        spec.setSystemPrompt("chat only");
+        persona.setSpec(spec);
+        when(personas.getPersona("munger")).thenReturn(Mono.just(persona));
+        when(personas.getOrCreateConversation("user-admin", "munger"))
+                .thenReturn(Mono.just(new io.codex.haloaiassistant.persona.ConversationRef()));
+        when(personas.parseMessages(any())).thenReturn(new com.fasterxml.jackson.databind.ObjectMapper().createArrayNode());
+        when(agent.chatWithTools(anyList(), anySet(), eq("admin")))
+                .thenReturn(reactor.core.publisher.Flux.just("chat reply"));
+        var endpoint = new AiChatEndpoint(null, settings, agent, null, null, null, personas, null);
+        ServerRequest request = mock(ServerRequest.class);
+        when(request.bodyToMono(String.class)).thenReturn(Mono.just("{\"message\":\"create article\",\"persona\":\"munger\"}"));
+        assertTrue(endpoint.handleAuthenticatedChat(request, "admin").block().statusCode().is2xxSuccessful());
+        verify(agent).chatWithTools(anyList(), eq(java.util.Set.of("webSearch", "searchSiteArticles")), eq("admin"));
+        verify(agent, never()).chat(anyList(), anyString());
+        verify(personas).getOrCreateConversation("user-admin", "munger");
+    }
+
+    @Test
+    void chatPersonasCannotListOrConfirmManagementActions() {
+        var pending = mock(PendingActionService.class);
+        var endpoint = new AiChatEndpoint(null, null, null, null, null, null, null, pending);
+        ServerRequest request = mock(ServerRequest.class);
+        when(request.queryParam("persona")).thenReturn(java.util.Optional.of("munger"));
+        assertTrue(endpoint.handleListPendingActions(request).block().statusCode().is2xxSuccessful());
+        assertTrue(endpoint.handleConfirmAction(request).block().statusCode().value() == 403);
+        verifyNoInteractions(pending);
+    }
+
+    @Test
     void missingOrConsumedConfirmationStillReturnsAResponse() {
         var endpoint = new AiChatEndpoint(null, null, null, null, null, null, null,
                 new PendingActionService());
