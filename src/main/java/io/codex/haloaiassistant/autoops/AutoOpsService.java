@@ -439,7 +439,7 @@ public class AutoOpsService {
         if (mentionsFacts && links == 0) {
             issues.add("事实类内容缺少来源链接");
         }
-        if (safeContent.matches("(?s).*[\\[{]来源[\\]}].*")) {
+        if (Pattern.compile("\\{来源\\}|\\[来源\\](?!\\s*\\()").matcher(safeContent).find()) {
             issues.add("正文疑似残留模板占位符");
         }
         return new ArticleQuality(issues.isEmpty(), issues);

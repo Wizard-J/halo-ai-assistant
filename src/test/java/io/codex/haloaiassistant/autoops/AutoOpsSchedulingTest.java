@@ -157,6 +157,24 @@ class AutoOpsSchedulingTest {
         assertTrue(args.getValue().path("content").asText().contains("质量检查未通过"));
     }
 
+    @Test void validMarkdownSourceLabelIsNotAPlaceholder() {
+        service.publishArticle("有原文依据的文章", "有具体内容的正文。".repeat(100) + "\n[来源](https://example.com/original)",
+                "", "author", ZonedDateTime.now(), true, "system", true);
+        var args = ArgumentCaptor.forClass(JsonNode.class);
+        verify(articles).executeInternal(args.capture());
+        assertEquals("published", args.getValue().path("status").asText());
+        assertFalse(args.getValue().path("content").asText().contains("残留模板占位符"));
+    }
+
+    @Test void bareSourcePlaceholderStillForcesDraft() {
+        service.publishArticle("有残留占位符的文章", "有具体内容的正文。".repeat(100) + "\n[来源]\nhttps://example.com/original",
+                "", "author", ZonedDateTime.now(), true, "system", true);
+        var args = ArgumentCaptor.forClass(JsonNode.class);
+        verify(articles).executeInternal(args.capture());
+        assertEquals("draft", args.getValue().path("status").asText());
+        assertTrue(args.getValue().path("content").asText().contains("残留模板占位符"));
+    }
+
     @Test void generationFailureDoesNotWriteOrMarkProcessedOrRetryEveryMinute() {
         when(agent.generateText(any(), anyString(), anyString(), anyInt()))
                 .thenReturn(Mono.error(new IllegalStateException("订阅额度不足")));
