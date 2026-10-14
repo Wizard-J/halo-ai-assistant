@@ -3151,6 +3151,18 @@
         sendMessage(input.value.trim());
     });
 
+    let lastConnectionWarmup = -Infinity;
+    function warmConnection() {
+        const now = performance.now();
+        if (document.hidden || now - lastConnectionWarmup < 20000) return;
+        lastConnectionWarmup = now;
+        const headers = {};
+        const csrf = document.cookie.split('; ').find(item => item.startsWith('XSRF-TOKEN='));
+        if (csrf) headers['X-XSRF-TOKEN'] = decodeURIComponent(csrf.slice(11));
+        fetch('__API_BASE__/chatgpt/warmup', { method: 'POST', headers }).catch(() => {});
+    }
+    input.addEventListener('focus', warmConnection);
+    input.addEventListener('input', warmConnection);
     input.addEventListener('input', autoResizeInput);
     input.addEventListener('keydown', event => {
         if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {

@@ -70,25 +70,30 @@ public class ChatGptResponsesClient {
     }
 
     public Mono<ArrayNode> models() {
-        return loadModels(false);
+        return loadModels(false, false);
     }
 
     /** Preload metadata/transport only. Never sends a Responses/generation request. */
     public Mono<ArrayNode> prewarmModels() {
-        return loadModels(true);
+        return loadModels(true, false);
     }
 
-    private Mono<ArrayNode> loadModels(boolean prewarm) {
+    /** A real, tool-free GET on the same connection pool as generation, even with fresh metadata. */
+    public Mono<ArrayNode> prewarmTransport() {
+        return loadModels(true, true);
+    }
+
+    private Mono<ArrayNode> loadModels(boolean prewarm, boolean transport) {
         // Authorization remains mandatory even when serving a cached list.
         return Mono.fromCallable(credentials::accessToken).subscribeOn(Schedulers.boundedElastic())
-                .flatMap(token -> modelsForToken(token, prewarm)).map(ArrayNode::deepCopy);
+                .flatMap(token -> modelsForToken(token, prewarm, transport)).map(ArrayNode::deepCopy);
     }
 
     public synchronized void invalidateModels() {
         modelsCache = null;
     }
 
-    private synchronized Mono<ArrayNode> modelsForToken(String token, boolean prewarm) {
+    private synchronized Mono<ArrayNode> modelsForToken(String token, boolean prewarm, boolean transport) {
         if (modelsCache == null || !token.equals(modelsCache.token)) modelsCache = new ModelCache(token);
         ModelCache entry = modelsCache;
         long age = System.nanoTime() - entry.updatedAt;
@@ -96,7 +101,7 @@ public class ChatGptResponsesClient {
         // Actual model authorization is still enforced by the Responses endpoint.
         boolean usable = entry.value != null && age < modelsTtl.multipliedBy(6).toNanos();
         long refreshAfter = prewarm ? modelsTtl.toNanos() * 3 / 5 : modelsTtl.toNanos();
-        boolean refreshNeeded = !usable || age >= refreshAfter;
+        boolean refreshNeeded = transport || !usable || age >= refreshAfter;
         if (refreshNeeded && entry.inFlight == null) {
             long started = System.nanoTime();
             entry.inFlight = fetchModels(token)

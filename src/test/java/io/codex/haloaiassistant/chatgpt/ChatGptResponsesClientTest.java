@@ -180,6 +180,7 @@ class ChatGptResponsesClientTest {
         client.models().block(Duration.ofSeconds(5));
         assertEquals(2, modelHits.get()); // discarded result cannot satisfy the new cache
         assertTrue(requests.isEmpty());
+        client.prewarmTransport().block(Duration.ofSeconds(5));
         setting.setChatGptModel("subscription-model");
         var messages = List.of(new ChatMessage("system", "quality rules"), new ChatMessage("user", "question"));
         streams.add(text("answer") + completed(mapper.createArrayNode()));
@@ -190,6 +191,24 @@ class ChatGptResponsesClientTest {
         client.chat(messages, setting, Set.of(), "admin").collectList().block(Duration.ofSeconds(5));
         assertEquals(warmedRequest, requests.getLast());
         assertEquals("subscription-model", warmedRequest.path("model").asText());
+    }
+
+    @Test
+    void transportWarmupAlwaysUsesRealGetEvenWithFreshMetadataAndNeverGenerates() throws Exception {
+        client.prewarmModels().block(Duration.ofSeconds(5));
+        assertEquals(1,modelHits.get());
+        modelGate=new java.util.concurrent.CountDownLatch(1);
+        modelArrivals=new java.util.concurrent.CountDownLatch(1);
+        var pending=client.prewarmTransport().toFuture();
+        assertTrue(modelArrivals.await(2,java.util.concurrent.TimeUnit.SECONDS));
+        assertEquals(2,modelHits.get());
+        var duplicate=client.prewarmTransport().toFuture();
+        assertEquals(1,client.models().block(Duration.ofMillis(500)).size());
+        modelGate.countDown();pending.get(5,java.util.concurrent.TimeUnit.SECONDS);
+        duplicate.get(5,java.util.concurrent.TimeUnit.SECONDS);
+        assertEquals(2,modelHits.get());
+        assertTrue(requests.isEmpty());
+        assertEquals(1,client.models().block().size());
     }
 
     @Test

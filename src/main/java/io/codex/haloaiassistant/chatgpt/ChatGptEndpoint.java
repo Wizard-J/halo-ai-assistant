@@ -42,6 +42,10 @@ public class ChatGptEndpoint implements CustomEndpoint {
                 }).subscribeOn(Schedulers.boundedElastic()).flatMap(text -> ServerResponse.ok()
                         .header("Content-Type", "text/plain; charset=utf-8").bodyValue(text))))
                 .GET("/chatgpt/status", request -> authenticated(request, () -> status()))
+                .POST("/chatgpt/warmup", request -> authenticated(request, () -> {
+                    modelWarmup.pageOpened();
+                    return ServerResponse.accepted().build();
+                }))
                 .GET("/chatgpt/models", request -> authenticated(request, () -> responses.models()
                         .flatMap(models -> ServerResponse.ok().header("Cache-Control", "no-store")
                                 .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
@@ -49,7 +53,10 @@ public class ChatGptEndpoint implements CustomEndpoint {
                 .POST("/chatgpt/check", request -> authenticated(request, () -> check()))
                 .POST("/chatgpt/disconnect", request -> authenticated(request, () -> Mono
                         .fromCallable(credentials::disconnect).subscribeOn(Schedulers.boundedElastic())
-                        .doOnNext(result -> responses.invalidateModels())
+                        .doOnNext(result -> {
+                            modelWarmup.endTransportLease();
+                            responses.invalidateModels();
+                        })
                         .flatMap(result -> ServerResponse.ok().bodyValue(result))))
                 .build();
     }
@@ -63,7 +70,10 @@ public class ChatGptEndpoint implements CustomEndpoint {
                     result.put("usageUrl", "https://chatgpt.com/settings/usage");
                     return result;
                 }).subscribeOn(Schedulers.boundedElastic()))
-                .doOnNext(result -> modelWarmup.trigger())
+                .doOnNext(result -> {
+                    if (Boolean.TRUE.equals(result.get("connected")) && "chatgpt".equals(result.get("provider")))
+                        modelWarmup.pageOpened();
+                })
                 .flatMap(result -> ServerResponse.ok().header("Cache-Control", "no-store").bodyValue(result));
     }
 

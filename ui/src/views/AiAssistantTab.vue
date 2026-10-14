@@ -95,6 +95,17 @@ async function loadPendingActions() {
   }
 }
 
+let lastConnectionWarmup = -Infinity;
+function warmConnection() {
+  const now = performance.now();
+  if (document.hidden || now - lastConnectionWarmup < 20000) return;
+  lastConnectionWarmup = now;
+  const headers: Record<string, string> = {};
+  const csrf = document.cookie.split("; ").find(item => item.startsWith("XSRF-TOKEN="));
+  if (csrf) headers["X-XSRF-TOKEN"] = decodeURIComponent(csrf.slice(11));
+  void fetch(API_BASE + "/chatgpt/warmup", { method: "POST", headers }).catch(() => {});
+}
+
 function scrollToBottom() {
   nextTick(() => {
     if (!messagePane.value) return;
@@ -871,6 +882,8 @@ function goToImmersive() {
 
     <form class="composer" @submit.prevent="sendMessage">
       <textarea
+        @focus="warmConnection"
+        @input="warmConnection"
         v-model="inputText"
         rows="1"
         placeholder="输入消息..."
