@@ -792,6 +792,14 @@ async function sendMessage() {
 const memoryState = ref<any>(null);
 const memoryError = ref("");
 const memoryLoading = ref(false);
+const archivePreview = ref<any>(null);
+async function showArchive(name: string) {
+  try {
+    const response = await fetch(API_BASE + "/persona/default/memory/archive/" + encodeURIComponent(name));
+    if (!response.ok) throw new Error("档案读取失败");
+    archivePreview.value = await response.json();
+  } catch (error) { memoryError.value = error instanceof Error ? error.message : "读取失败"; }
+}
 async function showMemory() {
   memoryLoading.value = true;
   memoryError.value = "";
@@ -839,7 +847,12 @@ function goToImmersive() {
       <p v-if="memoryError" role="alert">{{ memoryError }}</p>
       <details v-if="memoryState" open>
         <summary>长期记忆 {{ (memoryState.entries || []).length }} 条 · 待提炼历史 {{ memoryState.pendingMessages || 0 }} 条消息</summary>
-        <p>上传上下文与原始聊天记录完整保留。后台提炼会优先让出资源给聊天。</p>
+        <p>上传上下文与原始聊天记录完整保留。容量满后后台整理，完整记忆转入可检索档案，聊天优先。</p>
+        <p v-if="memoryState.organizationCount">已自动整理 {{ memoryState.organizationCount }} 次 · {{ (memoryState.archives || []).length }} 份完整快照</p>
+        <div v-for="archive in memoryState.archives || []" :key="archive.name">
+          <button class="ghost-button" type="button" @click="showArchive(archive.name)">查看整理前完整快照（{{ archive.entries }} 条）</button>
+        </div>
+        <details v-if="archivePreview" open><summary>整理前完整记忆与来源</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{ JSON.stringify(archivePreview.entries, null, 2) }}</pre></details>
         <p v-if="memoryState.status === 'retry'">后台处理暂未完成，稍后重试。{{ memoryState.error }}</p>
         <p v-if="memoryState.status === 'processing'">正在后台提炼；新记忆保存后供后续聊天使用。</p>
         <ul>

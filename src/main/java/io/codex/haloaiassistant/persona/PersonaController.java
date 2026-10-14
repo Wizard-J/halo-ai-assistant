@@ -41,6 +41,7 @@ public class PersonaController implements CustomEndpoint {
         return RouterFunctions.route()
                 .GET("/personas", this::handleListPersonas)
                 .GET("/persona/{id}/memory", this::handleMemory)
+                .GET("/persona/{id}/memory/archive/{name}", this::handleMemoryArchive)
                 .POST("/persona/upload", this::handleUploadPersona)
                 .POST("/persona/{id}/context", this::handleUploadContext)
                 .DELETE("/persona/{id}", this::handleDeletePersona)
@@ -73,6 +74,14 @@ public class PersonaController implements CustomEndpoint {
                 .flatMap(principal -> memoryService.status("user-" + principal.getName(), request.pathVariable("id")))
                 .flatMap(state -> ServerResponse.ok().bodyValue(objectMapper.convertValue(state, Map.class)))
                 .switchIfEmpty(ServerResponse.status(401).bodyValue(Map.of("error", "请先登录")));
+    }
+
+    Mono<ServerResponse> handleMemoryArchive(ServerRequest request) {
+        return request.principal()
+                .flatMap(principal -> memoryService.archive("user-" + principal.getName(), request.pathVariable("id"), request.pathVariable("name")))
+                .flatMap(state -> ServerResponse.ok().bodyValue(objectMapper.convertValue(state, Map.class)))
+                .switchIfEmpty(ServerResponse.status(401).bodyValue(Map.of("error", "请先登录")))
+                .onErrorResume(IllegalArgumentException.class, error -> ServerResponse.status(403).bodyValue(Map.of("error", "不能访问该记忆档案")));
     }
 
     private Mono<ServerResponse> handleListPersonas(ServerRequest request) {

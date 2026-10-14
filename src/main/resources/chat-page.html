@@ -3595,6 +3595,7 @@
     }
 
     document.getElementById('memoryButton')?.addEventListener('click', async () => {
+        const memoryPersonaId = activePersona.id;
         const dialog = document.createElement('dialog');
         dialog.style.cssText = 'max-width:700px;width:90%;max-height:80vh;overflow:auto;border:1px solid #aaa;border-radius:12px;padding:24px';
         const title = document.createElement('h2'); title.textContent = '长期记忆 · ' + activePersona.displayName;
@@ -3604,14 +3605,32 @@
         dialog.append(title, close, content); document.body.append(dialog); dialog.showModal();
         dialog.addEventListener('close', () => dialog.remove());
         try {
-            const response = await fetch('__API_BASE__/persona/' + encodeURIComponent(activePersona.id) + '/memory');
+            const response = await fetch('__API_BASE__/persona/' + encodeURIComponent(memoryPersonaId) + '/memory');
             if (!response.ok) throw new Error('读取失败，请稍后重试');
             const state = await response.json();
             content.textContent = '';
             const status = document.createElement('p');
-            status.textContent = '已保存 ' + (state.entries || []).length + ' 条记忆，待提炼历史 ' + (state.pendingMessages || 0) + ' 条消息。上传上下文与原始记录完整保留。'
+            status.textContent = '已保存 ' + (state.entries || []).length + ' 条记忆，待提炼历史 ' + (state.pendingMessages || 0) + ' 条消息。上传上下文与原始记录完整保留；容量满后后台自动整理，完整记忆转入可检索档案。'
                 + (state.status === 'processing' ? ' 正在后台提炼。' : state.status === 'retry' ? ' 后台将重试：' + state.error : '');
             content.append(status);
+            for (const archive of state.archives || []) {
+                const button = document.createElement('button'); button.type = 'button';
+                button.textContent = '查看整理前完整快照（' + archive.entries + ' 条）';
+                button.addEventListener('click', async () => {
+                    button.disabled = true;
+                    try {
+                        const response = await fetch('__API_BASE__/persona/' + encodeURIComponent(memoryPersonaId) + '/memory/archive/' + encodeURIComponent(archive.name));
+                        if (!response.ok) throw new Error('档案读取失败');
+                        const snapshot = await response.json();
+                        const details = document.createElement('details'); details.open = true;
+                        const title = document.createElement('summary'); title.textContent = '整理前完整记忆与来源';
+                        const pre = document.createElement('pre'); pre.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere';
+                        pre.textContent = JSON.stringify(snapshot.entries, null, 2);
+                        details.append(title, pre); content.append(details);
+                    } catch (error) { button.textContent = error.message || '读取失败'; button.disabled = false; }
+                });
+                content.append(button);
+            }
             for (const entry of state.entries || []) {
                 const item = document.createElement('details');
                 const summary = document.createElement('summary'); summary.textContent = entry.text;

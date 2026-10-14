@@ -213,7 +213,7 @@ public class AiChatEndpoint implements CustomEndpoint {
 
         return Mono.zip(personaMono, Mono.defer(() -> {
                     long memoryStarted = System.nanoTime();
-                    return memoryService.memoryFor(sessionId, personaId).doOnNext(memory ->
+                    return memoryService.memoryFor(sessionId, personaId, body.path("message").asText()).doOnNext(memory ->
                             log.info("chat_memory requestId={} chars={} readMs={}", requestId, memory.length(),
                                     (System.nanoTime() - memoryStarted) / 1_000_000));
                 }))

@@ -55,7 +55,10 @@ class MemoryLogicTest {
         var batch = MemoryLogic.plan("c", history(44, 10), json.createObjectNode());
         var original = json.createObjectNode(); original.putArray("entries").addObject().put("id", "huge").put("text", "x".repeat(12000));
         var copy = original.deepCopy();
-        assertThrows(IllegalStateException.class, () -> MemoryLogic.merge(original, "c", batch, json.createArrayNode()));
+        var candidate = MemoryLogic.merge(original, "c", batch, json.createArrayNode());
+        var organized = MemoryOrganizer.organize(candidate);
+        assertEquals(1, organized.originals().size());
+        assertEquals(4, candidate.path("cursors").path("c").path("end").asInt());
         assertEquals(copy, original); assertTrue(original.path("cursors").isMissingNode());
     }
     @Test void scopesAreIsolatedAndOversizedTurnsFailClosed() {

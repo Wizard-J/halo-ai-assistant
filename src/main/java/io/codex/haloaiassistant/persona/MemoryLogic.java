@@ -135,8 +135,6 @@ public final class MemoryLogic {
                 entries.add(entry);
             }
         }
-        if (compact(entries).toString().length() > MEMORY_CHARS || entries.size() > 128)
-            throw new IllegalStateException("长期记忆容量已满，暂停提炼供复核");
         ObjectNode cursor = JSON.createObjectNode();
         cursor.put("end", batch.end()); cursor.put("prefixHash", batch.prefixHash()); cursor.put("batch", batch.id());
         cursors.set(conversation, cursor);
