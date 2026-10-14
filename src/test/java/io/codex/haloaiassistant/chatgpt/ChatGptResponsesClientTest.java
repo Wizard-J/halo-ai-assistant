@@ -44,7 +44,9 @@ class ChatGptResponsesClientTest {
     private final List<JsonNode> requests = java.util.Collections.synchronizedList(new ArrayList<>());
     private final List<String> paths = java.util.Collections.synchronizedList(new ArrayList<>());
     private final java.util.concurrent.atomic.AtomicInteger modelHits = new java.util.concurrent.atomic.AtomicInteger();
-    private int modelStatus = 200;
+    private volatile int modelStatus = 200;
+    private volatile java.util.concurrent.CountDownLatch modelGate;
+    private volatile java.util.concurrent.CountDownLatch modelArrivals;
     private HttpServer server;
     private WebClient testWeb;
     private ToolRegistry registry;
@@ -59,6 +61,11 @@ class ChatGptResponsesClientTest {
             byte[] output;
             if (exchange.getRequestURI().getPath().equals("/models")) {
                 modelHits.incrementAndGet();
+                if (modelArrivals != null) modelArrivals.countDown();
+                if (modelGate != null) {
+                    try { modelGate.await(5, java.util.concurrent.TimeUnit.SECONDS); }
+                    catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                }
                 output = "{\"models\":[{\"slug\":\"subscription-model\",\"display_name\":\"Test Model\",\"visibility\":\"list\"}]}".getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
             } else {
@@ -117,8 +124,72 @@ class ChatGptResponsesClientTest {
         shortCache.models().block(Duration.ofSeconds(10));
         int before = modelHits.get();
         Thread.sleep(250);
-        shortCache.models().block(Duration.ofSeconds(10));
+        shortCache.prewarmModels().block(Duration.ofSeconds(10));
         assertEquals(before + 1, modelHits.get());
+    }
+
+    @Test
+    void warmupDoesNotGenerateAndRefreshAheadKeepsChatOffSlowMetadataRequest() throws Exception {
+        var shortCache = new ChatGptResponsesClient(credentials, registry, testWeb, Duration.ofMillis(400));
+        shortCache.prewarmModels().block(Duration.ofSeconds(10));
+        assertEquals(1, modelHits.get());
+        assertTrue(requests.isEmpty()); // no /responses call for warmup
+        Thread.sleep(270); // refresh-ahead threshold (60%) reached, freshness TTL not yet reached
+        modelGate = new java.util.concurrent.CountDownLatch(1);
+        modelArrivals = new java.util.concurrent.CountDownLatch(1);
+        var refresh = shortCache.prewarmModels().toFuture();
+        assertTrue(modelArrivals.await(2, java.util.concurrent.TimeUnit.SECONDS));
+        assertFalse(refresh.isDone());
+        for (int i = 0; i < 5; i++) assertEquals(1, shortCache.models().block(Duration.ofMillis(500)).size());
+        assertEquals(2, modelHits.get());
+        modelGate.countDown();
+        assertEquals(1, refresh.get(5, java.util.concurrent.TimeUnit.SECONDS).size());
+        assertTrue(requests.isEmpty());
+    }
+
+    @Test
+    void staleListRefreshesInBackgroundButCannotSurviveHardExpiryOrAuthorizationLoss() throws Exception {
+        var shortCache = new ChatGptResponsesClient(credentials, registry, testWeb, Duration.ofMillis(150));
+        shortCache.prewarmModels().block(Duration.ofSeconds(10));
+        Thread.sleep(200);
+        modelGate = new java.util.concurrent.CountDownLatch(1);
+        modelArrivals = new java.util.concurrent.CountDownLatch(1);
+        assertEquals(1, shortCache.models().block(Duration.ofMillis(500)).size());
+        assertTrue(modelArrivals.await(2, java.util.concurrent.TimeUnit.SECONDS));
+        assertEquals(2, modelHits.get());
+        modelStatus = 503;
+        modelGate.countDown();
+        assertThrows(RuntimeException.class, () -> shortCache.prewarmModels().block(Duration.ofSeconds(5)));
+        Thread.sleep(1000); // past 6 x freshness TTL since the last successful response
+        assertThrows(RuntimeException.class, () -> shortCache.models().block(Duration.ofSeconds(5)));
+        modelStatus = 200;
+        assertEquals(1, shortCache.prewarmModels().block(Duration.ofSeconds(5)).size());
+        when(credentials.accessToken()).thenThrow(new IllegalStateException("disconnected"));
+        assertThrows(IllegalStateException.class, () -> shortCache.models().block());
+    }
+
+    @Test
+    void lateWarmupCannotRepopulateInvalidatedCacheAndGenerationRequestIsUnchanged() throws Exception {
+        modelGate = new java.util.concurrent.CountDownLatch(1);
+        modelArrivals = new java.util.concurrent.CountDownLatch(1);
+        var old = client.prewarmModels().toFuture();
+        assertTrue(modelArrivals.await(2, java.util.concurrent.TimeUnit.SECONDS));
+        client.invalidateModels();
+        modelGate.countDown();
+        old.get(5, java.util.concurrent.TimeUnit.SECONDS);
+        client.models().block(Duration.ofSeconds(5));
+        assertEquals(2, modelHits.get()); // discarded result cannot satisfy the new cache
+        assertTrue(requests.isEmpty());
+        setting.setChatGptModel("subscription-model");
+        var messages = List.of(new ChatMessage("system", "quality rules"), new ChatMessage("user", "question"));
+        streams.add(text("answer") + completed(mapper.createArrayNode()));
+        client.chat(messages, setting, Set.of(), "admin").collectList().block(Duration.ofSeconds(5));
+        JsonNode warmedRequest = requests.getLast();
+        client.invalidateModels();
+        streams.add(text("answer") + completed(mapper.createArrayNode()));
+        client.chat(messages, setting, Set.of(), "admin").collectList().block(Duration.ofSeconds(5));
+        assertEquals(warmedRequest, requests.getLast());
+        assertEquals("subscription-model", warmedRequest.path("model").asText());
     }
 
     @Test

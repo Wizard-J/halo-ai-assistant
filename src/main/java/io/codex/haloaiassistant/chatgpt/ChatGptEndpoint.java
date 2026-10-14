@@ -26,6 +26,7 @@ public class ChatGptEndpoint implements CustomEndpoint {
     private final ChatGptCredentials credentials;
     private final ChatGptResponsesClient responses;
     private final ReactiveSettingFetcher settings;
+    private final ChatGptModelWarmup modelWarmup;
 
     @Override
     public GroupVersion groupVersion() { return AiChatEndpoint.API_VERSION; }
@@ -62,6 +63,7 @@ public class ChatGptEndpoint implements CustomEndpoint {
                     result.put("usageUrl", "https://chatgpt.com/settings/usage");
                     return result;
                 }).subscribeOn(Schedulers.boundedElastic()))
+                .doOnNext(result -> modelWarmup.trigger())
                 .flatMap(result -> ServerResponse.ok().header("Cache-Control", "no-store").bodyValue(result));
     }
 

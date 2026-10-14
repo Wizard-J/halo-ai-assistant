@@ -39,8 +39,7 @@ public class ChatGptResponsesClient {
     private final WebClient web;
     private java.net.http.HttpClient sharedHttp;
     private WebClient sharedWeb;
-    private String modelsToken;
-    private Mono<ArrayNode> cachedModels;
+    private ModelCache modelsCache;
     private final Duration modelsTtl;
 
     @Autowired
@@ -71,22 +70,69 @@ public class ChatGptResponsesClient {
     }
 
     public Mono<ArrayNode> models() {
+        return loadModels(false);
+    }
+
+    /** Preload metadata/transport only. Never sends a Responses/generation request. */
+    public Mono<ArrayNode> prewarmModels() {
+        return loadModels(true);
+    }
+
+    private Mono<ArrayNode> loadModels(boolean prewarm) {
+        // Authorization remains mandatory even when serving a cached list.
         return Mono.fromCallable(credentials::accessToken).subscribeOn(Schedulers.boundedElastic())
-                .flatMap(this::modelsForToken).map(ArrayNode::deepCopy);
+                .flatMap(token -> modelsForToken(token, prewarm)).map(ArrayNode::deepCopy);
     }
 
     public synchronized void invalidateModels() {
-        cachedModels = null;
-        modelsToken = null;
+        modelsCache = null;
     }
 
-    private synchronized Mono<ArrayNode> modelsForToken(String token) {
-        if (cachedModels == null || !token.equals(modelsToken)) {
-            modelsToken = token;
-            cachedModels = fetchModels(token).cache(value -> modelsTtl,
-                    error -> Duration.ZERO, () -> Duration.ZERO);
+    private synchronized Mono<ArrayNode> modelsForToken(String token, boolean prewarm) {
+        if (modelsCache == null || !token.equals(modelsCache.token)) modelsCache = new ModelCache(token);
+        ModelCache entry = modelsCache;
+        long age = System.nanoTime() - entry.updatedAt;
+        // Refresh ahead at 3 minutes; stale metadata is usable for at most 30 minutes.
+        // Actual model authorization is still enforced by the Responses endpoint.
+        boolean usable = entry.value != null && age < modelsTtl.multipliedBy(6).toNanos();
+        long refreshAfter = prewarm ? modelsTtl.toNanos() * 3 / 5 : modelsTtl.toNanos();
+        boolean refreshNeeded = !usable || age >= refreshAfter;
+        if (refreshNeeded && entry.inFlight == null) {
+            long started = System.nanoTime();
+            entry.inFlight = fetchModels(token)
+                    .doOnNext(value -> cacheModels(entry, value, started))
+                    .doOnError(error -> {
+                        finishModelsRefresh(entry);
+                        log.warn("chatgpt_models_refresh_failed type={}", error.getClass().getSimpleName());
+                    })
+                    .cache(); // One shared HTTP request; failures are removed when it completes.
         }
-        return cachedModels;
+        if (!refreshNeeded) return Mono.just(entry.value);
+        if (prewarm || !usable) return entry.inFlight;
+        // Serve the last successful same-authorization list while refreshing off the chat path.
+        entry.inFlight.subscribeOn(Schedulers.boundedElastic()).subscribe(value -> { }, error -> { });
+        return Mono.just(entry.value);
+    }
+
+    private synchronized void cacheModels(ModelCache entry, ArrayNode value, long started) {
+        entry.inFlight = null;
+        if (modelsCache != entry) return; // Invalidation/account changes must beat an old in-flight result.
+        entry.value = value;
+        entry.updatedAt = System.nanoTime();
+        log.info("chatgpt_models_ready fetchMs={} models={}",
+                (entry.updatedAt - started) / 1_000_000, value.size());
+    }
+
+    private synchronized void finishModelsRefresh(ModelCache entry) {
+        entry.inFlight = null;
+    }
+
+    private static final class ModelCache {
+        final String token;
+        ArrayNode value;
+        long updatedAt;
+        Mono<ArrayNode> inFlight;
+        ModelCache(String token) { this.token = token; }
     }
 
     private Mono<ArrayNode> fetchModels(String token) {

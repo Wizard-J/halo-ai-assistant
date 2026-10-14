@@ -4,6 +4,7 @@ import io.codex.haloaiassistant.persona.Conversation;
 import io.codex.haloaiassistant.persona.ConversationRef;
 import io.codex.haloaiassistant.persona.PersonaDefinition;
 import io.codex.haloaiassistant.persona.PersonaService;
+import io.codex.haloaiassistant.chatgpt.ChatGptModelWarmup;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import run.halo.app.extension.SchemeManager;
@@ -17,17 +18,20 @@ public class HaloAiAssistantPlugin extends BasePlugin {
 
     private final SchemeManager schemeManager;
     private final PersonaService personaService;
+    private final ChatGptModelWarmup modelWarmup;
 
     public HaloAiAssistantPlugin(PluginContext pluginContext,
                                   SchemeManager schemeManager,
-                                  PersonaService personaService) {
+                                  PersonaService personaService, ChatGptModelWarmup modelWarmup) {
         super(pluginContext);
         this.schemeManager = schemeManager;
         this.personaService = personaService;
+        this.modelWarmup = modelWarmup;
     }
 
     @Override
     public void start() {
+        modelWarmup.start();
         // 注册自定义扩展
         // Halo 2.22.x 中 schemeManager.register(Class) 的简写方式可能不会自动创建
         // 扩展索引，导致后续 client.fetch()/update() 操作报错:
@@ -102,6 +106,7 @@ public class HaloAiAssistantPlugin extends BasePlugin {
 
     @Override
     public void stop() {
+        modelWarmup.stop();
         log.info("AI 智能助手插件已停止");
     }
 
