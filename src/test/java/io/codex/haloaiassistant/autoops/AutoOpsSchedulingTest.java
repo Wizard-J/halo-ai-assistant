@@ -125,6 +125,10 @@ class AutoOpsSchedulingTest {
 
     @Test void scheduledPublishCreatesRealPostAndReleaseSnapshotThroughExistingWriter() {
         when(storage.get(eq(User.class), anyString())).thenReturn(Mono.just(new User()));
+        var storedPost = new java.util.concurrent.atomic.AtomicReference<Post>();
+        doAnswer(call -> { Post post = call.getArgument(0); storedPost.set(post); return Mono.just(post); })
+                .when(storage).create(any(Post.class));
+        when(storage.fetch(eq(Post.class), anyString())).thenAnswer(call -> Mono.just(storedPost.get()));
         var writer = new ArticleTool.CreateArticleTool(storage);
         service = new AutoOpsService(mock(ReactiveSettingFetcher.class), storage, agent, writer, new SourceArticleReader(true));
         auto.setAutoPublish(true);

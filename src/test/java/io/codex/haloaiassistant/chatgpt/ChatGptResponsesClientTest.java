@@ -210,7 +210,11 @@ class ChatGptResponsesClientTest {
         Post.PostSpec oldSpec = new Post.PostSpec(); oldSpec.setOwner("admin"); oldPost.setSpec(oldSpec);
         when(existing.getItems()).thenReturn(List.of(oldPost));
         when(storage.list(Post.class, null, null, 0, 1)).thenReturn(Mono.just(existing));
-        when(storage.create(any(Post.class))).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
+        var storedPost = new java.util.concurrent.atomic.AtomicReference<Post>();
+        when(storage.create(any(Post.class))).thenAnswer(inv -> {
+            Post post = inv.getArgument(0); storedPost.set(post); return Mono.just(post);
+        });
+        when(storage.fetch(eq(Post.class), anyString())).thenAnswer(inv -> Mono.just(storedPost.get()));
         when(storage.create(any(Snapshot.class))).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
         when(storage.update(any(Post.class))).thenAnswer(inv -> Mono.just(inv.getArgument(0)));
         streams.add(completed(mapper.createArrayNode().add(call("createArticle", "{\"title\":\"第二份草稿\",\"content\":\"# 正文\"}"))));

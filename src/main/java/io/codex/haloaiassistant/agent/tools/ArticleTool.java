@@ -11,6 +11,7 @@ import io.codex.haloaiassistant.agent.confirmation.SpringContextBridge;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.dao.OptimisticLockingFailureException;
 import reactor.core.publisher.Mono;
 import run.halo.app.content.ContentWrapper;
 import run.halo.app.content.PatchUtils;
@@ -207,6 +208,7 @@ public class ArticleTool implements Tool {
     }
 
     public static class CreateArticleTool implements Tool {
+        private static final int WRITE_ATTEMPTS = 5;
         private final ReactiveExtensionClient client;
         private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -351,17 +353,7 @@ public class ArticleTool implements Tool {
 
                 createdSnapshot = createBaseSnapshot(createdPost, owner, content);
                 String snapshotName = createdSnapshot.getMetadata().getName();
-                createdPost.getSpec().setBaseSnapshot(snapshotName);
-                createdPost.getSpec().setHeadSnapshot(snapshotName);
-                if (published) {
-                    createdPost.getSpec().setPublish(true);
-                    createdPost.getSpec().setReleaseSnapshot(snapshotName);
-                }
-
-                Post completed = client.update(createdPost).block();
-                if (completed == null) {
-                    throw new IllegalStateException("Halo 未能关联文章内容快照");
-                }
+                Post completed = attachSnapshot(createdPost.getMetadata().getName(), snapshotName, published);
 
                 String id = completed.getMetadata().getName();
                 String status = published ? "已发布" : "草稿";
@@ -369,8 +361,8 @@ public class ArticleTool implements Tool {
                         title, status, completed.getSpec().getPublishTime(), id);
             } catch (Exception e) {
                 log.error("创建文章失败", e);
-                rollback(createdSnapshot, createdPost);
-                return "创建文章失败: " + rootMessage(e);
+                String cleanup = rollback(createdSnapshot, createdPost);
+                return "创建文章失败: " + rootMessage(e) + cleanup;
             }
         }
 
@@ -531,12 +523,95 @@ public class ArticleTool implements Tool {
                     .replaceAll("`([^`]+)`", "<code>$1</code>");
         }
 
-        private void rollback(Snapshot snapshot, Post post) {
-            if (snapshot != null) {
-                client.delete(snapshot).onErrorResume(error -> Mono.empty()).block();
+        private Post attachSnapshot(String postName, String snapshotName, boolean published) {
+            for (int attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
+                Post latest = client.fetch(Post.class, postName).block();
+                if (latest == null || latest.getMetadata().getDeletionTimestamp() != null
+                        || Boolean.TRUE.equals(latest.getSpec().getDeleted()))
+                    throw new IllegalStateException("文章已删除，不能关联正文：" + postName);
+                var spec = latest.getSpec();
+                if (differentSnapshot(spec.getBaseSnapshot(), snapshotName)
+                        || differentSnapshot(spec.getHeadSnapshot(), snapshotName)
+                        || differentSnapshot(spec.getReleaseSnapshot(), snapshotName))
+                    throw new IllegalStateException("文章正文已被其他操作修改，保留现状：" + postName);
+                spec.setBaseSnapshot(snapshotName);
+                spec.setHeadSnapshot(snapshotName);
+                if (published) {
+                    spec.setPublish(true);
+                    spec.setReleaseSnapshot(snapshotName);
+                }
+                try {
+                    Post completed = client.update(latest).block();
+                    if (completed == null) throw new IllegalStateException("Halo 未能关联文章内容快照");
+                    return completed;
+                } catch (OptimisticLockingFailureException conflict) {
+                    if (attempt == WRITE_ATTEMPTS - 1) throw conflict;
+                    pauseAfterConflict(attempt);
+                }
             }
-            if (post != null) {
-                client.delete(post).onErrorResume(error -> Mono.empty()).block();
+            throw new IllegalStateException("文章更新重试耗尽：" + postName);
+        }
+
+        private boolean differentSnapshot(String actual, String expected) {
+            return actual != null && !actual.isBlank() && !actual.equals(expected);
+        }
+
+        private void pauseAfterConflict(int attempt) {
+            try {
+                Thread.sleep(20L * (attempt + 1));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("文章写入被中断", e);
+            }
+        }
+
+        private String rollback(Snapshot snapshot, Post post) {
+            String postName = post == null ? null : post.getMetadata().getName();
+            String snapshotName = snapshot == null ? null : snapshot.getMetadata().getName();
+            try {
+                // Delete the empty post first. Never remove content that a successful/uncertain write linked.
+                if (postName != null && !deleteEmptyPost(postName)) {
+                    log.warn("回滚保留已关联正文或已发布的文章及快照: post={}, snapshot={}", postName, snapshotName);
+                    return "；回滚保留已关联正文或已发布的文章，请核验（Post=" + postName + "，Snapshot=" + snapshotName + "）";
+                }
+                if (snapshotName != null) deleteSnapshot(snapshotName);
+                return "";
+            } catch (Exception cleanupError) {
+                log.error("回滚清理未完成: post={}, snapshot={}, reason={}", postName, snapshotName, rootMessage(cleanupError));
+                return "；回滚清理未完成（Post=" + postName + "，Snapshot=" + snapshotName + "）：" + rootMessage(cleanupError);
+            }
+        }
+
+        private boolean deleteEmptyPost(String name) {
+            for (int attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
+                Post latest = client.fetch(Post.class, name).block();
+                if (latest == null) return true;
+                var spec = latest.getSpec();
+                if (Boolean.TRUE.equals(spec.getPublish()) || spec.getBaseSnapshot() != null
+                        || spec.getHeadSnapshot() != null || spec.getReleaseSnapshot() != null) return false;
+                if (latest.getMetadata().getDeletionTimestamp() != null) return true;
+                try {
+                    if (client.delete(latest).block() == null) throw new IllegalStateException("Halo 未确认删除文章：" + name);
+                    return true;
+                } catch (OptimisticLockingFailureException conflict) {
+                    if (attempt == WRITE_ATTEMPTS - 1) throw conflict;
+                    pauseAfterConflict(attempt);
+                }
+            }
+            throw new IllegalStateException("文章回滚重试耗尽：" + name);
+        }
+
+        private void deleteSnapshot(String name) {
+            for (int attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
+                Snapshot latest = client.fetch(Snapshot.class, name).block();
+                if (latest == null || latest.getMetadata().getDeletionTimestamp() != null) return;
+                try {
+                    if (client.delete(latest).block() == null) throw new IllegalStateException("Halo 未确认删除快照：" + name);
+                    return;
+                } catch (OptimisticLockingFailureException conflict) {
+                    if (attempt == WRITE_ATTEMPTS - 1) throw conflict;
+                    pauseAfterConflict(attempt);
+                }
             }
         }
 
