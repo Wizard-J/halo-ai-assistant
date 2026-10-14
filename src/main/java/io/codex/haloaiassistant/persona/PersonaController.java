@@ -71,7 +71,7 @@ public class PersonaController implements CustomEndpoint {
     Mono<ServerResponse> handleMemory(ServerRequest request) {
         return request.principal()
                 .flatMap(principal -> memoryService.status("user-" + principal.getName(), request.pathVariable("id")))
-                .flatMap(state -> ServerResponse.ok().bodyValue(state))
+                .flatMap(state -> ServerResponse.ok().bodyValue(objectMapper.convertValue(state, Map.class)))
                 .switchIfEmpty(ServerResponse.status(401).bodyValue(Map.of("error", "请先登录")));
     }
 
