@@ -15,6 +15,7 @@ import io.codex.haloaiassistant.persona.ConversationRef;
 import io.codex.haloaiassistant.persona.ChatHistory;
 import io.codex.haloaiassistant.persona.PersonaDefinition;
 import io.codex.haloaiassistant.persona.PersonaService;
+import io.codex.haloaiassistant.persona.PersonaMemoryService;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -70,6 +71,7 @@ public class AiChatEndpoint implements CustomEndpoint {
     private final ReactiveExtensionClient client;
     private final PersonaService personaService;
     private final PendingActionService pendingActionService;
+    private final PersonaMemoryService memoryService;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private static final Pattern CLIENT_EVENT_LINE = Pattern.compile(
             "(?m)^\\s*" + Pattern.quote(AgentService.CLIENT_EVENT_PREFIX) + ".*(?:\\R|$)");
@@ -120,7 +122,7 @@ public class AiChatEndpoint implements CustomEndpoint {
 
                     // 读取 Persona 和 Session 参数
                     String personaId = body.has("persona") ? body.get("persona").asText("default") : "default";
-                    String sessionId = body.has("sessionId") ? body.get("sessionId").asText() : "";
+                    String sessionId = body.path("sessionId").asText().isBlank() ? "" : "user-" + requester;
                     String overrideSystemPrompt = body.has("systemPrompt")
                             ? body.get("systemPrompt").asText("") : "";
 
@@ -159,7 +161,7 @@ public class AiChatEndpoint implements CustomEndpoint {
 
     private Flux<String> measureChat(Flux<String> stream, long started, String requestId, String persona) {
         var first = new java.util.concurrent.atomic.AtomicLong(-1);
-        return stream.doOnNext(chunk -> {
+        return memoryService.foreground(stream).doOnNext(chunk -> {
             if (!stripClientEvents(chunk).isBlank() && first.compareAndSet(-1, System.nanoTime())) {
                 log.info("chat_first_text requestId={} persona={} firstTextMs={}",
                         requestId, persona, (first.get() - started) / 1_000_000);
@@ -209,7 +211,15 @@ public class AiChatEndpoint implements CustomEndpoint {
                     return fallback;
                 }));
 
-        return personaMono.flatMap(persona -> {
+        return Mono.zip(personaMono, Mono.defer(() -> {
+                    long memoryStarted = System.nanoTime();
+                    return memoryService.memoryFor(sessionId, personaId).doOnNext(memory ->
+                            log.info("chat_memory requestId={} chars={} readMs={}", requestId, memory.length(),
+                                    (System.nanoTime() - memoryStarted) / 1_000_000));
+                }))
+                .flatMap(tuple -> {
+            PersonaDefinition persona = tuple.getT1();
+            String longTermMemory = tuple.getT2();
             // 确定 system prompt
             String systemPrompt;
             if (!overrideSystemPrompt.isBlank()) {
@@ -263,10 +273,13 @@ public class AiChatEndpoint implements CustomEndpoint {
                         return personaService.createFallbackConversation(sessionId, personaId);
                     })
                     .flatMap(conv -> {
+                        if (conv.getSpec() == null || !sessionId.equals(conv.getSpec().getSessionId())
+                                || !personaId.equals(conv.getSpec().getPersonaId()))
+                            return ServerResponse.status(403).bodyValue(Map.of("error", "不能访问其他用户或角色的对话"));
                         // The stored transcript is immutable during context preparation.
                         ArrayNode stored = personaService.parseMessages(conv);
                         List<AgentService.ChatMessage> fullHistory = new ArrayList<>();
-                        fullHistory.add(new AgentService.ChatMessage("system", finalSystemPrompt));
+                        fullHistory.add(new AgentService.ChatMessage("system", finalSystemPrompt + longTermMemory));
                         fullHistory.addAll(ChatHistory.context(stored, body.path("history")));
                         fullHistory.add(new AgentService.ChatMessage("user", body.path("message").asText()));
 

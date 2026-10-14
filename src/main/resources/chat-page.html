@@ -1689,6 +1689,9 @@
                         <button class="persona-menu-item" id="uploadContextButton" type="button" role="menuitem">
                             <i class="ri-file-text-line" aria-hidden="true"></i> 上传上下文 (AGENTS.md)
                         </button>
+                        <button class="persona-menu-item" id="memoryButton" type="button" role="menuitem">
+                            <i class="ri-brain-line" aria-hidden="true"></i> 查看长期记忆
+                        </button>
                         <button class="persona-menu-item" id="exportContextButton" type="button" role="menuitem">
                             <i class="ri-download-line" aria-hidden="true"></i> 导出上下文
                         </button>
@@ -3590,6 +3593,34 @@
             input.click();
         });
     }
+
+    document.getElementById('memoryButton')?.addEventListener('click', async () => {
+        const dialog = document.createElement('dialog');
+        dialog.style.cssText = 'max-width:700px;width:90%;max-height:80vh;overflow:auto;border:1px solid #aaa;border-radius:12px;padding:24px';
+        const title = document.createElement('h2'); title.textContent = '长期记忆 · ' + activePersona.displayName;
+        const close = document.createElement('button'); close.textContent = '关闭'; close.type = 'button';
+        close.addEventListener('click', () => dialog.close());
+        const content = document.createElement('div'); content.textContent = '读取中…';
+        dialog.append(title, close, content); document.body.append(dialog); dialog.showModal();
+        dialog.addEventListener('close', () => dialog.remove());
+        try {
+            const response = await fetch('__API_BASE__/persona/' + encodeURIComponent(activePersona.id) + '/memory');
+            if (!response.ok) throw new Error('读取失败，请稍后重试');
+            const state = await response.json();
+            content.textContent = '';
+            const status = document.createElement('p');
+            status.textContent = '已保存 ' + (state.entries || []).length + ' 条记忆，待提炼历史 ' + (state.pendingMessages || 0) + ' 条消息。上传上下文与原始记录完整保留。'
+                + (state.status === 'processing' ? ' 正在后台提炼。' : state.status === 'retry' ? ' 后台将重试：' + state.error : '');
+            content.append(status);
+            for (const entry of state.entries || []) {
+                const item = document.createElement('details');
+                const summary = document.createElement('summary'); summary.textContent = entry.text;
+                const evidence = document.createElement('p'); evidence.textContent = '用户原话：' + entry.evidence;
+                const source = document.createElement('small'); source.textContent = (entry.sourceTime || '') + ' · ' + entry.conversation + ' · 消息 ' + (entry.sourceIndex + 1);
+                item.append(summary, evidence, source); content.append(item);
+            }
+        } catch (error) { content.textContent = error.message || '读取失败'; }
+    });
 
     const exportContextButton = document.getElementById('exportContextButton');
     if (exportContextButton) {

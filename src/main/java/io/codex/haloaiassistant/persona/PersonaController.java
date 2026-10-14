@@ -33,12 +33,14 @@ public class PersonaController implements CustomEndpoint {
     private static final int MAX_ICON_BYTES = 256 * 1024;
 
     private final PersonaService personaService;
+    private final PersonaMemoryService memoryService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public RouterFunction<ServerResponse> endpoint() {
         return RouterFunctions.route()
                 .GET("/personas", this::handleListPersonas)
+                .GET("/persona/{id}/memory", this::handleMemory)
                 .POST("/persona/upload", this::handleUploadPersona)
                 .POST("/persona/{id}/context", this::handleUploadContext)
                 .DELETE("/persona/{id}", this::handleDeletePersona)
@@ -65,10 +67,14 @@ public class PersonaController implements CustomEndpoint {
         return AiChatEndpoint.API_VERSION;
     }
 
-    /**
-     * GET /api/ai-assistant/personas
-     * 获取所有可用 Persona
-     */
+    /** Read-only memory for the authenticated user; client-supplied session IDs are ignored. */
+    Mono<ServerResponse> handleMemory(ServerRequest request) {
+        return request.principal()
+                .flatMap(principal -> memoryService.status("user-" + principal.getName(), request.pathVariable("id")))
+                .flatMap(state -> ServerResponse.ok().bodyValue(state))
+                .switchIfEmpty(ServerResponse.status(401).bodyValue(Map.of("error", "请先登录")));
+    }
+
     private Mono<ServerResponse> handleListPersonas(ServerRequest request) {
         return personaService.listPersonas()
                 .map(personas -> personas.stream().map(this::toPersonaSummary).toList())

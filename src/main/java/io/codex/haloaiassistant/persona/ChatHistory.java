@@ -15,6 +15,26 @@ public final class ChatHistory {
 
     private ChatHistory() { }
 
+    /** First raw index represented by the actual bounded model view. */
+    public static int windowStart(ArrayNode source) {
+        int chars = 0, count = 0, start = source.size();
+        Set<String> seen = new HashSet<>();
+        for (int i = source.size() - 1; i >= 0 && count < MAX_MESSAGES; i--) {
+            JsonNode message = source.get(i);
+            String role = message.path("role").asText();
+            if (!"user".equals(role) && !"assistant".equals(role)) continue;
+            String content = message.path("content").asText();
+            String timestamp = message.path("timestamp").asText();
+            if (!timestamp.isBlank() && !seen.add(timestamp + "\u0000" + role + "\u0000" + content)) continue;
+            if (chars + content.length() > MAX_CHARS) {
+                if (count == 0) start = i; // Partially loaded oversized message is not archived yet.
+                break;
+            }
+            start = i; chars += content.length(); count++;
+        }
+        return start;
+    }
+
     public static List<ChatMessage> context(ArrayNode stored, JsonNode fallback) {
         JsonNode source = stored != null && !stored.isEmpty() ? stored : fallback;
         List<ChatMessage> result = new ArrayList<>();

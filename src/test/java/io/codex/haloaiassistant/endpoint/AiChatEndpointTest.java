@@ -14,6 +14,13 @@ import reactor.core.publisher.Mono;
 import org.junit.jupiter.api.Test;
 
 class AiChatEndpointTest {
+    private static io.codex.haloaiassistant.persona.PersonaMemoryService testMemory() {
+        var store = org.mockito.Mockito.mock(run.halo.app.extension.ReactiveExtensionClient.class);
+        org.mockito.Mockito.when(store.fetch(org.mockito.ArgumentMatchers.eq(run.halo.app.extension.ConfigMap.class), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(reactor.core.publisher.Mono.empty());
+        return new io.codex.haloaiassistant.persona.PersonaMemoryService(store, null, null, null);
+    }
+
 
     @Test
     void serverHistoryIsNotCombinedWithClientReplayOrMutatedDuringChat() throws Exception {
@@ -32,6 +39,8 @@ class AiChatEndpointTest {
         var metadata = new run.halo.app.extension.Metadata();
         metadata.setName("conv-test");
         conv.setMetadata(metadata);
+        var convSpec = new io.codex.haloaiassistant.persona.ConversationRef.ConvRefSpec();
+        convSpec.setSessionId("user-admin"); convSpec.setPersonaId("munger"); conv.setSpec(convSpec);
         when(personas.getConversationByGVK("conv-test")).thenReturn(Mono.just(conv));
         var stored = (com.fasterxml.jackson.databind.node.ArrayNode) mapper.readTree("""
                 [{"role":"user","content":"原问题"},{"role":"assistant","content":"原回答"}]
@@ -44,7 +53,7 @@ class AiChatEndpointTest {
                     assertTrue(history.getLast().content().equals("新问题"));
                     return reactor.core.publisher.Flux.just("reply");
                 });
-        var endpoint = new AiChatEndpoint(null, settings, agent, null, null, null, personas, null);
+        var endpoint = new AiChatEndpoint(null, settings, agent, null, null, null, personas, null, testMemory());
         ServerRequest request = mock(ServerRequest.class);
         when(request.bodyToMono(String.class)).thenReturn(Mono.just("""
                 {"message":"新问题","persona":"munger","sessionId":"user-admin","conversationId":"conv-test",
@@ -69,12 +78,15 @@ class AiChatEndpointTest {
         spec.setSystemPrompt("chat only");
         persona.setSpec(spec);
         when(personas.getPersona("munger")).thenReturn(Mono.just(persona));
+        var conv = new io.codex.haloaiassistant.persona.ConversationRef();
+        var convSpec = new io.codex.haloaiassistant.persona.ConversationRef.ConvRefSpec();
+        convSpec.setSessionId("user-admin"); convSpec.setPersonaId("munger"); conv.setSpec(convSpec);
         when(personas.getOrCreateConversation("user-admin", "munger"))
-                .thenReturn(Mono.just(new io.codex.haloaiassistant.persona.ConversationRef()));
+                .thenReturn(Mono.just(conv));
         when(personas.parseMessages(any())).thenReturn(new com.fasterxml.jackson.databind.ObjectMapper().createArrayNode());
         when(agent.chatWithTools(anyList(), anySet(), eq("admin")))
                 .thenReturn(reactor.core.publisher.Flux.just("chat reply"));
-        var endpoint = new AiChatEndpoint(null, settings, agent, null, null, null, personas, null);
+        var endpoint = new AiChatEndpoint(null, settings, agent, null, null, null, personas, null, testMemory());
         ServerRequest request = mock(ServerRequest.class);
         when(request.bodyToMono(String.class)).thenReturn(Mono.just("{\"message\":\"create article\",\"persona\":\"munger\"}"));
         assertTrue(endpoint.handleAuthenticatedChat(request, "admin").block().statusCode().is2xxSuccessful());
@@ -86,7 +98,7 @@ class AiChatEndpointTest {
     @Test
     void chatPersonasCannotListOrConfirmManagementActions() {
         var pending = mock(PendingActionService.class);
-        var endpoint = new AiChatEndpoint(null, null, null, null, null, null, null, pending);
+        var endpoint = new AiChatEndpoint(null, null, null, null, null, null, null, pending, testMemory());
         ServerRequest request = mock(ServerRequest.class);
         when(request.queryParam("persona")).thenReturn(java.util.Optional.of("munger"));
         assertTrue(endpoint.handleListPendingActions(request).block().statusCode().is2xxSuccessful());
@@ -97,7 +109,7 @@ class AiChatEndpointTest {
     @Test
     void missingOrConsumedConfirmationStillReturnsAResponse() {
         var endpoint = new AiChatEndpoint(null, null, null, null, null, null, null,
-                new PendingActionService());
+                new PendingActionService(), testMemory());
         ServerRequest request = mock(ServerRequest.class);
         when(request.pathVariable("id")).thenReturn("confirm_consumed");
         doReturn(Mono.just((Principal) () -> "admin")).when(request).principal();

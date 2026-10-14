@@ -789,6 +789,21 @@ async function sendMessage() {
   }
 }
 
+const memoryState = ref<any>(null);
+const memoryError = ref("");
+const memoryLoading = ref(false);
+async function showMemory() {
+  memoryLoading.value = true;
+  memoryError.value = "";
+  try {
+    const response = await fetch(API_BASE + "/persona/default/memory");
+    if (!response.ok) throw new Error("读取失败，请稍后重试");
+    memoryState.value = await response.json();
+  } catch (error) {
+    memoryError.value = error instanceof Error ? error.message : "读取失败";
+  } finally { memoryLoading.value = false; }
+}
+
 function goToImmersive() {
   window.open(API_BASE + "/chat-page", "_blank", "noopener,noreferrer");
 }
@@ -816,6 +831,25 @@ function goToImmersive() {
     </header>
 
     <ChatGptConnection />
+
+    <div class="memory-panel">
+      <button class="ghost-button" type="button" :disabled="memoryLoading" @click="showMemory">
+        {{ memoryLoading ? "读取中…" : "查看 / 刷新长期记忆" }}
+      </button>
+      <p v-if="memoryError" role="alert">{{ memoryError }}</p>
+      <details v-if="memoryState" open>
+        <summary>长期记忆 {{ (memoryState.entries || []).length }} 条 · 待提炼历史 {{ memoryState.pendingMessages || 0 }} 条消息</summary>
+        <p>上传上下文与原始聊天记录完整保留。后台提炼会优先让出资源给聊天。</p>
+        <p v-if="memoryState.status === 'retry'">后台处理暂未完成，稍后重试。{{ memoryState.error }}</p>
+        <p v-if="memoryState.status === 'processing'">正在后台提炼；新记忆保存后供后续聊天使用。</p>
+        <ul>
+          <li v-for="entry in memoryState.entries || []" :key="entry.id">
+            {{ entry.text }}
+            <details><summary>查看原话与来源</summary><p>{{ entry.evidence }}</p><small>{{ entry.sourceTime }} · {{ entry.conversation }} · 消息 {{ entry.sourceIndex + 1 }}</small></details>
+          </li>
+        </ul>
+      </details>
+    </div>
 
     <div ref="messagePane" class="messages">
       <div v-if="messages.length === 0" class="welcome">
@@ -904,7 +938,7 @@ function goToImmersive() {
 .chat-timing { display: block; margin-top: 8px; color: #64748b; font-size: 12px; }
 .ai-assistant-tab {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   height: calc(100dvh - 220px);
   min-height: min(620px, calc(100dvh - 220px));
   max-height: calc(100vh - 220px);
@@ -994,6 +1028,13 @@ function goToImmersive() {
 
 .ghost-button:hover {
   background: #f9fafb;
+}
+
+.memory-panel {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 8px 16px;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .messages {
