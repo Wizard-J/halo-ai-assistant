@@ -16,6 +16,48 @@ import org.junit.jupiter.api.Test;
 class AiChatEndpointTest {
 
     @Test
+    void serverHistoryIsNotCombinedWithClientReplayOrMutatedDuringChat() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var settings = mock(run.halo.app.plugin.ReactiveSettingFetcher.class);
+        when(settings.fetch("basic", io.codex.haloaiassistant.config.AiAssistantSetting.class))
+                .thenReturn(Mono.just(new io.codex.haloaiassistant.config.AiAssistantSetting()));
+        var agent = mock(io.codex.haloaiassistant.agent.AgentService.class);
+        var personas = mock(io.codex.haloaiassistant.persona.PersonaService.class);
+        var persona = new io.codex.haloaiassistant.persona.PersonaDefinition();
+        var spec = new io.codex.haloaiassistant.persona.PersonaDefinition.PersonaSpec();
+        spec.setSystemPrompt("chat only");
+        persona.setSpec(spec);
+        when(personas.getPersona("munger")).thenReturn(Mono.just(persona));
+        var conv = new io.codex.haloaiassistant.persona.ConversationRef();
+        var metadata = new run.halo.app.extension.Metadata();
+        metadata.setName("conv-test");
+        conv.setMetadata(metadata);
+        when(personas.getConversationByGVK("conv-test")).thenReturn(Mono.just(conv));
+        var stored = (com.fasterxml.jackson.databind.node.ArrayNode) mapper.readTree("""
+                [{"role":"user","content":"原问题"},{"role":"assistant","content":"原回答"}]
+                """);
+        when(personas.parseMessages(conv)).thenReturn(stored);
+        when(agent.chatWithTools(anyList(), anySet(), eq("admin")))
+                .thenAnswer(i -> {
+                    java.util.List<io.codex.haloaiassistant.agent.AgentService.ChatMessage> history = i.getArgument(0);
+                    assertTrue(history.size() == 4); // system + server turn + current question
+                    assertTrue(history.getLast().content().equals("新问题"));
+                    return reactor.core.publisher.Flux.just("reply");
+                });
+        var endpoint = new AiChatEndpoint(null, settings, agent, null, null, null, personas, null);
+        ServerRequest request = mock(ServerRequest.class);
+        when(request.bodyToMono(String.class)).thenReturn(Mono.just("""
+                {"message":"新问题","persona":"munger","sessionId":"user-admin","conversationId":"conv-test",
+                 "history":[{"role":"user","content":"原问题"},{"role":"assistant","content":"原回答"}]}
+                """));
+        var response = endpoint.handleAuthenticatedChat(request, "admin").block();
+        assertTrue(response.headers().getFirst("X-Conversation-Id").equals("conv-test"));
+        assertNotNull(response.headers().getFirst("X-Chat-Request-Id"));
+        verify(personas, never()).compressConversation(any());
+        assertTrue(stored.size() == 2);
+    }
+
+    @Test
     void chatPersonaWithoutSessionStillUsesRestrictedToolsAndAuthenticatedSession() {
         var settings = mock(run.halo.app.plugin.ReactiveSettingFetcher.class);
         when(settings.fetch("basic", io.codex.haloaiassistant.config.AiAssistantSetting.class))

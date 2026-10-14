@@ -12,6 +12,7 @@ import io.codex.haloaiassistant.agent.confirmation.RiskLevel;
 import io.codex.haloaiassistant.autoops.AutoOpsService;
 import io.codex.haloaiassistant.config.AiAssistantSetting;
 import io.codex.haloaiassistant.persona.ConversationRef;
+import io.codex.haloaiassistant.persona.ChatHistory;
 import io.codex.haloaiassistant.persona.PersonaDefinition;
 import io.codex.haloaiassistant.persona.PersonaService;
 import java.io.IOException;
@@ -105,6 +106,8 @@ public class AiChatEndpoint implements CustomEndpoint {
     }
 
     Mono<ServerResponse> handleAuthenticatedChat(ServerRequest request, String requester) {
+        long started = System.nanoTime();
+        String requestId = java.util.UUID.randomUUID().toString();
         // 先异步加载 AI 配置，再处理请求
         return loadAiSetting()
                 .then(request.bodyToMono(String.class))
@@ -137,7 +140,7 @@ public class AiChatEndpoint implements CustomEndpoint {
                         // Missing client session IDs must never promote a chat persona to blog administrator.
                         String scopedSession = sessionId.isBlank() ? "user-" + requester : sessionId;
                         return chatWithPersona(scopedSession, personaId, overrideSystemPrompt,
-                                history, body, requester);
+                                body, requester, started, requestId);
                     }
 
                     // 向后兼容：无 persona 参数时使用默认行为
@@ -145,13 +148,26 @@ public class AiChatEndpoint implements CustomEndpoint {
                             .header("Content-Type", "text/event-stream; charset=utf-8")
                             .header("Cache-Control", "no-cache")
                             .body(BodyInserters.fromProducer(
-                                    agentService.chat(history, requester), String.class));
+                                    measureChat(agentService.chat(history, requester), started, requestId, personaId), String.class));
                 })
                 .onErrorResume(e -> {
                     log.error("Chat API 内部错误", e);
                     return ServerResponse.status(500)
                             .bodyValue(java.util.Map.of("error", "服务器内部错误: " + e.getMessage()));
                 });
+    }
+
+    private Flux<String> measureChat(Flux<String> stream, long started, String requestId, String persona) {
+        var first = new java.util.concurrent.atomic.AtomicLong(-1);
+        return stream.doOnNext(chunk -> {
+            if (!stripClientEvents(chunk).isBlank() && first.compareAndSet(-1, System.nanoTime())) {
+                log.info("chat_first_text requestId={} persona={} firstTextMs={}",
+                        requestId, persona, (first.get() - started) / 1_000_000);
+            }
+        }).doFinally(signal -> log.info("chat_latency requestId={} persona={} firstTextMs={} totalMs={} outcome={}",
+                requestId, persona, first.get() < 0 ? -1 : (first.get() - started) / 1_000_000,
+                (System.nanoTime() - started) / 1_000_000, signal))
+                .contextWrite(context -> context.put("chatRequestId", requestId));
     }
 
     private Mono<JsonNode> parseRequestBody(String rawBody) {
@@ -170,8 +186,7 @@ public class AiChatEndpoint implements CustomEndpoint {
      */
     private Mono<ServerResponse> chatWithPersona(String sessionId, String personaId,
                                                   String overrideSystemPrompt,
-                                                  List<AgentService.ChatMessage> history,
-                                                  JsonNode body, String requester) {
+                                                  JsonNode body, String requester, long started, String requestId) {
         // 加载 Persona 定义，使用硬编码兜底
         Mono<PersonaDefinition> personaMono = personaService.getPersona(personaId)
                 .onErrorResume(e -> {
@@ -227,7 +242,7 @@ public class AiChatEndpoint implements CustomEndpoint {
                 finalSystemPrompt = systemPrompt + personaGuard;
             }
 
-            // 加载服务端对话历史 + 压缩
+            // 加载服务端完整历史；仅构建模型上下文副本
             // 优先使用前端传入的 conversationId，每个新建对话有独立 ID
             String convId = body.has("conversationId") ? body.get("conversationId").asText("") : "";
             Mono<ConversationRef> convMono;
@@ -237,55 +252,32 @@ public class AiChatEndpoint implements CustomEndpoint {
                         ? convId
                         : "conv-" + sessionId + "-" + personaId + "-" + convId;
                 convMono = personaService.getConversationByGVK(convName)
-                        .switchIfEmpty(personaService.createConversation(sessionId, personaId, convName))
-                        .onErrorResume(e ->
-                                personaService.createConversation(sessionId, personaId, convName));
+                        .switchIfEmpty(Mono.defer(() -> personaService.createConversation(sessionId, personaId, convName)));
             } else {
                 convMono = personaService.getOrCreateConversation(sessionId, personaId);
             }
             return convMono
                     .onErrorResume(e -> {
                         log.warn("获取/创建对话失败，尝试直接创建新对话: {}", e.getMessage());
+                        if (!convId.isBlank()) return Mono.error(e);
                         return personaService.createFallbackConversation(sessionId, personaId);
                     })
                     .flatMap(conv -> {
-                        // 压缩过长的对话
-                        personaService.compressConversation(conv);
-
-                        // 构建完整消息列表
+                        // The stored transcript is immutable during context preparation.
+                        ArrayNode stored = personaService.parseMessages(conv);
                         List<AgentService.ChatMessage> fullHistory = new ArrayList<>();
                         fullHistory.add(new AgentService.ChatMessage("system", finalSystemPrompt));
+                        fullHistory.addAll(ChatHistory.context(stored, body.path("history")));
+                        fullHistory.add(new AgentService.ChatMessage("user", body.path("message").asText()));
 
-                        // 添加服务端已有的历史消息（从 JSON String 解析）
-                        ArrayNode serverMessages = personaService.parseMessages(conv);
-                        if (serverMessages != null) {
-                            for (JsonNode msg : serverMessages) {
-                                fullHistory.add(new AgentService.ChatMessage(
-                                        msg.path("role").asText(),
-                                        msg.path("content").asText()));
-                            }
-                        }
-
-                        // 添加当前会话的用户消息（history 已包含 body.history + body.message）
-                        // 跳过第一个 system 消息，从第一条 user 消息开始追加
-                        for (AgentService.ChatMessage msg : history) {
-                            if (!"system".equals(msg.role())) {
-                                fullHistory.add(msg);
-                            }
-                        }
-
-                        // 保存服务端持久化（追加本次用户消息）
-                        // 异步保存，不阻塞流式响应
                         ArrayNode messagesJson = objectMapper.createArrayNode();
-                        if (body.has("history") && body.get("history").isArray()) {
-                            for (JsonNode msg : body.get("history")) {
-                                if (!"system".equals(msg.path("role").asText())) {
-                                    messagesJson.add(toPersistentMessageNode(msg, null));
-                                }
-                            }
-                        }
-                        messagesJson.add(toPersistentMessageNode(
-                                "user", history.get(history.size() - 1).content(), Instant.now().toString()));
+                        ObjectNode userNode = toPersistentMessageNode("user", body.path("message").asText(),
+                                Instant.now().toString());
+                        userNode.put("id", requestId + ":user");
+                        messagesJson.add(userNode);
+                        log.info("chat_context requestId={} persona={} storedMessages={} modelMessages={} modelChars={}",
+                                requestId, personaId, stored == null ? 0 : stored.size(), fullHistory.size(),
+                                fullHistory.stream().mapToInt(m -> m.content().length()).sum());
                         // 流式返回 + 结束时一次性保存用户消息 + AI 回复
                         Flux<String> chatStream = blogOpsEnabled
                                 ? agentService.chat(fullHistory, requester)
@@ -298,26 +290,31 @@ public class AiChatEndpoint implements CustomEndpoint {
 
                         Flux<String> savingStream = chatStream
                                 .doOnNext(chunk -> assistantResponse.append(stripClientEvents(chunk)))
-                                .doOnComplete(() -> {
+                                .concatWith(Flux.defer(() -> {
                                     String reply = assistantResponse.toString();
                                     if (!reply.isBlank()) {
-                                        ObjectNode assistNode = objectMapper.createObjectNode();
-                                        assistNode.put("role", "assistant");
-                                        assistNode.put("content", reply);
-                                        assistNode.put("timestamp", Instant.now().toString());
+                                        ObjectNode assistNode = toPersistentMessageNode("assistant", reply,
+                                                Instant.now().toString());
+                                        assistNode.put("id", requestId + ":assistant");
                                         allMessagesToSave.add(assistNode);
                                     }
-                                    if (allMessagesToSave.size() > 0) {
-                                        personaService.appendMessages(conv, allMessagesToSave)
-                                                .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
-                                                .subscribe();
-                                    }
-                                });
+                                    // Complete the save before closing SSE, so the next turn sees this one.
+                                    return personaService.appendChatTurn(conv, allMessagesToSave, body.path("history"))
+                                            .thenMany(Flux.<String>empty())
+                                            .onErrorResume(e -> {
+                                                log.warn("chat_save_failed requestId={} type={}", requestId,
+                                                        e.getClass().getSimpleName());
+                                                return Flux.just("\n[聊天记录保存失败] 请保留本页内容后重试。");
+                                            });
+                                }));
 
                         return ServerResponse.ok()
                                 .header("Content-Type", "text/event-stream; charset=utf-8")
                                 .header("Cache-Control", "no-cache")
-                                .body(BodyInserters.fromProducer(savingStream, String.class));
+                                .header("X-Conversation-Id", conv.getMetadata() == null ? "" : conv.getMetadata().getName())
+                                .header("X-Chat-Request-Id", requestId)
+                                .body(BodyInserters.fromProducer(
+                                        measureChat(savingStream, started, requestId, personaId), String.class));
                     });
         });
     }

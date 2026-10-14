@@ -25,11 +25,16 @@ class ChatGptCredentialsTest {
     @Test
     void privateProxyIsOptInAndRejectsUnsafeConfiguration() throws Exception {
         var store = new ChatGptCredentials(directory);
-        assertTrue(store.httpClient().proxy().isEmpty());
+        var direct = store.httpClient();
+        assertTrue(direct.proxy().isEmpty());
+        assertSame(direct, store.httpClient());
         Path proxy = directory.resolve("proxy.json");
         Files.writeString(proxy, "{\"host\":\"halo-chatgpt-proxy\",\"port\":7890}");
         Files.setPosixFilePermissions(proxy, PosixFilePermissions.fromString("rw-------"));
-        var selected = store.httpClient().proxy().orElseThrow().select(java.net.URI.create("https://auth.openai.com"));
+        var proxied = store.httpClient();
+        assertNotSame(direct, proxied);
+        assertSame(proxied, store.httpClient());
+        var selected = proxied.proxy().orElseThrow().select(java.net.URI.create("https://auth.openai.com"));
         assertEquals(7890, ((java.net.InetSocketAddress) selected.getFirst().address()).getPort());
         Files.setPosixFilePermissions(proxy, PosixFilePermissions.fromString("rw-r--r--"));
         var error = assertThrows(IllegalStateException.class, store::httpClient);
@@ -37,6 +42,11 @@ class ChatGptCredentialsTest {
         Files.setPosixFilePermissions(proxy, PosixFilePermissions.fromString("rw-------"));
         Files.writeString(proxy, "{\"host\":\"user:secret@host\",\"port\":7890}");
         assertThrows(IllegalStateException.class, store::httpClient);
+        Files.writeString(proxy, "");
+        assertThrows(IllegalStateException.class, store::httpClient);
+        store.destroy();
+        assertTrue(direct.awaitTermination(java.time.Duration.ofSeconds(2)));
+        assertTrue(proxied.awaitTermination(java.time.Duration.ofSeconds(2)));
     }
 
     @Test

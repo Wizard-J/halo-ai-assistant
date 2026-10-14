@@ -512,6 +512,38 @@ public class PersonaService {
                 .map(this::fromUnstructured);
     }
 
+    /** Append only the current turn, fetching a fresh version on every optimistic-lock retry.
+     * Legacy client history is imported only into a genuinely empty transcript. */
+    public Mono<ConversationRef> appendChatTurn(ConversationRef ref, ArrayNode turn, JsonNode bootstrap) {
+        ArrayNode stableTurn = turn.deepCopy();
+        return Mono.defer(() -> getConversationByGVK(ref.getMetadata().getName())
+                .switchIfEmpty(Mono.error(new IllegalStateException("聊天记录已不存在，未重新创建")))
+                .flatMap(latest -> {
+                    if (latest.getMetadata().getDeletionTimestamp() != null)
+                        return Mono.error(new IllegalStateException("聊天记录正在删除，未追加消息"));
+                    ArrayNode existing = parseMessages(latest);
+                    if (existing.isEmpty() && bootstrap != null && bootstrap.isArray()) {
+                        for (JsonNode message : bootstrap) {
+                            String role = message.path("role").asText();
+                            if ("user".equals(role) || "assistant".equals(role)) existing.add(message.deepCopy());
+                        }
+                    }
+                    java.util.Set<String> ids = new java.util.HashSet<>();
+                    for (JsonNode message : existing) {
+                        if (message.hasNonNull("id")) ids.add(message.path("id").asText());
+                    }
+                    ArrayNode delta = objectMapper.createArrayNode();
+                    for (JsonNode message : stableTurn) {
+                        if (!message.hasNonNull("id") || ids.add(message.path("id").asText())) delta.add(message);
+                    }
+                    latest.getSpec().setMessages(serializeMessages(existing));
+                    return delta.isEmpty() ? Mono.just(latest) : appendMessages(latest, delta);
+                }))
+                .retryWhen(reactor.util.retry.Retry.backoff(4, java.time.Duration.ofMillis(50))
+                        .maxBackoff(java.time.Duration.ofMillis(500))
+                        .filter(e -> e instanceof org.springframework.dao.OptimisticLockingFailureException));
+    }
+
     /**
      * 获取单条对话
      */

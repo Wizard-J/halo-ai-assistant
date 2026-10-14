@@ -43,6 +43,58 @@ class PersonaServiceTest {
         personaService = new PersonaService(client, settingFetcher);
     }
 
+    @Test
+    void chatTurnRetriesFreshVersionPreservesAllHistoryAndAppendsOnlyDelta() throws Exception {
+        var initial = createRefWithMessages("s1", "default", "[{\"role\":\"user\",\"content\":\"旧消息\"}]");
+        initial.getMetadata().setVersion(1L);
+        var concurrent = createRefWithMessages("s1", "default",
+                "[{\"role\":\"user\",\"content\":\"旧消息\"},{\"role\":\"assistant\",\"content\":\"并发回复\"}]");
+        concurrent.getMetadata().setName(initial.getMetadata().getName());
+        concurrent.getMetadata().setVersion(2L);
+        when(client.fetch(any(GroupVersionKind.class), eq(initial.getMetadata().getName())))
+                .thenReturn(Mono.just(unstructuredFromRef(initial)), Mono.just(unstructuredFromRef(concurrent)));
+        var attempts = new java.util.ArrayList<Unstructured>();
+        when(client.update(any(Unstructured.class))).thenAnswer(invocation -> {
+            Unstructured value = invocation.getArgument(0);
+            attempts.add(value);
+            if (attempts.size() == 1) return Mono.error(new org.springframework.dao.OptimisticLockingFailureException("conflict"));
+            return Mono.just(value);
+        });
+        var turn = (ArrayNode) objectMapper.readTree("""
+                [{"role":"user","content":"新问题","id":"turn:user"},
+                 {"role":"assistant","content":"新回复","id":"turn:assistant"}]
+                """);
+        var result = personaService.appendChatTurn(initial, turn, objectMapper.readTree("""
+                [{"role":"user","content":"旧消息"}]
+                """)).block(java.time.Duration.ofSeconds(5));
+        var saved = personaService.parseMessages(result);
+        assertEquals(4, saved.size());
+        assertEquals("并发回复", saved.get(1).path("content").asText());
+        assertEquals("turn:user", saved.get(2).path("id").asText());
+        assertEquals(2L, attempts.getLast().getMetadata().getVersion());
+        assertEquals(1, personaService.parseMessages(initial).size());
+        when(client.fetch(any(GroupVersionKind.class), eq(initial.getMetadata().getName())))
+                .thenReturn(Mono.just(unstructuredFromRef(result)));
+        assertEquals(4, personaService.parseMessages(personaService.appendChatTurn(initial, turn, null).block()).size());
+        verify(client, times(2)).update(any(Unstructured.class));
+    }
+
+    @Test
+    void chatTurnImportsClientHistoryOnceIntoEmptyRecordWithoutPruningIt() throws Exception {
+        var empty = createRefWithMessages("s1", "default", "[]");
+        empty.getMetadata().setVersion(1L);
+        when(client.fetch(any(GroupVersionKind.class), eq(empty.getMetadata().getName())))
+                .thenReturn(Mono.just(unstructuredFromRef(empty)));
+        when(client.update(any(Unstructured.class))).thenAnswer(i -> Mono.just(i.getArgument(0)));
+        var history = objectMapper.createArrayNode();
+        for (int i = 0; i < 100; i++) history.addObject().put("role", "user").put("content", "old " + i);
+        var turn = objectMapper.createArrayNode();
+        turn.addObject().put("role", "user").put("content", "new").put("id", "new:user");
+        var saved = personaService.appendChatTurn(empty, turn, history).block();
+        assertEquals(101, personaService.parseMessages(saved).size());
+        assertEquals(0, personaService.parseMessages(empty).size());
+    }
+
     // ========== createConversation ==========
 
     @Test

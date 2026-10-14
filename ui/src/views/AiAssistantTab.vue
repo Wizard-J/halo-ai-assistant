@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { nextTick, onMounted, ref } from "vue";
+import { nextTick, onMounted, reactive, ref } from "vue";
 import ChatGptConnection from "./ChatGptConnection.vue";
 
 interface ConfirmationInfo {
@@ -16,6 +16,8 @@ interface ChatMessage {
   content: string;
   confirmation?: ConfirmationInfo;
   showRaw?: boolean;
+  firstTextMs?: number;
+  totalMs?: number;
 }
 
 interface ArticleResultItem {
@@ -32,6 +34,7 @@ interface ArticleResult {
 }
 
 const messages = ref<ChatMessage[]>([]);
+const conversationId = ref("");
 const inputText = ref("");
 const isStreaming = ref(false);
 const activityText = ref("");
@@ -693,7 +696,8 @@ async function sendMessage() {
     return;
   }
 
-  const requestHistory = history.value.slice();
+  const requestHistory = conversationId.value ? [] : history.value.slice();
+  const started = performance.now();
   const userMsg: ChatMessage = { role: "user", content: text };
   messages.value.push(userMsg);
   history.value.push({ role: "user", content: text });
@@ -705,7 +709,7 @@ async function sendMessage() {
   abortController = new AbortController();
   scrollToBottom();
 
-  const assistantMsg: ChatMessage = { role: "assistant", content: "" };
+  const assistantMsg: ChatMessage = reactive({ role: "assistant", content: "" });
 
   try {
     const resp = await fetch(API_BASE + "/chat", {
@@ -716,6 +720,7 @@ async function sendMessage() {
         history: requestHistory,
         persona: "default",
         sessionId: sessionId.value,
+        conversationId: conversationId.value,
       }),
       signal: abortController.signal,
     });
@@ -725,6 +730,7 @@ async function sendMessage() {
       return;
     }
 
+    conversationId.value = resp.headers.get("X-Conversation-Id") || conversationId.value;
     messages.value.push(assistantMsg);
     scrollToBottom();
 
@@ -740,6 +746,10 @@ async function sendMessage() {
       rawContent += parsed;
       rawContent = consumeClientEvents(rawContent);
       assistantMsg.content = normalizeAssistantContent(rawContent);
+      if (assistantMsg.content.trim() && assistantMsg.firstTextMs === undefined) {
+        assistantMsg.firstTextMs = performance.now() - started;
+        activityText.value = "";
+      }
       const conf = parseConfirmation(assistantMsg.content);
       if (conf) assistantMsg.confirmation = conf;
         scrollToBottom();
@@ -747,6 +757,7 @@ async function sendMessage() {
       if (done) break;
     }
 
+    assistantMsg.totalMs = performance.now() - started;
     if (!assistantMsg.content.trim()) {
       assistantMsg.content = "[错误] AI 服务没有返回内容，请稍后重试。";
     } else {
@@ -831,6 +842,10 @@ function goToImmersive() {
             </button>
             <pre v-if="msg.showRaw" class="markdown-raw">{{ msg.content }}</pre>
             <span v-else v-html="renderMarkdown(msg.content)"></span>
+            <small v-if="msg.firstTextMs !== undefined" class="chat-timing">
+              首字 {{ (msg.firstTextMs / 1000).toFixed(2) }} 秒
+              <template v-if="msg.totalMs !== undefined"> · 总计 {{ (msg.totalMs / 1000).toFixed(2) }} 秒</template>
+            </small>
           </template>
         </div>
 
@@ -873,6 +888,7 @@ function goToImmersive() {
 </template>
 
 <style scoped>
+.chat-timing { display: block; margin-top: 8px; color: #64748b; font-size: 12px; }
 .ai-assistant-tab {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;

@@ -37,6 +37,11 @@ public class ChatGptResponsesClient {
     private final ChatGptCredentials credentials;
     private final ToolRegistry registry;
     private final WebClient web;
+    private java.net.http.HttpClient sharedHttp;
+    private WebClient sharedWeb;
+    private String modelsToken;
+    private Mono<ArrayNode> cachedModels;
+    private final Duration modelsTtl;
 
     @Autowired
     public ChatGptResponsesClient(ChatGptCredentials credentials, ToolRegistry registry) {
@@ -44,21 +49,48 @@ public class ChatGptResponsesClient {
     }
 
     ChatGptResponsesClient(ChatGptCredentials credentials, ToolRegistry registry, WebClient web) {
+        this(credentials, registry, web, Duration.ofMinutes(5));
+    }
+
+    ChatGptResponsesClient(ChatGptCredentials credentials, ToolRegistry registry, WebClient web, Duration modelsTtl) {
         this.credentials = credentials;
         this.registry = registry;
         this.web = web;
+        this.modelsTtl = modelsTtl;
     }
 
-    private WebClient web() {
+    private synchronized WebClient web() {
         if (web != null) return web;
-        return WebClient.builder().baseUrl("https://api.openai.com/v1")
-                .clientConnector(new JdkClientHttpConnector(credentials.httpClient()))
+        var http = credentials.httpClient();
+        if (sharedWeb != null && sharedHttp == http) return sharedWeb;
+        sharedHttp = http;
+        sharedWeb = WebClient.builder().baseUrl("https://api.openai.com/v1")
+                .clientConnector(new JdkClientHttpConnector(http))
                 .codecs(c -> c.defaultCodecs().maxInMemorySize(4 * 1024 * 1024)).build();
+        return sharedWeb;
     }
 
     public Mono<ArrayNode> models() {
         return Mono.fromCallable(credentials::accessToken).subscribeOn(Schedulers.boundedElastic())
-                .flatMap(token -> web().get().uri("/models").headers(h -> h.setBearerAuth(token))
+                .flatMap(this::modelsForToken).map(ArrayNode::deepCopy);
+    }
+
+    public synchronized void invalidateModels() {
+        cachedModels = null;
+        modelsToken = null;
+    }
+
+    private synchronized Mono<ArrayNode> modelsForToken(String token) {
+        if (cachedModels == null || !token.equals(modelsToken)) {
+            modelsToken = token;
+            cachedModels = fetchModels(token).cache(value -> modelsTtl,
+                    error -> Duration.ZERO, () -> Duration.ZERO);
+        }
+        return cachedModels;
+    }
+
+    private Mono<ArrayNode> fetchModels(String token) {
+        return Mono.defer(() -> web().get().uri("/models").headers(h -> h.setBearerAuth(token))
                         .exchangeToMono(response -> {
                             if (response.statusCode().isError()) return Mono.error(httpError(response.statusCode().value()));
                             // Halo and PF4J can load different Jackson versions. Cross the codec boundary as text.
@@ -87,7 +119,8 @@ public class ChatGptResponsesClient {
 
     public Flux<String> chat(List<ChatMessage> messages, AiAssistantSetting setting,
                               Set<String> personaTools, String requester) {
-        return Flux.defer(() -> {
+        return Flux.deferContextual(context -> {
+            long lookupStarted = System.nanoTime();
             Set<String> allowed = new HashSet<>(PHASE_ONE_TOOLS);
             if (personaTools != null) allowed.retainAll(personaTools);
             ObjectNode request = initialRequest(messages, setting, allowed);
@@ -99,6 +132,9 @@ public class ChatGptResponsesClient {
                 for (JsonNode item : models) if (model.equals(item.path("slug").asText())) available = true;
                 if (!available) return Flux.error(new IllegalStateException("配置的订阅模型不在当前账户列表中，请重新选择"));
                 request.put("model", model);
+                log.info("chatgpt_model_selection requestId={} lookupMs={}",
+                        context.getOrDefault("chatRequestId", "background"),
+                        (System.nanoTime() - lookupStarted) / 1_000_000);
                 return round(request, allowed, requester, 0);
             });
         }).onErrorResume(e -> {

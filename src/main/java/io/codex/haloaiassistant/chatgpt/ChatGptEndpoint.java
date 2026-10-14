@@ -48,6 +48,7 @@ public class ChatGptEndpoint implements CustomEndpoint {
                 .POST("/chatgpt/check", request -> authenticated(request, () -> check()))
                 .POST("/chatgpt/disconnect", request -> authenticated(request, () -> Mono
                         .fromCallable(credentials::disconnect).subscribeOn(Schedulers.boundedElastic())
+                        .doOnNext(result -> responses.invalidateModels())
                         .flatMap(result -> ServerResponse.ok().bodyValue(result))))
                 .build();
     }

@@ -3036,7 +3036,10 @@
         if (!text || isStreaming) return;
         if (confirmLatestPendingFromInput(text)) return;
 
-        const requestHistory = history.slice();
+        const requestHistory = conversationId.startsWith("conv-") ? [] : history.slice();
+        const started = performance.now();
+        let firstTextMs = null;
+        let timingElement = null;
         const userTimestamp = currentTimestamp();
         welcomeElement.hidden = true;
         createMessage('user', text, { timestamp: userTimestamp });
@@ -3073,11 +3076,20 @@
                 throw new Error(await readRequestError(response));
             }
 
+            conversationId = response.headers.get("X-Conversation-Id") || conversationId;
             const assistantTimestamp = currentTimestamp();
             assistantElement = createMessage('assistant', '', { timestamp: assistantTimestamp });
             assistantElement.classList.add('typing');
+            timingElement = document.createElement('span');
+            timingElement.className = 'chat-timing';
+            assistantElement.closest('.message-body').querySelector('.message-meta').appendChild(timingElement);
             setActivity('正在连接 AI 服务…');
             fullContent = await readStream(response, content => {
+                if (content.trim() && firstTextMs === null) {
+                    firstTextMs = performance.now() - started;
+                    timingElement.textContent = `首字 ${(firstTextMs / 1000).toFixed(2)} 秒`;
+                    setActivity('');
+                }
                 if (hasConfirmation(content)) {
                     assistantElement.classList.remove('typing');
                     renderConfirmationCard(assistantElement, content);
@@ -3096,6 +3108,7 @@
             }
 
             assistantElement.classList.remove('typing');
+            if (firstTextMs !== null) timingElement.textContent += ` · 总计 ${((performance.now() - started) / 1000).toFixed(2)} 秒`;
             history.push({ role: 'assistant', content: fullContent, timestamp: assistantTimestamp });
             saveConversation();
         } catch (error) {

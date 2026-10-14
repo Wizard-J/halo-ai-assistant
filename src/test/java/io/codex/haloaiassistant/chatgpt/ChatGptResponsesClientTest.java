@@ -43,7 +43,10 @@ class ChatGptResponsesClientTest {
     private final ConcurrentLinkedQueue<String> streams = new ConcurrentLinkedQueue<>();
     private final List<JsonNode> requests = java.util.Collections.synchronizedList(new ArrayList<>());
     private final List<String> paths = java.util.Collections.synchronizedList(new ArrayList<>());
+    private final java.util.concurrent.atomic.AtomicInteger modelHits = new java.util.concurrent.atomic.AtomicInteger();
+    private int modelStatus = 200;
     private HttpServer server;
+    private WebClient testWeb;
     private ToolRegistry registry;
     private ChatGptResponsesClient client;
     private AiAssistantSetting setting;
@@ -55,6 +58,7 @@ class ChatGptResponsesClientTest {
         server.createContext("/", exchange -> {
             byte[] output;
             if (exchange.getRequestURI().getPath().equals("/models")) {
+                modelHits.incrementAndGet();
                 output = "{\"models\":[{\"slug\":\"subscription-model\",\"display_name\":\"Test Model\",\"visibility\":\"list\"}]}".getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
             } else {
@@ -63,7 +67,7 @@ class ChatGptResponsesClientTest {
                 output = streams.remove().getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
             }
-            exchange.sendResponseHeaders(200, 0);
+            exchange.sendResponseHeaders(exchange.getRequestURI().getPath().equals("/models") ? modelStatus : 200, 0);
             // Deliberately split UTF-8 Chinese characters across HTTP chunks.
             for (byte b : output) { exchange.getResponseBody().write(b); exchange.getResponseBody().flush(); }
             exchange.close();
@@ -74,6 +78,7 @@ class ChatGptResponsesClientTest {
         when(credentials.accessToken()).thenReturn("test-oauth-token");
         WebClient web = WebClient.builder().clientConnector(new JdkClientHttpConnector())
                 .baseUrl("http://127.0.0.1:" + server.getAddress().getPort()).build();
+        testWeb = web;
         client = new ChatGptResponsesClient(credentials, registry, web);
         setting = new AiAssistantSetting();
         setting.setProvider("chatgpt");
@@ -81,6 +86,40 @@ class ChatGptResponsesClientTest {
 
     @AfterEach
     void stop() { server.stop(0); }
+
+    @Test
+    void modelsCacheIsSingleFlightAndDoesNotExposeMutableCache() {
+        var copies = reactor.core.publisher.Flux.range(0, 8)
+                .flatMap(i -> client.models()).collectList().block(Duration.ofSeconds(10));
+        assertEquals(1, modelHits.get());
+        copies.getFirst().removeAll();
+        assertEquals(1, client.models().block().size());
+        assertEquals(1, modelHits.get());
+        client.invalidateModels();
+        assertEquals(1, client.models().block().size());
+        assertEquals(2, modelHits.get());
+        when(credentials.accessToken()).thenReturn("new-account-token");
+        client.models().block();
+        assertEquals(3, modelHits.get());
+        when(credentials.accessToken()).thenThrow(new IllegalStateException("disconnected"));
+        assertThrows(IllegalStateException.class, () -> client.models().block());
+        assertEquals(3, modelHits.get());
+    }
+
+    @Test
+    void failedModelsFetchIsNotCachedAndSuccessfulCacheExpires() throws Exception {
+        modelStatus = 503;
+        assertThrows(RuntimeException.class, () -> client.models().block(Duration.ofSeconds(10)));
+        modelStatus = 200;
+        client.models().block(Duration.ofSeconds(10));
+        assertEquals(2, modelHits.get());
+        var shortCache = new ChatGptResponsesClient(credentials, registry, testWeb, Duration.ofMillis(100));
+        shortCache.models().block(Duration.ofSeconds(10));
+        int before = modelHits.get();
+        Thread.sleep(250);
+        shortCache.models().block(Duration.ofSeconds(10));
+        assertEquals(before + 1, modelHits.get());
+    }
 
     @Test
     void chatPersonaHasNoManagementInstructionsOrDraftTools() {

@@ -24,11 +24,14 @@ import org.springframework.stereotype.Service;
 
 /** Blocking credential operations: callers must use boundedElastic. Never expose tokens to UI. */
 @Service
-public class ChatGptCredentials {
+public class ChatGptCredentials implements org.springframework.beans.factory.DisposableBean {
     static final String PLAN_SCOPE = "chatgpt.tokens.use.direct";
     private final ObjectMapper mapper = new ObjectMapper();
     private final Path directory;
     private final HttpClient http;
+    private HttpClient sharedHttp;
+    private String sharedProxyConfig;
+    private final java.util.List<HttpClient> managedHttp = new java.util.ArrayList<>();
 
     public ChatGptCredentials() {
         this(Path.of(System.getenv().getOrDefault("HALO_AI_CHATGPT_DIR",
@@ -51,14 +54,24 @@ public class ChatGptCredentials {
     }
 
     /** Only subscription traffic uses this optional private HTTP CONNECT proxy. */
-    HttpClient httpClient() {
+    synchronized HttpClient httpClient() {
         if (http != null) return http;
-        var builder = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15));
         Path path = directory.resolve("proxy.json");
+        String proxyConfig = "";
         if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
             try {
                 requireProtectedFile(path);
-                JsonNode config = mapper.readTree(Files.readString(path));
+                proxyConfig = Files.readString(path);
+                if (proxyConfig.isBlank()) throw new IllegalArgumentException();
+            } catch (Exception e) {
+                throw new IllegalStateException("ChatGPT 专用代理配置无效或权限过宽，请检查 proxy.json");
+            }
+        }
+        if (sharedHttp != null && proxyConfig.equals(sharedProxyConfig)) return sharedHttp;
+        var builder = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15));
+        if (!proxyConfig.isBlank()) {
+            try {
+                JsonNode config = mapper.readTree(proxyConfig);
                 String host = config.path("host").asText();
                 int port = config.path("port").asInt();
                 if (host.isBlank() || host.contains("/") || host.contains("@") || port < 1 || port > 65535)
@@ -68,7 +81,17 @@ public class ChatGptCredentials {
                 throw new IllegalStateException("ChatGPT 专用代理配置无效或权限过宽，请检查 proxy.json");
             }
         }
-        return builder.build();
+        sharedHttp = builder.build();
+        managedHttp.add(sharedHttp);
+        sharedProxyConfig = proxyConfig;
+        return sharedHttp;
+    }
+
+    @Override
+    public synchronized void destroy() {
+        // Non-blocking graceful shutdown; injected test/externally owned clients are excluded.
+        managedHttp.forEach(HttpClient::shutdown);
+        managedHttp.clear();
     }
 
     public synchronized Map<String, Object> status() {
